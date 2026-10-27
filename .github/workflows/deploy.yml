@@ -1,0 +1,73 @@
+name: Deploy
+
+# Deploys main to Azure Container Apps after CI passes on it.
+# Stays idle until scripts/setup_cd.sh has set the AZURE_* repo variables.
+on:
+  workflow_run:
+    workflows: [CI]
+    types: [completed]
+    branches: [main]
+  workflow_dispatch:
+
+permissions:
+  id-token: write   # OIDC login to Azure
+  contents: read
+
+concurrency:
+  group: deploy-production
+  cancel-in-progress: false
+
+jobs:
+  deploy:
+    if: >-
+      vars.AZURE_APP != '' &&
+      (github.event_name == 'workflow_dispatch' ||
+       (github.event.workflow_run.conclusion == 'success' &&
+        github.event.workflow_run.event == 'push'))
+    runs-on: ubuntu-latest
+    environment: production
+    env:
+      SHA: ${{ github.event.workflow_run.head_sha || github.sha }}
+      RG: ${{ vars.AZURE_RG }}
+      ACR: ${{ vars.AZURE_ACR }}
+      APP: ${{ vars.AZURE_APP }}
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: ${{ env.SHA }}
+
+      - uses: azure/login@v2
+        with:
+          client-id: ${{ vars.AZURE_CLIENT_ID }}
+          tenant-id: ${{ vars.AZURE_TENANT_ID }}
+          subscription-id: ${{ vars.AZURE_SUBSCRIPTION_ID }}
+
+      - name: Build and push image
+        run: |
+          IMAGE="$ACR.azurecr.io/$APP:$SHA"
+          echo "IMAGE=$IMAGE" >> "$GITHUB_ENV"
+          az acr login --name "$ACR"
+          docker build --platform linux/amd64 -t "$IMAGE" .
+          docker push "$IMAGE"
+
+      - name: Update Container App
+        run: |
+          az extension add --name containerapp --upgrade --only-show-errors
+          az containerapp update --name "$APP" --resource-group "$RG" --image "$IMAGE" -o none
+
+      # Wait until the new revision is the ready one, then hit the health endpoint.
+      - name: Smoke test
+        run: |
+          for _ in $(seq 1 30); do
+            read -r latest ready fqdn < <(az containerapp show --name "$APP" --resource-group "$RG" \
+              --query "[properties.latestRevisionName, properties.latestReadyRevisionName, properties.configuration.ingress.fqdn]" \
+              -o tsv)
+            if [ "$latest" = "$ready" ] && curl -fsS "https://$fqdn/_stcore/health"; then
+              echo
+              echo "Deployed $SHA as $latest: https://$fqdn" | tee -a "$GITHUB_STEP_SUMMARY"
+              exit 0
+            fi
+            sleep 10
+          done
+          echo "::error::Revision $latest did not become healthy. Check: az containerapp logs show -n $APP -g $RG"
+          exit 1

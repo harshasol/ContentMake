@@ -144,6 +144,22 @@ docker push $ACR.azurecr.io/$APP:$TAG
 az containerapp update --name $APP --resource-group $RG --image $ACR.azurecr.io/$APP:$TAG
 ```
 
+## Continuous deployment from GitHub
+
+Once the app exists (steps 1–7), every merge to `main` can deploy itself. [.github/workflows/deploy.yml](../.github/workflows/deploy.yml) runs after CI passes on `main`: it builds the image for `linux/amd64`, tags it with the commit SHA, pushes it to your registry, points the Container App at it, and waits for `/_stcore/health` on the new revision.
+
+It logs in to Azure with OIDC, so no Azure password is stored in GitHub. Set that up once, in the shell where `$RG` and `$ACR` are still set, with the GitHub CLI logged in (`brew install gh && gh auth login`):
+
+```bash
+./scripts/setup_cd.sh
+```
+
+The script creates an app registration called `contentblitz-github-deploy` with a federated credential for this repo's `production` environment, and grants it `AcrPush` on the registry and `Contributor` on the resource group. It then sets the `AZURE_*` repository variables, creates the `production` environment (protected branches only), and protects `main`: changes only through PRs, and the CI jobs `test` and `docker` must pass. It is safe to re-run.
+
+Until the script has run, the Deploy workflow skips itself. To deploy the current `main` without a merge: `gh workflow run Deploy`.
+
+If your account can't create app registrations (`az ad app create` fails with *Insufficient privileges*), ask for the Application Developer role in Entra ID, or deploy manually as in the next section.
+
 Adding or changing a secret:
 
 ```bash
