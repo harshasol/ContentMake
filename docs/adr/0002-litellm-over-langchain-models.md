@@ -1,0 +1,3 @@
+# LiteLLM is the single client for all model calls
+
+All LLM and image-generation calls go through LiteLLM rather than LangChain chat models, even though orchestration is LangGraph. Each agent's main model and ordered fallback list live in `config/models.yaml`, so switching provider (OpenAI, Anthropic, Gemini, Azure/Microsoft Foundry) is a config change. LiteLLM gives us built-in fallbacks, retries, image generation and per-call cost in one API; LangChain's `init_chat_model` fits LangGraph more naturally but has weaker fallback handling and no image support. Web search providers are not covered by LiteLLM and sit behind our own small interface with the same config pattern.

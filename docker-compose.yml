@@ -1,0 +1,13 @@
+services:
+  app:
+    build: .
+    image: contentblitz:local
+    ports:
+      - "8501:8501"
+    env_file:
+      - path: .env
+        required: false
+    environment:
+      CONTENTBLITZ_DATA_DIR: /data
+    volumes:
+      - ./data:/data

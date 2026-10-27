@@ -1,0 +1,3 @@
+# Azure Container Apps runs exactly one always-on replica
+
+The app is deployed to Azure Container Apps with min = max = 1 replica and scale-to-zero disabled. In v1 conversation state lives in memory (LangGraph `MemorySaver`) and Streamlit holds a websocket to a single process, so a second replica would split conversations and scaling to zero would lose them. Images and Brand Profiles live on an Azure Files volume mounted at `/data`. When conversation persistence is added, use LangGraph's Postgres checkpointer rather than SQLite on Azure Files (SMB locking is unreliable for SQLite); only then can the replica limit be lifted.

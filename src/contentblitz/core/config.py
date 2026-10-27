@@ -1,0 +1,89 @@
+"""Application configuration: secrets from the environment, model routing from YAML."""
+
+from functools import lru_cache
+from pathlib import Path
+
+import yaml
+from pydantic import BaseModel, Field
+from pydantic_settings import BaseSettings, SettingsConfigDict
+
+AGENT_NAMES = (
+    "query_handler",
+    "research",
+    "content_strategist",
+    "blog_writer",
+    "linkedin_writer",
+    "image_generator",
+)
+
+DEFAULT_CONFIG_PATH = Path(__file__).resolve().parents[3] / "config" / "models.yaml"
+
+
+class Settings(BaseSettings):
+    model_config = SettingsConfigDict(env_file=".env", extra="ignore")
+
+    openai_api_key: str | None = None
+    anthropic_api_key: str | None = None
+    gemini_api_key: str | None = None
+    serpapi_api_key: str | None = None
+    tavily_api_key: str | None = None
+    langsmith_tracing: bool = False
+
+    contentblitz_config: Path = DEFAULT_CONFIG_PATH
+    contentblitz_data_dir: Path = Path("data")
+
+
+class AgentModels(BaseModel):
+    models: list[str] = Field(min_length=1)
+
+    @property
+    def primary(self) -> str:
+        return self.models[0]
+
+    @property
+    def fallbacks(self) -> list[str]:
+        return self.models[1:]
+
+
+class LLMOptions(BaseModel):
+    num_retries: int = 2
+    timeout_seconds: int = 60
+
+
+class QualityOptions(BaseModel):
+    max_revisions: int = 3
+
+
+class SearchOptions(BaseModel):
+    providers: list[str] = Field(min_length=1)
+
+
+class ModelConfig(BaseModel):
+    agents: dict[str, AgentModels]
+    image: AgentModels
+    search: SearchOptions
+    llm: LLMOptions = LLMOptions()
+    quality: QualityOptions = QualityOptions()
+
+    def for_agent(self, agent: str) -> AgentModels:
+        if agent not in self.agents:
+            raise KeyError(f"No models configured for agent '{agent}'")
+        return self.agents[agent]
+
+
+def load_model_config(path: Path) -> ModelConfig:
+    config = ModelConfig.model_validate(yaml.safe_load(path.read_text()))
+    missing = set(AGENT_NAMES) - config.agents.keys()
+    if missing:
+        raise ValueError(f"models.yaml is missing agents: {sorted(missing)}")
+    return config
+
+
+@lru_cache
+def get_settings() -> Settings:
+    return Settings()
+
+
+@lru_cache
+def get_model_config() -> ModelConfig:
+    return load_model_config(get_settings().contentblitz_config)
