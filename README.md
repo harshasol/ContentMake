@@ -69,7 +69,7 @@ Generated images and Brand Profiles are written to `./data`, mounted at `/data` 
 .venv/bin/pytest                # prints coverage
 ```
 
-CI ([.github/workflows/ci.yml](.github/workflows/ci.yml)) runs lint, tests and a Docker build on every push.
+CI ([.github/workflows/ci.yml](.github/workflows/ci.yml)) runs lint, tests and a Docker build on every push. When CI passes on `main`, [deploy.yml](.github/workflows/deploy.yml) deploys to Azure Container Apps; see [Continuous deployment](docs/deployment_guide.md#continuous-deployment-from-github) for the one-time setup.
 
 ## Switching models
 
