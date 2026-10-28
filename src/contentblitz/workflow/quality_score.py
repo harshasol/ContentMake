@@ -46,6 +46,11 @@ def _check_points(checks: list[CheckResult]) -> float:
     return CHECK_POINTS * sum(c["passed"] for c in checks) / len(checks)
 
 
+def _reviewer_points(review: Review) -> float:
+    """The reviewer's share of REVIEWER_POINTS: its average, scaled from 10."""
+    return review_average(review) / 10 * REVIEWER_POINTS
+
+
 def quality_score(
     checks: list[CheckResult], review: Review | None, pass_mark: float
 ) -> QualityScore:
@@ -55,9 +60,8 @@ def quality_score(
         score = check_points * 100 / CHECK_POINTS
         passed = False
     else:
-        average = review_average(review)
-        score = check_points + average / 10 * REVIEWER_POINTS
-        passed = all(c["passed"] for c in checks) and average >= pass_mark
+        score = check_points + _reviewer_points(review)
+        passed = all(c["passed"] for c in checks) and review_average(review) >= pass_mark
     return {
         "score": round(score),
         "passed": passed,
@@ -76,5 +80,5 @@ def comparable_points(quality: QualityScore) -> float:
     """
     points = _check_points(quality["checks"])
     if quality["review"] is not None:
-        points += review_average(quality["review"]) / 10 * REVIEWER_POINTS
+        points += _reviewer_points(quality["review"])
     return points
