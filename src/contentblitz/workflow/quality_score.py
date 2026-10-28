@@ -4,8 +4,8 @@ The checks are worth 70 points, shared equally between the checks that apply. Th
 worth the other 30: the average of its scores (1-10), scaled to 30. A draft passes when every
 check passes and the reviewer's average is at least the pass mark.
 
-When the reviewer is unavailable, the check points alone are scaled to 0-100, and a draft
-passes on its checks alone.
+When the reviewer is unavailable, the check points alone are scaled to 0-100, and the draft
+doesn't pass: a pass needs the reviewer's average, so the quality loop keeps revising.
 """
 
 from typing import NotRequired, TypedDict
@@ -42,13 +42,13 @@ def quality_score(
 ) -> QualityScore:
     """The score for a draft's check results and the reviewer's verdict, if it gave one."""
     check_points = _check_points(checks)
-    passed = all(c["passed"] for c in checks)
     if review is None:
         score = check_points * 100 / CHECK_POINTS
+        passed = False
     else:
         average = review_average(review)
         score = check_points + average / 10 * REVIEWER_POINTS
-        passed = passed and average >= pass_mark
+        passed = all(c["passed"] for c in checks) and average >= pass_mark
     return {"score": round(score), "passed": passed, "checks": checks, "review": review}
 
 

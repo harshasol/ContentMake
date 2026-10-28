@@ -350,13 +350,16 @@ def test_when_the_reviewer_fails_the_score_comes_from_the_checks_alone(model, fa
     assert (quality["score"], quality["passed"], quality["review"]) == (50, False, None)
 
 
-def test_when_the_reviewer_fails_a_blog_passing_every_check_still_passes(model):
+def test_when_the_reviewer_fails_a_blog_passing_every_check_does_not_pass_and_is_revised(model):
+    # A pass needs the reviewer's average, so the loop revises up to the maximum (3) and keeps
+    # the best attempt.
     model.reply = blog_draft(body=PASSING_BODY, meta_description=META_155)
     model.verdict = RuntimeError("every provider is down")
     _, state = run_plan(BLOG, {"topic-1": topic()})
 
     quality = revision_of(state)["quality_score"]
-    assert (quality["score"], quality["passed"]) == (100, True)
+    assert (quality["score"], quality["passed"], quality["revisions_used"]) == (100, False, 3)
+    assert len(model.calls_to("blog_writer")) == 4
 
 
 def test_a_second_blog_on_the_same_topic_is_a_separate_content_piece(model):
