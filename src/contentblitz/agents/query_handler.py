@@ -49,11 +49,22 @@ def _topic_context(state: ContentBlitzState) -> str:
     brief = topic.get("brief")
     if not brief:
         return f"Active Topic: {topic['name']} (no Research Brief yet)."
-    findings = "\n".join(f"- {f}" for f in brief["key_findings"]) or "- none"
-    sources = "\n".join(f"- {s['title']} ({s['url']})" for s in brief["sources"]) or "- none"
+
+    def cited(numbers: list[int]) -> str:
+        return f"[{', '.join(map(str, numbers))}]"
+
+    findings = "\n".join(
+        f"- {f['statement']} {cited(f['source_numbers'])}" for f in brief["key_findings"]
+    )
+    statistics = "\n".join(
+        f"- {s['figure']}: {s['description']} {cited(s['source_numbers'])}"
+        for s in brief["statistics"]
+    )
+    sources = "\n".join(f"[{s['number']}] {s['title']} ({s['url']})" for s in brief["sources"])
     return (
         f"Active Topic: {topic['name']}\nResearch Brief summary: {brief['summary']}\n"
-        f"Key findings:\n{findings}\nSources:\n{sources}"
+        f"Key findings:\n{findings or '- none'}\nStatistics:\n{statistics or '- none'}\n"
+        f"Sources:\n{sources or '- none'}"
     )
 
 
