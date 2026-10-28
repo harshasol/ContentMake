@@ -469,3 +469,33 @@ def test_without_a_template_in_the_request_the_writer_picks_one_and_it_is_record
     assert "pick the template that fits best" in prompt_of(call).lower()
     assert "Template: comparison" in reply.replace("*", "")
     assert revision_of(state)["template"] == "comparison"
+
+
+def length_check(state):
+    [result] = [c for c in revision_of(state)["quality_score"]["checks"] if c["name"] == "length"]
+    return result
+
+
+def test_a_length_in_the_request_replaces_the_default_range_with_15_percent_either_side(model):
+    # PASSING_BODY's 982 words are within the default 900-1800, but not 600 ± 15% (510-690).
+    model.reply = blog_draft(body=PASSING_BODY)
+    plan = [{"agent": "blog_writer", "instructions": "cut it to 600 words", "length": 600}]
+    [reply], state = run_plan(plan, {"topic-1": topic()})
+
+    [call] = model.calls_to("blog_writer")
+    prompt = prompt_of(call)
+    assert "Target length: 600 words" in prompt
+    assert "900-1800" not in prompt
+    assert "length 982 words ✗" in reply
+    result = length_check(state)
+    assert not result["passed"]
+    assert "510-690" in result["reason"]
+
+
+def test_without_a_length_in_the_request_the_default_range_applies(model):
+    model.reply = blog_draft(body=PASSING_BODY)
+    _, state = run_plan(BLOG, {"topic-1": topic()})
+
+    result = length_check(state)
+    assert result["passed"]
+    assert "900-1800" in result["reason"]

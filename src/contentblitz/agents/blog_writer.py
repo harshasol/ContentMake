@@ -18,7 +18,7 @@ from pydantic import BaseModel, Field
 
 from contentblitz.core.config import get_model_config
 from contentblitz.integrations import llm
-from contentblitz.workflow.content_checks import CheckResult, Draft, check_blog
+from contentblitz.workflow.content_checks import CheckResult, Draft, check_blog, word_range
 from contentblitz.workflow.plan import current_step
 from contentblitz.workflow.progress import progress_message, stub_progress
 from contentblitz.workflow.quality_loop import Attempt, QualityFormat, quality_loop
@@ -98,11 +98,17 @@ def _keyword(state: ContentBlitzState) -> str:
     return step.get("target_keyword") or active_topic(state)["brief"]["target_keyword"]
 
 
+def _length_target(state: ContentBlitzState) -> str:
+    """The length the drafting call aims for: the request's, or the configured word range."""
+    words = (current_step(state) or {}).get("length")
+    low, high = word_range(get_model_config().quality.blog, words)
+    return f"{words} words ({low}-{high})" if words else f"{low}-{high} words"
+
+
 def _prompt(state: ContentBlitzState) -> list[dict]:
     topic = active_topic(state)
     brief = topic["brief"]
     step = current_step(state) or {}
-    low, high = get_model_config().quality.blog.word_range
     templates = "\n".join(f"- {name}: {guide}" for name, guide in TEMPLATES.items())
     return [
         {"role": "system", "content": SYSTEM_PROMPT},
@@ -111,7 +117,7 @@ def _prompt(state: ContentBlitzState) -> list[dict]:
             "content": f"Topic: {topic['name']}\n"
             f"Target keyword: {_keyword(state)}\n"
             f"Secondary keywords: {', '.join(brief['secondary_keywords']) or 'none'}\n"
-            f"Target length: {low}-{high} words\n"
+            f"Target length: {_length_target(state)}\n"
             f"Template: {step.get('template') or 'none given, pick the template that fits best'}\n"
             f"Instructions: {step.get('instructions') or 'none'}\n\n"
             f"Templates:\n{templates}\n\n"
@@ -139,7 +145,8 @@ def _checks(state: ContentBlitzState, draft: dict) -> list[CheckResult]:
         keyword=_keyword(state),
         source_numbers=[s["number"] for s in brief["sources"]],
     )
-    return check_blog(checked, get_model_config().quality.blog)
+    words = (current_step(state) or {}).get("length")
+    return check_blog(checked, get_model_config().quality.blog, words)
 
 
 def _judge(state: ContentBlitzState, draft: dict) -> Review | None:
