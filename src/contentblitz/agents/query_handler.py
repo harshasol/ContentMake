@@ -55,8 +55,10 @@ def _topic_context(state: ContentBlitzState) -> str:
 
 
 SAME_TOPIC_GUIDANCE = (
-    "For new_content, set same_topic to true only if the request is on the active Topic "
-    "itself; a different or narrower Topic is false, and the user will be asked."
+    "For new_content, set same_topic to true only if the request is on the active Topic: "
+    "only a request on the active Topic itself counts as the same Topic. A different Topic, "
+    "or a narrower or different angle on it is not the same Topic (e.g. 'AI in radiology' "
+    "after 'AI in healthcare'): set same_topic to false, and the user will be asked."
 )
 
 

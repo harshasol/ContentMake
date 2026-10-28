@@ -123,7 +123,7 @@ def test_conversation_is_kept_per_thread(monkeypatch, with_api_key):
     assert history("b") == ["other", "reply to other"]
 
 
-def new_content(*formats, topic_name="AI in healthcare", fresh_research=False, same_topic=True):
+def new_content(*formats, topic_name="AI in healthcare", fresh_research=False, same_topic=False):
     decision = RoutingDecision(
         intent="new_content",
         topic_name=topic_name,
@@ -186,13 +186,13 @@ def send_with(graph, text, start, thread="t1"):
 
 
 def test_later_pieces_reuse_the_topics_research_brief(monkeypatch, with_api_key):
-    fake_router(monkeypatch, new_content("linkedin_post", "blog"))
+    fake_router(monkeypatch, new_content("linkedin_post", "blog", same_topic=True))
     replies = send_with(build_graph(), "now a LinkedIn post and a blog", researched_topic())
     assert replies == ["Plan for *AI in healthcare*: LinkedIn post → blog", LINKEDIN, BLOG]
 
 
 def test_fresh_research_reruns_research_even_with_a_brief(monkeypatch, with_api_key):
-    fake_router(monkeypatch, new_content("blog", fresh_research=True))
+    fake_router(monkeypatch, new_content("blog", fresh_research=True, same_topic=True))
     replies = send_with(build_graph(), "find newer sources, then a blog", researched_topic())
     assert replies[1:] == [RESEARCH, BRIEF, BLOG]
 
@@ -449,7 +449,7 @@ def test_answering_continue_runs_the_held_plan_on_the_current_topic_and_its_brie
 
 
 def test_any_other_reply_drops_the_held_plan_and_is_handled_normally(monkeypatch, with_api_key):
-    linkedin = new_content("linkedin_post")(None)
+    linkedin = new_content("linkedin_post", same_topic=True)(None)
     fake_router(monkeypatch, routes(**{ASK: RADIOLOGY, "actually, a LinkedIn post": linkedin}))
     graph = build_graph()
     send_with(graph, ASK, researched_topic())
@@ -471,15 +471,33 @@ def test_routing_is_told_about_the_pending_topic_question(monkeypatch, with_api_
     assert "topic_answer" in context
 
 
-def test_a_narrower_angle_the_decision_calls_the_same_topic_runs_without_asking(
-    monkeypatch, with_api_key
-):
-    router = fake_router(monkeypatch, new_content("blog", topic_name="AI in radiology"))
-    replies = send_with(build_graph(), "a blog on AI in radiology", researched_topic())
-
+def test_a_request_on_the_same_topic_runs_without_asking(monkeypatch, with_api_key):
+    fake_router(monkeypatch, new_content("blog", same_topic=True))
+    replies = send_with(build_graph(), "a blog on AI in healthcare", researched_topic())
     assert replies == ["Plan for *AI in healthcare*: blog", BLOG]
+
+
+def test_a_narrower_angle_asks_the_topic_question(monkeypatch, with_api_key):
+    narrower = new_content("blog", topic_name="AI in radiology", same_topic=False)
+    fake_router(monkeypatch, narrower)
+    graph = build_graph()
+    [question] = send_with(graph, "a blog on AI in radiology", researched_topic())
+
+    assert question == (
+        "This sounds like a different Topic: *AI in radiology*. "
+        "Start a new Topic, or continue with *AI in healthcare*?"
+    )
+    assert graph.get_state(config()).values["completed_steps"] == []
+
+
+def test_routing_is_told_that_a_narrower_angle_is_not_the_same_topic(monkeypatch, with_api_key):
+    router = fake_router(monkeypatch, chat("Sure."))
+    send_with(build_graph(), "hello", researched_topic())
+
     context = "\n".join(m["content"] for m in router.calls[-1]["messages"] if m["role"] == "system")
     assert "same_topic" in context
+    assert "only a request on the active Topic itself counts as the same Topic" in context
+    assert "a narrower or different angle on it is not the same Topic" in context
 
 
 def two_topics(active):
@@ -493,7 +511,7 @@ def two_topics(active):
 
 
 def test_the_active_topic_set_in_the_input_is_respected(monkeypatch, with_api_key):
-    router = fake_router(monkeypatch, new_content("linkedin_post"))
+    router = fake_router(monkeypatch, new_content("linkedin_post", same_topic=True))
     graph = build_graph()
     send_with(graph, "start", two_topics("topic-2"))
     replies = send_with(graph, "now a LinkedIn post", {"active_topic_id": "topic-1"})
@@ -505,7 +523,7 @@ def test_the_active_topic_set_in_the_input_is_respected(monkeypatch, with_api_ke
 def test_with_no_active_topic_a_content_request_creates_a_topic_without_asking(
     monkeypatch, with_api_key
 ):
-    fake_router(monkeypatch, new_content("blog", topic_name="AI in finance", same_topic=False))
+    fake_router(monkeypatch, new_content("blog", topic_name="AI in finance"))
     graph = build_graph()
     replies = send_with(graph, "a blog on AI in finance", two_topics(None))
 
