@@ -59,7 +59,10 @@ NO_MODEL = (
     + RETRY_LATER
 )
 
+# The fewest findings that may survive grounding (#17); the draft asks for 4-8.
 MIN_FINDINGS = 2
+# The most of each a Brief keeps; anything past them is cut after grounding, in the model's order.
+MAX_FINDINGS, MAX_STATISTICS, MAX_ANGLES, MAX_SECONDARY_KEYWORDS = 8, 8, 5, 6
 
 CITE = "The numbers of the Sources it comes from, as listed, e.g. [1, 3]."
 
@@ -86,9 +89,11 @@ class DraftBrief(BaseModel):
     statistics: list[DraftStatistic] = Field(
         default_factory=list, description="0-8 statistics or data points found in the Sources."
     )
-    angles: list[DraftAngle] = Field(description="3-5 content angles, each with a hook.")
+    angles: list[DraftAngle] = Field(
+        min_length=3, description="3-5 content angles, each with a hook."
+    )
     target_keyword: str = Field(description="The search term a blog on this Topic should target.")
-    secondary_keywords: list[str] = Field(description="3-6 related search terms.")
+    secondary_keywords: list[str] = Field(min_length=3, description="3-6 related search terms.")
 
 
 def _now() -> str:
@@ -182,11 +187,11 @@ def _brief(draft: DraftBrief, record: ResearchRecord) -> ResearchBrief:
     count = len(record["sources"])
     return {
         "summary": draft.summary,
-        "key_findings": _grounded(draft.key_findings, count),
-        "statistics": _verified(_grounded(draft.statistics, count), record),
-        "angles": [a.model_dump() for a in draft.angles],
+        "key_findings": _grounded(draft.key_findings, count)[:MAX_FINDINGS],
+        "statistics": _verified(_grounded(draft.statistics, count)[:MAX_STATISTICS], record),
+        "angles": [a.model_dump() for a in draft.angles[:MAX_ANGLES]],
         "target_keyword": draft.target_keyword,
-        "secondary_keywords": draft.secondary_keywords,
+        "secondary_keywords": draft.secondary_keywords[:MAX_SECONDARY_KEYWORDS],
         "sources": _sources(record),
         "created_at": _now(),
         "model": get_model_config().for_agent(AGENT).primary,

@@ -5,7 +5,9 @@ them, then runs the workflow from the dispatcher. The model is faked at the LLM 
 module and returns a scripted draft Brief.
 """
 
+import json
 from datetime import datetime
+from types import SimpleNamespace
 
 import pytest
 from langchain_core.messages import HumanMessage
@@ -584,3 +586,51 @@ def test_a_model_failure_stops_the_plan_with_a_reason_instead_of_raising(
 
     assert replies == [NO_MODEL]
     assert state["topics"]["topic-1"] == topic()
+
+
+def test_a_brief_is_cut_to_the_most_findings_statistics_angles_and_keywords_kept(model):
+    findings = [{"statement": f"Finding {n}.", "source_numbers": [1]} for n in range(1, 11)]
+    model.reply = draft(
+        key_findings=[{"statement": "Made up.", "source_numbers": [9]}, *findings],
+        statistics=[statistic(str(n), 1) for n in range(1, 11)],
+        angles=[{"title": f"Angle {n}", "hook": "A hook."} for n in range(1, 8)],
+        secondary_keywords=[f"keyword {n}" for n in range(1, 9)],
+    )
+    _, state = run_plan(RESEARCH_ONLY, {"topic-1": topic()})
+
+    brief = state["topics"]["topic-1"]["brief"]
+    assert [f["statement"] for f in brief["key_findings"]] == [f"Finding {n}." for n in range(1, 9)]
+    assert [s["figure"] for s in brief["statistics"]] == [str(n) for n in range(1, 9)]
+    assert [a["title"] for a in brief["angles"]] == [f"Angle {n}" for n in range(1, 6)]
+    assert brief["secondary_keywords"] == [f"keyword {n}" for n in range(1, 7)]
+
+
+def litellm_reply(content):
+    return SimpleNamespace(choices=[SimpleNamespace(message=SimpleNamespace(content=content))])
+
+
+@pytest.mark.parametrize(
+    "too_few",
+    [
+        {"angles": draft()["angles"][:2]},
+        {"secondary_keywords": ["AI diagnosis", "AI radiology"]},
+    ],
+    ids=["two angles", "two secondary keywords"],
+)
+def test_a_draft_with_too_few_angles_or_keywords_is_asked_for_again(monkeypatch, too_few):
+    """Faked one level lower, at LiteLLM, so the integration module's schema retry runs."""
+    replies = [json.dumps(draft(**too_few)), json.dumps(draft())]
+    calls = []
+
+    def completion(**kwargs):
+        calls.append(kwargs)
+        return litellm_reply(replies[len(calls) - 1])
+
+    monkeypatch.setattr(llm.litellm, "completion", completion)
+    _, state = run_plan(RESEARCH_ONLY, {"topic-1": topic()})
+
+    assert len(calls) == 2
+    assert "did not match the schema" in calls[1]["messages"][-1]["content"]
+    brief = state["topics"]["topic-1"]["brief"]
+    assert len(brief["angles"]) == 3
+    assert len(brief["secondary_keywords"]) == 3

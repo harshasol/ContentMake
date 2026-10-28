@@ -30,9 +30,13 @@ BRIEF_DRAFT = {
         {"statement": "Regulators are catching up.", "source_numbers": [1]},
     ],
     "statistics": [],
-    "angles": [{"title": "The new colleague", "hook": "Your scan may be read twice."}],
+    "angles": [
+        {"title": "The new colleague", "hook": "Your scan may be read twice."},
+        {"title": "Regulation catches up", "hook": "Approvals keep coming."},
+        {"title": "The rural gap", "hook": "The clinics that need AI most get it last."},
+    ],
     "target_keyword": "AI in healthcare",
-    "secondary_keywords": ["AI diagnosis"],
+    "secondary_keywords": ["AI diagnosis", "medical AI regulation", "AI radiology"],
 }
 
 
