@@ -32,6 +32,10 @@ _Avoid_: Output, asset, artifact, post (when meaning any format)
 One saved version of a Content Piece's text, created by a writer's draft, a chat refinement, or a hand edit; refinements always start from the latest Revision.
 _Avoid_: Version, draft, edit
 
+**Attempt**:
+One draft made inside a writer's automatic quality loop. Attempts are not Revisions: only the one the loop keeps is saved as a Revision.
+_Avoid_: Revision, iteration
+
 **Quality Score**:
 The rating a Content Piece receives against its format's rules and its Brand Profile, together with the suggestions for improving it.
 _Avoid_: Grade, rating, eval score
