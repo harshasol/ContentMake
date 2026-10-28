@@ -3,17 +3,15 @@
 One structured call to the `quality_judge` model, so a cheaper model can judge while a
 stronger one writes. Each format gives its own judging criteria. Given a Brand Profile, the
 reviewer also scores brand voice; without one it doesn't, so #22 can add brand-voice scoring
-without changing the loop.
+without changing the loop. Its verdict is a `Review`, which the Quality Score holds.
 """
-
-from typing import NotRequired, TypedDict
 
 from pydantic import BaseModel, Field
 
 from contentblitz.integrations import llm
+from contentblitz.workflow.quality_score import MAX_SUGGESTIONS, Review
 
 AGENT = "quality_judge"
-MAX_SUGGESTIONS = 5
 
 SYSTEM_PROMPT = """\
 You are an editor reviewing a draft for a content marketer. Score how engaging it is from 1
@@ -23,14 +21,6 @@ improve it most, each one a specific change, most important first."""
 BRAND_PROMPT = """
 Also score from 1 to 10 how well it follows this Brand Profile's voice:
 {profile}"""
-
-
-class Review(TypedDict):
-    """The reviewer's verdict on a draft."""
-
-    engagement: int  # 1-10
-    brand_voice: NotRequired[int]  # 1-10, only when a Brand Profile was given
-    suggestions: list[str]  # at most MAX_SUGGESTIONS, most important first
 
 
 class EngagementVerdict(BaseModel):

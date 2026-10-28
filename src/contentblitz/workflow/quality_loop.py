@@ -21,8 +21,12 @@ from langsmith import traceable
 from contentblitz.core.config import get_model_config
 from contentblitz.workflow.content_checks import CheckResult
 from contentblitz.workflow.progress import progress_message
-from contentblitz.workflow.quality_score import QualityScore, comparable_points, quality_score
-from contentblitz.workflow.reviewer import Review
+from contentblitz.workflow.quality_score import (
+    QualityScore,
+    Review,
+    comparable_points,
+    quality_score,
+)
 from contentblitz.workflow.state import ContentBlitzState
 
 

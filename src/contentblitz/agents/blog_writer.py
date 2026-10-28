@@ -24,15 +24,15 @@ from datetime import UTC, datetime
 
 from pydantic import BaseModel, Field
 
+from contentblitz.agents.quality_judge import review
 from contentblitz.core.config import get_model_config
 from contentblitz.integrations import llm
 from contentblitz.workflow.content_checks import CheckResult, Draft, check_blog, word_range
 from contentblitz.workflow.plan import current_step
 from contentblitz.workflow.progress import progress_message
 from contentblitz.workflow.quality_loop import Attempt, QualityFormat, quality_loop
-from contentblitz.workflow.quality_score import QualityScore
+from contentblitz.workflow.quality_score import QualityScore, Review
 from contentblitz.workflow.report import citation
-from contentblitz.workflow.reviewer import Review, review
 from contentblitz.workflow.routing import Template
 from contentblitz.workflow.state import (
     ContentBlitzState,

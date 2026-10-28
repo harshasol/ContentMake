@@ -6,8 +6,8 @@ model is faked at the LLM integration module and fills in whichever verdict it i
 
 import pytest
 
+from contentblitz.agents.quality_judge import review
 from contentblitz.integrations import llm
-from contentblitz.workflow.reviewer import review
 
 PROFILE = {"name": "MedTech Weekly", "tone": "warm, plain-spoken", "avoid": "jargon"}
 

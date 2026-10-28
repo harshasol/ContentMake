@@ -11,10 +11,18 @@ doesn't pass: a pass needs the reviewer's average, so the quality loop keeps rev
 from typing import NotRequired, TypedDict
 
 from contentblitz.workflow.content_checks import CheckResult
-from contentblitz.workflow.reviewer import Review
 
 CHECK_POINTS = 70
 REVIEWER_POINTS = 30
+MAX_SUGGESTIONS = 5
+
+
+class Review(TypedDict):
+    """The AI reviewer's verdict on a draft (see agents/quality_judge.py)."""
+
+    engagement: int  # 1-10
+    brand_voice: NotRequired[int]  # 1-10, only when a Brand Profile was given
+    suggestions: list[str]  # at most MAX_SUGGESTIONS, most important first
 
 
 class QualityScore(TypedDict):
