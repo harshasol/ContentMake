@@ -3,10 +3,10 @@
 The loop is draft → check → judge → (revise → check → judge)… → finalise. The plan dispatcher
 runs the writer's step, and the step runs its format's loop.
 
-Each draft the loop makes is an attempt. Check runs the format's content checks on it, and
-judge asks the AI reviewer for its verdict and gives the attempt its Quality Score. An attempt
+Each draft the loop makes is an Attempt. Check runs the format's content checks on it, and
+judge asks the AI reviewer for its verdict and gives the Attempt its Quality Score. An Attempt
 that doesn't pass is revised: the writer changes the current draft, given the failed checks and
-the reviewer's suggestions, at most `max_revisions` times. The loop stops at the first attempt
+the reviewer's suggestions, at most `max_revisions` times. The loop stops at the first Attempt
 that passes; if none does, or a revise call fails, it keeps the best one so far. Attempts are
 not Revisions: finalise saves only the one it keeps, with how many revisions were used.
 """
@@ -21,8 +21,12 @@ from langsmith import traceable
 from contentblitz.core.config import get_model_config
 from contentblitz.workflow.content_checks import CheckResult
 from contentblitz.workflow.progress import progress_message
-from contentblitz.workflow.quality_score import QualityScore, comparable_points, quality_score
-from contentblitz.workflow.reviewer import Review
+from contentblitz.workflow.quality_score import (
+    QualityScore,
+    Review,
+    comparable_points,
+    quality_score,
+)
 from contentblitz.workflow.state import ContentBlitzState
 
 
@@ -58,14 +62,14 @@ class QualityFormat:
     # The AI reviewer's verdict on a draft, with the format's judging criteria, or None when
     # the reviewer is unavailable.
     judge: Callable[[ContentBlitzState, dict], Review | None]
-    # The step's update for the kept attempt: the saved Content Piece and the chat message.
+    # The step's update for the kept Attempt: the saved Content Piece and the chat message.
     finalise: Callable[[ContentBlitzState, Attempt], ContentBlitzState]
     # The chat message when no draft could be made. The plan carries on.
     failure: Callable[[ContentBlitzState], str]
 
 
 def feedback(attempt: Attempt) -> str:
-    """What the writer is asked to fix in an attempt: each failed check with its measured
+    """What the writer is asked to fix in an Attempt: each failed check with its measured
     value and target, and the reviewer's suggestions."""
     quality = attempt["quality_score"]
     failed = [
@@ -92,7 +96,7 @@ def _draft_node(fmt: QualityFormat):
 
 def _check_node(fmt: QualityFormat):
     def check(state: LoopState) -> LoopState:
-        """Runs the format's content checks on the latest attempt."""
+        """Runs the format's content checks on the latest Attempt."""
         attempts = state.get("attempts") or []
         if not attempts:
             return {}
@@ -105,11 +109,11 @@ def _check_node(fmt: QualityFormat):
 def _judge_node(fmt: QualityFormat):
     @traceable(name=f"{fmt.name} attempt")
     def trace(attempt: int, quality: QualityScore) -> dict:
-        """Puts an attempt's check results, reviewer scores and Quality Score in the trace."""
+        """Puts an Attempt's check results, reviewer scores and Quality Score in the trace."""
         return {"attempt": attempt, "quality_score": quality}
 
     def judge(state: LoopState) -> LoopState:
-        """Asks the reviewer for its verdict on the latest attempt, and gives it its score."""
+        """Asks the reviewer for its verdict on the latest Attempt, and gives it its score."""
         attempts = state.get("attempts") or []
         if not attempts:
             return {}
@@ -124,7 +128,7 @@ def _judge_node(fmt: QualityFormat):
 
 
 def _after_judge(state: LoopState) -> str:
-    """Finalise once the latest attempt passes or the revisions are used up; else revise."""
+    """Finalise once the latest Attempt passes or the revisions are used up; else revise."""
     attempts = state.get("attempts") or []
     if not attempts or attempts[-1]["quality_score"]["passed"]:
         return "finalise"
@@ -134,7 +138,7 @@ def _after_judge(state: LoopState) -> str:
 
 def _revise_node(fmt: QualityFormat):
     def revise(state: LoopState) -> LoopState:
-        """Asks the writer to revise the latest attempt. A failed call adds no attempt."""
+        """Asks the writer to revise the latest Attempt. A failed call adds no Attempt."""
         attempts = state["attempts"]
         made = fmt.revise(state, attempts[-1]["draft"], feedback(attempts[-1]))
         return {} if made is None else {"attempts": [*attempts, {"draft": made}]}
@@ -143,14 +147,14 @@ def _revise_node(fmt: QualityFormat):
 
 
 def _after_revise(state: LoopState) -> str:
-    """Check the new attempt, or finalise when the revise call made none."""
+    """Check the new Attempt, or finalise when the revise call made none."""
     return "finalise" if "checks" in state["attempts"][-1] else "check"
 
 
 def _best(attempts: list[Attempt]) -> Attempt:
-    """The attempt to keep: one that passed, else the highest-scoring, the earliest on a tie.
+    """The Attempt to keep: one that passed, else the highest-scoring, the earliest on a tie.
 
-    Scores are compared with `comparable_points`, so an attempt the reviewer missed doesn't win
+    Scores are compared with `comparable_points`, so an Attempt the reviewer missed doesn't win
     on its check points scaled to 100.
     """
     return max(

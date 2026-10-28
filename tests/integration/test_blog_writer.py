@@ -111,7 +111,7 @@ class FakeModel:
     """Stands in for every model: scripted blog drafts and reviewer verdicts, one per call.
 
     The blog writer gets `reply` and the reviewer gets `verdict`; an exception is raised. Either
-    may be a list, one per attempt: the nth call to that agent gets the nth item, and the last
+    may be a list, one per Attempt: the nth call to that agent gets the nth item, and the last
     item repeats. Other agents (the LinkedIn Writer is still a stub) aren't expected to call.
     """
 
@@ -283,6 +283,7 @@ def test_a_blog_that_passes_every_check_with_full_marks_from_the_reviewer_scores
     assert "Quality Score: 100/100" in reply.replace("*", "")
     quality = revision_of(state)["quality_score"]
     assert (quality["score"], quality["passed"]) == (100, True)
+    assert quality["reviewer_unavailable"] is False
 
 
 @pytest.mark.parametrize(
@@ -308,7 +309,7 @@ def test_a_blog_that_fails_a_check_does_not_pass_even_with_full_marks_from_the_r
     assert revision_of(state)["quality_score"]["passed"] is False
 
 
-def test_the_reviewer_rating_and_top_3_suggestions_are_posted_and_all_are_saved(model):
+def test_the_reviewers_engagement_score_and_top_3_suggestions_are_posted_and_all_are_saved(model):
     [reply], state = run_plan(BLOG, {"topic-1": topic()})
 
     after_body = reply.removeprefix(BODY)
@@ -348,15 +349,19 @@ def test_when_the_reviewer_fails_the_score_comes_from_the_checks_alone(model, fa
     assert "reviewer unavailable" in after_body
     quality = revision_of(state)["quality_score"]
     assert (quality["score"], quality["passed"], quality["review"]) == (50, False, None)
+    assert quality["reviewer_unavailable"] is True
 
 
-def test_when_the_reviewer_fails_a_blog_passing_every_check_still_passes(model):
+def test_when_the_reviewer_fails_a_blog_passing_every_check_does_not_pass_and_is_revised(model):
+    # A pass needs the reviewer's average, so the loop revises up to the maximum (3) and keeps
+    # the best Attempt.
     model.reply = blog_draft(body=PASSING_BODY, meta_description=META_155)
     model.verdict = RuntimeError("every provider is down")
     _, state = run_plan(BLOG, {"topic-1": topic()})
 
     quality = revision_of(state)["quality_score"]
-    assert (quality["score"], quality["passed"]) == (100, True)
+    assert (quality["score"], quality["passed"], quality["revisions_used"]) == (100, False, 3)
+    assert len(model.calls_to("blog_writer")) == 4
 
 
 def test_a_second_blog_on_the_same_topic_is_a_separate_content_piece(model):
@@ -499,7 +504,7 @@ def test_the_loop_stops_after_the_maximum_revisions_and_keeps_the_highest_scorin
     [piece_id] = state["topics"]["topic-1"]["piece_ids"]
     piece = state["content_pieces"][piece_id]
     assert piece["title"] == "Nearly there"
-    [revision] = piece["revisions"]  # the attempts are not Revisions
+    [revision] = piece["revisions"]  # the Attempts are not Revisions
     quality = revision["quality_score"]
     assert (quality["score"], quality["passed"], quality["revisions_used"]) == (82, False, 3)
 

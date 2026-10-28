@@ -91,7 +91,7 @@ RevisionOrigin = Literal["draft", "refinement", "hand_edit"]
 class Revision(TypedDict):
     """One saved version of a Content Piece's text; refinements start from the latest.
 
-    Only the result a writer's quality loop keeps becomes a Revision, never its attempts.
+    Only the result a writer's quality loop keeps becomes a Revision, never its Attempts.
     """
 
     text: str  # Markdown for a blog
@@ -100,7 +100,7 @@ class Revision(TypedDict):
     # A blog's SEO fields; the keyword and template carry over to its refinements.
     meta_description: NotRequired[str]
     target_keyword: NotRequired[str]
-    template: NotRequired[str]
+    template: NotRequired[Template]
     # How it measured up when it was made: the score and each check's result.
     quality_score: NotRequired[QualityScore]
 

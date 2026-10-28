@@ -4,15 +4,15 @@ The blog step runs the blog's quality loop. Its draft is one structured call to 
 `blog_writer` model, given the whole Brief, its target and secondary keywords, the four
 template guides, the target word range and the step's instructions. It returns the template
 it used, the title, the meta description and the Markdown body, citing the Brief's Sources
-as `[n]`. The loop checks the draft against the blog's SEO rules, and the AI reviewer rates its
+as `[n]`. The loop checks the draft against the blog's SEO rules, and the AI reviewer scores its
 hook, flow, clarity and call to action. A draft that doesn't pass is revised: the same call,
-given the current draft and what to fix. The kept attempt is posted and saved with its
+given the current draft and what to fix. The kept Attempt is posted and saved with its
 Quality Score and how many revisions were used.
 
-A refine step that targets a blog runs the same loop, but its first attempt changes the blog's
+A refine step that targets a blog runs the same loop, but its first Attempt changes the blog's
 latest Revision (which may be a hand edit) as the marketer asks, instead of drafting from
 scratch. Its keyword and template carry over unless the request sets new ones, and the kept
-attempt is added to the blog as a new Revision. The refinement call is the loop's first attempt,
+Attempt is added to the blog as a new Revision. The refinement call is the loop's first Attempt,
 so it doesn't count as one of the automatic revisions.
 
 If every provider fails, the step posts an error and the plan carries on: other pieces don't
@@ -24,25 +24,33 @@ from datetime import UTC, datetime
 
 from pydantic import BaseModel, Field
 
+from contentblitz.agents.quality_judge import review
 from contentblitz.core.config import get_model_config
 from contentblitz.integrations import llm
 from contentblitz.workflow.content_checks import CheckResult, Draft, check_blog, word_range
 from contentblitz.workflow.plan import current_step
 from contentblitz.workflow.progress import progress_message
 from contentblitz.workflow.quality_loop import Attempt, QualityFormat, quality_loop
-from contentblitz.workflow.quality_score import QualityScore
+from contentblitz.workflow.quality_score import QualityScore, Review
 from contentblitz.workflow.report import citation
-from contentblitz.workflow.reviewer import Review, review
 from contentblitz.workflow.routing import Template
 from contentblitz.workflow.state import (
     ContentBlitzState,
     ContentPiece,
+    PlanStep,
     ResearchBrief,
     Revision,
     RevisionOrigin,
     Topic,
 )
-from contentblitz.workflow.topics import active_topic, add_piece, add_revision, new_piece_id
+from contentblitz.workflow.topics import (
+    active_topic,
+    add_piece,
+    add_revision,
+    new_piece_id,
+    piece_title,
+    piece_topic,
+)
 
 AGENT = "blog_writer"
 
@@ -127,16 +135,21 @@ def _brief_text(brief: ResearchBrief) -> str:
     )
 
 
+def _step(state: ContentBlitzState) -> PlanStep:
+    """The blog step being run, or an empty step outside a plan."""
+    return current_step(state) or {}
+
+
 def _target(state: ContentBlitzState) -> str | None:
     """The blog a refine step targets, or None when the step writes a new blog."""
-    return (current_step(state) or {}).get("target")
+    return _step(state).get("target")
 
 
 def _topic(state: ContentBlitzState) -> Topic:
     """The Topic the blog is on: the refined blog's, or the active Topic for a new blog."""
     piece_id = _target(state)
     if piece_id:
-        return state["topics"][state["content_pieces"][piece_id]["topic_id"]]
+        return piece_topic(state, piece_id)
     return active_topic(state)
 
 
@@ -150,23 +163,22 @@ def _carried_over(state: ContentBlitzState, field: str) -> str | None:
 def _keyword(state: ContentBlitzState) -> str:
     """The target keyword: the request's when it sets one, otherwise the refined blog's,
     otherwise the Brief's suggestion."""
-    step = current_step(state) or {}
     return (
-        step.get("target_keyword")
+        _step(state).get("target_keyword")
         or _carried_over(state, "target_keyword")
         or _topic(state)["brief"]["target_keyword"]
     )
 
 
-def _template(state: ContentBlitzState) -> str | None:
+def _template(state: ContentBlitzState) -> Template | None:
     """The template: the request's when it names one, otherwise the refined blog's. None lets
     the writer pick."""
-    return (current_step(state) or {}).get("template") or _carried_over(state, "template")
+    return _step(state).get("template") or _carried_over(state, "template")
 
 
 def _length_target(state: ContentBlitzState) -> str:
     """The length the drafting call aims for: the request's, or the configured word range."""
-    words = (current_step(state) or {}).get("length")
+    words = _step(state).get("length")
     low, high = word_range(get_model_config().quality.blog, words)
     return f"{words} words ({low}-{high})" if words else f"{low}-{high} words"
 
@@ -174,7 +186,6 @@ def _length_target(state: ContentBlitzState) -> str:
 def _prompt(state: ContentBlitzState) -> list[dict]:
     topic = _topic(state)
     brief = topic["brief"]
-    step = current_step(state) or {}
     templates = "\n".join(f"- {name}: {guide}" for name, guide in TEMPLATES.items())
     return [
         {"role": "system", "content": SYSTEM_PROMPT},
@@ -185,7 +196,7 @@ def _prompt(state: ContentBlitzState) -> list[dict]:
             f"Secondary keywords: {', '.join(brief['secondary_keywords']) or 'none'}\n"
             f"Target length: {_length_target(state)}\n"
             f"Template: {_template(state) or 'none given, pick the template that fits best'}\n"
-            f"Instructions: {step.get('instructions') or 'none'}\n\n"
+            f"Instructions: {_step(state).get('instructions') or 'none'}\n\n"
             f"Templates:\n{templates}\n\n"
             f"Research Brief:\n\n{_brief_text(brief)}",
         },
@@ -204,7 +215,8 @@ def _write_draft(state: ContentBlitzState, messages: list[dict]) -> dict | None:
     return {**draft, "template": _template(state) or draft["template"]}
 
 
-def _draft(state: ContentBlitzState) -> dict | None:
+def _first_draft(state: ContentBlitzState) -> dict | None:
+    """A new blog's first Attempt, drafted from the Brief."""
     return _write_draft(state, _prompt(state))
 
 
@@ -216,7 +228,7 @@ def _draft_text(draft: dict) -> str:
     )
 
 
-def _change(state: ContentBlitzState, draft: dict, request: str) -> dict | None:
+def _redraft(state: ContentBlitzState, draft: dict, request: str) -> dict | None:
     """`draft` changed as `request` asks: the same call, given the draft to change."""
     return _write_draft(
         state,
@@ -230,25 +242,25 @@ def _change(state: ContentBlitzState, draft: dict, request: str) -> dict | None:
 
 def _revise(state: ContentBlitzState, draft: dict, feedback: str) -> dict | None:
     """The current draft revised to fix what the feedback names, keeping the rest."""
-    return _change(state, draft, REVISE_PROMPT.format(feedback=feedback))
+    return _redraft(state, draft, REVISE_PROMPT.format(feedback=feedback))
 
 
 def _latest_revision(state: ContentBlitzState) -> dict:
     """The refined blog's latest Revision, which may be a hand edit, as a draft."""
-    piece = state["content_pieces"][_target(state)]
-    latest = piece["revisions"][-1]
+    piece_id = _target(state)
+    latest = state["content_pieces"][piece_id]["revisions"][-1]
     return {
         "template": _template(state) or "none recorded",
-        "title": piece["title"],
+        "title": piece_title(state, piece_id),
         "meta_description": latest.get("meta_description", ""),
         "body": latest["text"],
     }
 
 
-def _refine(state: ContentBlitzState) -> dict | None:
-    """The first attempt of a refinement: the latest Revision changed as the marketer asks."""
-    instructions = (current_step(state) or {}).get("instructions") or ""
-    return _change(state, _latest_revision(state), REFINE_PROMPT.format(instructions=instructions))
+def _refined_latest_revision(state: ContentBlitzState) -> dict | None:
+    """The first Attempt of a refinement: the latest Revision changed as the marketer asks."""
+    instructions = _step(state).get("instructions") or ""
+    return _redraft(state, _latest_revision(state), REFINE_PROMPT.format(instructions=instructions))
 
 
 def _checks(state: ContentBlitzState, draft: dict) -> list[CheckResult]:
@@ -259,7 +271,7 @@ def _checks(state: ContentBlitzState, draft: dict) -> list[CheckResult]:
         keyword=_keyword(state),
         source_numbers=[s["number"] for s in brief["sources"]],
     )
-    words = (current_step(state) or {}).get("length")
+    words = _step(state).get("length")
     return check_blog(checked, get_model_config().quality.blog, words)
 
 
@@ -268,12 +280,12 @@ def _judge(state: ContentBlitzState, draft: dict) -> Review | None:
     return review(text, JUDGING_CRITERIA)
 
 
-def _review_text(found: Review | None) -> str:
-    if found is None:
+def _review_text(verdict: Review | None) -> str:
+    if verdict is None:
         return "*Engagement: reviewer unavailable*"
-    suggestions = "\n".join(f"- {s}" for s in found["suggestions"][:SUGGESTIONS_SHOWN])
-    rating = f"**Engagement:** {found['engagement']}/10"
-    return f"{rating}\n\n**Suggestions:**\n{suggestions}" if suggestions else rating
+    suggestions = "\n".join(f"- {s}" for s in verdict["suggestions"][:SUGGESTIONS_SHOWN])
+    engagement = f"**Engagement:** {verdict['engagement']}/10"
+    return f"{engagement}\n\n**Suggestions:**\n{suggestions}" if suggestions else engagement
 
 
 def _quality_text(quality: QualityScore) -> str:
@@ -319,7 +331,7 @@ def _posted(attempt: Attempt) -> ContentBlitzState:
 
 
 def _finalise(state: ContentBlitzState, attempt: Attempt) -> ContentBlitzState:
-    """Saves the kept attempt as a new blog Content Piece with its first Revision, and posts it."""
+    """Saves the kept Attempt as a new blog Content Piece with its first Revision, and posts it."""
     piece: ContentPiece = {
         "kind": "blog",
         "topic_id": state["active_topic_id"],
@@ -330,7 +342,7 @@ def _finalise(state: ContentBlitzState, attempt: Attempt) -> ContentBlitzState:
 
 
 def _finalise_refinement(state: ContentBlitzState, attempt: Attempt) -> ContentBlitzState:
-    """Adds the kept attempt to the refined blog as a new Revision, and posts it.
+    """Adds the kept Attempt to the refined blog as a new Revision, and posts it.
 
     The blog keeps its title, so the marketer can still refer to it by the name they know.
     """
@@ -343,12 +355,12 @@ def _failure(state: ContentBlitzState) -> str:
 
 
 def _refine_failure(state: ContentBlitzState) -> str:
-    return NO_REFINEMENT.format(title=state["content_pieces"][_target(state)]["title"])
+    return NO_REFINEMENT.format(title=piece_title(state, _target(state)))
 
 
 BLOG = QualityFormat(
     name="blog",
-    draft=_draft,
+    draft=_first_draft,
     revise=_revise,
     checks=_checks,
     judge=_judge,
@@ -359,20 +371,21 @@ BLOG = QualityFormat(
 BLOG_REFINEMENT = replace(
     BLOG,
     name="blog refinement",
-    draft=_refine,
+    draft=_refined_latest_revision,
     finalise=_finalise_refinement,
     failure=_refine_failure,
 )
-_write = quality_loop(BLOG)
-_refine_blog = quality_loop(BLOG_REFINEMENT)
+_write_new_blog = quality_loop(BLOG)
+_refine_existing_blog = quality_loop(BLOG_REFINEMENT)
 
 
 def blog_writer(state: ContentBlitzState) -> ContentBlitzState:
     """Writes a new blog, or refines the blog a refine step targets."""
     if not _target(state):
-        return _write(state)  # the plan builder made sure the Topic has a Brief (ADR 0001)
+        # The plan builder made sure the Topic has a Brief (ADR 0001).
+        return _write_new_blog(state)
     topic = _topic(state)
     if not topic.get("brief"):
-        title = state["content_pieces"][_target(state)]["title"]
+        title = piece_title(state, _target(state))
         return {"messages": [progress_message(NO_BRIEF.format(title=title, topic=topic["name"]))]}
-    return _refine_blog(state)
+    return _refine_existing_blog(state)

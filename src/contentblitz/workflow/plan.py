@@ -15,10 +15,15 @@ def has_writer(steps: list[PlanStep]) -> bool:
     return any(step["agent"] in WRITERS for step in steps)
 
 
+def blog_options(decision: RoutingDecision) -> dict:
+    """The blog options the request sets, to copy onto a blog step."""
+    return {o: v for o in BLOG_OPTIONS if (v := getattr(decision, o)) is not None}
+
+
 def _writer_step(decision: RoutingDecision, fmt: str) -> PlanStep:
     step: PlanStep = {"agent": PIECE_FORMATS[fmt].agent, "instructions": decision.instructions}
     if fmt == "blog":
-        step |= {o: v for o in BLOG_OPTIONS if (v := getattr(decision, o)) is not None}
+        step |= blog_options(decision)
     return step
 
 

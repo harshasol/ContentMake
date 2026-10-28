@@ -1,4 +1,4 @@
-"""Content checks: deterministic measurements of a draft against its format's rules. See #19.
+"""Content checks: deterministic measurements of a draft against its format's rules. See spec #19.
 
 Each check returns a `CheckResult`: pass or fail, the measured value as the chat shows it,
 and a short reason that names the target, which is also the revise loop's feedback.
@@ -205,11 +205,22 @@ def headings(draft: Draft, min_h2s: int = 3) -> CheckResult:
 def readability(draft: Draft, max_grade: float) -> CheckResult:
     """The prose's Flesch-Kincaid grade level is at most `max_grade`.
 
-    A line that doesn't end a sentence, such as a heading or a list item, reads as one.
+    A line that doesn't end a sentence, such as a heading or a list item, reads as one. If the
+    grade can't be computed (say textstat's cmudict is missing), the check fails and says so,
+    rather than stopping the writer's step.
     """
     lines = [line.strip() for line in _prose(draft.body).splitlines() if line.strip()]
     text = " ".join(line if line[-1] in ".!?" else f"{line}." for line in lines)
-    grade = textstat.flesch_kincaid_grade(text)
+    try:
+        grade = textstat.flesch_kincaid_grade(text)
+    except Exception as error:  # noqa: BLE001 - an unmeasured grade fails the check, not the step
+        return {
+            "name": "readability",
+            "passed": False,
+            "measured": "unavailable",
+            "reason": f"the reading grade couldn't be measured ({type(error).__name__}); "
+            f"the target is at most grade {max_grade:g}",
+        }
     measured = f"grade {grade:.1f}"
     passed = grade <= max_grade
     reason = f"it reads at {measured}; the target is at most grade {max_grade:g}"
