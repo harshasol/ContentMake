@@ -37,12 +37,20 @@ from contentblitz.workflow.routing import Template
 from contentblitz.workflow.state import (
     ContentBlitzState,
     ContentPiece,
+    PlanStep,
     ResearchBrief,
     Revision,
     RevisionOrigin,
     Topic,
 )
-from contentblitz.workflow.topics import active_topic, add_piece, add_revision, new_piece_id
+from contentblitz.workflow.topics import (
+    active_topic,
+    add_piece,
+    add_revision,
+    new_piece_id,
+    piece_title,
+    piece_topic,
+)
 
 AGENT = "blog_writer"
 
@@ -127,16 +135,21 @@ def _brief_text(brief: ResearchBrief) -> str:
     )
 
 
+def _step(state: ContentBlitzState) -> PlanStep:
+    """The blog step being run, or an empty step outside a plan."""
+    return current_step(state) or {}
+
+
 def _target(state: ContentBlitzState) -> str | None:
     """The blog a refine step targets, or None when the step writes a new blog."""
-    return (current_step(state) or {}).get("target")
+    return _step(state).get("target")
 
 
 def _topic(state: ContentBlitzState) -> Topic:
     """The Topic the blog is on: the refined blog's, or the active Topic for a new blog."""
     piece_id = _target(state)
     if piece_id:
-        return state["topics"][state["content_pieces"][piece_id]["topic_id"]]
+        return piece_topic(state, piece_id)
     return active_topic(state)
 
 
@@ -150,9 +163,8 @@ def _carried_over(state: ContentBlitzState, field: str) -> str | None:
 def _keyword(state: ContentBlitzState) -> str:
     """The target keyword: the request's when it sets one, otherwise the refined blog's,
     otherwise the Brief's suggestion."""
-    step = current_step(state) or {}
     return (
-        step.get("target_keyword")
+        _step(state).get("target_keyword")
         or _carried_over(state, "target_keyword")
         or _topic(state)["brief"]["target_keyword"]
     )
@@ -161,12 +173,12 @@ def _keyword(state: ContentBlitzState) -> str:
 def _template(state: ContentBlitzState) -> str | None:
     """The template: the request's when it names one, otherwise the refined blog's. None lets
     the writer pick."""
-    return (current_step(state) or {}).get("template") or _carried_over(state, "template")
+    return _step(state).get("template") or _carried_over(state, "template")
 
 
 def _length_target(state: ContentBlitzState) -> str:
     """The length the drafting call aims for: the request's, or the configured word range."""
-    words = (current_step(state) or {}).get("length")
+    words = _step(state).get("length")
     low, high = word_range(get_model_config().quality.blog, words)
     return f"{words} words ({low}-{high})" if words else f"{low}-{high} words"
 
@@ -174,7 +186,6 @@ def _length_target(state: ContentBlitzState) -> str:
 def _prompt(state: ContentBlitzState) -> list[dict]:
     topic = _topic(state)
     brief = topic["brief"]
-    step = current_step(state) or {}
     templates = "\n".join(f"- {name}: {guide}" for name, guide in TEMPLATES.items())
     return [
         {"role": "system", "content": SYSTEM_PROMPT},
@@ -185,7 +196,7 @@ def _prompt(state: ContentBlitzState) -> list[dict]:
             f"Secondary keywords: {', '.join(brief['secondary_keywords']) or 'none'}\n"
             f"Target length: {_length_target(state)}\n"
             f"Template: {_template(state) or 'none given, pick the template that fits best'}\n"
-            f"Instructions: {step.get('instructions') or 'none'}\n\n"
+            f"Instructions: {_step(state).get('instructions') or 'none'}\n\n"
             f"Templates:\n{templates}\n\n"
             f"Research Brief:\n\n{_brief_text(brief)}",
         },
@@ -235,11 +246,11 @@ def _revise(state: ContentBlitzState, draft: dict, feedback: str) -> dict | None
 
 def _latest_revision(state: ContentBlitzState) -> dict:
     """The refined blog's latest Revision, which may be a hand edit, as a draft."""
-    piece = state["content_pieces"][_target(state)]
-    latest = piece["revisions"][-1]
+    piece_id = _target(state)
+    latest = state["content_pieces"][piece_id]["revisions"][-1]
     return {
         "template": _template(state) or "none recorded",
-        "title": piece["title"],
+        "title": piece_title(state, piece_id),
         "meta_description": latest.get("meta_description", ""),
         "body": latest["text"],
     }
@@ -247,7 +258,7 @@ def _latest_revision(state: ContentBlitzState) -> dict:
 
 def _refine(state: ContentBlitzState) -> dict | None:
     """The first Attempt of a refinement: the latest Revision changed as the marketer asks."""
-    instructions = (current_step(state) or {}).get("instructions") or ""
+    instructions = _step(state).get("instructions") or ""
     return _change(state, _latest_revision(state), REFINE_PROMPT.format(instructions=instructions))
 
 
@@ -259,7 +270,7 @@ def _checks(state: ContentBlitzState, draft: dict) -> list[CheckResult]:
         keyword=_keyword(state),
         source_numbers=[s["number"] for s in brief["sources"]],
     )
-    words = (current_step(state) or {}).get("length")
+    words = _step(state).get("length")
     return check_blog(checked, get_model_config().quality.blog, words)
 
 
@@ -343,7 +354,7 @@ def _failure(state: ContentBlitzState) -> str:
 
 
 def _refine_failure(state: ContentBlitzState) -> str:
-    return NO_REFINEMENT.format(title=state["content_pieces"][_target(state)]["title"])
+    return NO_REFINEMENT.format(title=piece_title(state, _target(state)))
 
 
 BLOG = QualityFormat(
@@ -373,6 +384,6 @@ def blog_writer(state: ContentBlitzState) -> ContentBlitzState:
         return _write(state)  # the plan builder made sure the Topic has a Brief (ADR 0001)
     topic = _topic(state)
     if not topic.get("brief"):
-        title = state["content_pieces"][_target(state)]["title"]
+        title = piece_title(state, _target(state))
         return {"messages": [progress_message(NO_BRIEF.format(title=title, topic=topic["name"]))]}
     return _refine_blog(state)

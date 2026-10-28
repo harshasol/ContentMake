@@ -18,6 +18,15 @@ def active_topic(state: ContentBlitzState) -> Topic | None:
     return (state.get("topics") or {}).get(state.get("active_topic_id") or "")
 
 
+def piece_topic(state: ContentBlitzState, piece_id: str) -> Topic:
+    """The Topic a Content Piece is on."""
+    return state["topics"][state["content_pieces"][piece_id]["topic_id"]]
+
+
+def piece_title(state: ContentBlitzState, piece_id: str) -> str:
+    return state["content_pieces"][piece_id]["title"]
+
+
 def create_topic(state: ContentBlitzState, name: str | None) -> ContentBlitzState:
     """The state update that adds a new Topic, with the next `topic-N` id, and makes it active."""
     topics = dict(state.get("topics") or {})
