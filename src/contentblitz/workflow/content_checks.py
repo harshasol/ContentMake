@@ -204,6 +204,18 @@ def readability(draft: Draft, max_grade: float) -> CheckResult:
     }
 
 
+def length(draft: Draft, word_range: tuple[int, int]) -> CheckResult:
+    """The prose's word count is within the range."""
+    count = len(_words(_prose(draft.body)))
+    low, high = word_range
+    return {
+        "name": "length",
+        "passed": low <= count <= high,
+        "measured": f"{count:,} words",
+        "reason": f"{count} words; the target is {_range(low, high)}",
+    }
+
+
 def check_blog(draft: Draft, rules: BlogQuality) -> list[CheckResult]:
     """Every blog check's result, in the order the chat lists them."""
     return [
@@ -211,4 +223,5 @@ def check_blog(draft: Draft, rules: BlogQuality) -> list[CheckResult]:
         meta_description(draft, rules.meta_length_range),
         headings(draft),
         readability(draft, rules.max_grade),
+        length(draft, rules.word_range),
     ]

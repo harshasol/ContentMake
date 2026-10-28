@@ -221,3 +221,35 @@ def test_readability_reads_headings_as_sentences_and_leaves_out_the_sources_sect
         f"## Sources\n\n1. [{HARD}](https://example.com)\n"
     )
     assert check("readability", body)["measured"] == "grade -1.6"
+
+
+# Length
+
+
+@pytest.mark.parametrize(
+    ("words", "passed"), [(899, False), (900, True), (1800, True), (1801, False)]
+)
+def test_length_must_be_within_the_word_range(words, passed):
+    result = check("length", filler(words))
+    assert result["passed"] is passed
+    assert result["measured"] == f"{words:,} words"
+    assert "900-1800" in result["reason"]
+
+
+def test_length_leaves_out_markdown_and_the_sources_section():
+    # "Title" (1) + 896 filler words in a list + a link's text (3) = 900 words. Citations,
+    # URLs, heading and list markers, and the whole Sources section aren't words.
+    body = (
+        "# Title\n\n"
+        f"- **{filler(896)}** [1, 2]\n"
+        f"- [{filler(3)}](https://example.com/a-b-c) [3]\n\n"
+        "## Sources\n\n"
+        "1. [AI tools report](https://example.com/ai-tools)\n"
+    )
+    result = check("length", body)
+    assert result["measured"] == "900 words"
+    assert result["passed"]
+
+
+def test_word_range_comes_from_the_rules():
+    assert check("length", filler(600), rules=BlogQuality(word_range=(500, 700)))["passed"]

@@ -191,30 +191,32 @@ META_155 = (
 def test_the_blog_is_checked_and_its_quality_score_is_posted_and_saved_on_the_revision(model):
     # BODY, leaving out its Sources section and Markdown: 35 words, "AI in healthcare" twice
     # (2 x 3 / 35 = 17.1%); one H1 with the keyword but only 2 H2s, neither with it. The
-    # meta description and readability pass, so 2 of 4 checks pass: 70 x 2/4 check points,
-    # scaled to 100.
+    # meta description and readability pass, but it is too short: 2 of 5 checks pass,
+    # 70 x 2/5 check points, scaled to 100.
     model.reply = blog_draft(meta_description=META_155)
     [reply], state = run_plan(BLOG, {"topic-1": topic()})
 
     after_body = reply.removeprefix(BODY)
-    assert "Quality Score: 50/100" in after_body.replace("*", "")
+    assert "Quality Score: 40/100" in after_body.replace("*", "")
     for line in [
         "keyword density 17.1% ✗",
         "meta description 155 chars ✓",
         "headings 1 H1, 2 H2s ✗",
         "readability grade 7.0 ✓",
+        "length 35 words ✗",
     ]:
         assert line in after_body, line
 
     [piece_id] = state["topics"]["topic-1"]["piece_ids"]
     [revision] = state["content_pieces"][piece_id]["revisions"]
     quality = revision["quality_score"]
-    assert quality["score"] == 50
+    assert quality["score"] == 40
     assert [(c["name"], c["passed"], c["measured"]) for c in quality["checks"]] == [
         ("keyword density", False, "17.1%"),
         ("meta description", True, "155 chars"),
         ("headings", False, "1 H1, 2 H2s"),
         ("readability", True, "grade 7.0"),
+        ("length", False, "35 words"),
     ]
     assert all(c["reason"] for c in quality["checks"])
 
