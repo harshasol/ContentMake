@@ -45,6 +45,7 @@ class OneResultSearch:
 @pytest.fixture(autouse=True)
 def fake_web_search(monkeypatch):
     monkeypatch.setattr(search, "configured_providers", lambda: [OneResultSearch()])
+    monkeypatch.setattr(search, "fetch_page", lambda url, timeout, max_chars: "")
 
 
 @pytest.fixture

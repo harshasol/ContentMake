@@ -1,16 +1,24 @@
 """Web search behind one interface; providers are tried in the order set in models.yaml.
 
 SerpAPI and Tavily are called over HTTP with httpx; there are no vendor SDKs.
+Page text is read with fetch_page, which extracts the readable article with trafilatura.
 """
 
+import time
 from typing import Protocol
 
 import httpx
+import trafilatura
 from pydantic import BaseModel
 
 from contentblitz.core.config import ModelConfig, Settings, get_model_config, get_settings
 
 REQUEST_TIMEOUT_SECONDS = 15
+MAX_PAGE_BYTES = 2_000_000  # HTML read per page; anything past this is ignored
+USER_AGENT = (
+    "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 "
+    "(KHTML, like Gecko) Chrome/130.0.0.0 Safari/537.36"
+)
 
 
 class SearchResult(BaseModel):
@@ -157,3 +165,39 @@ def search_with_fallback(
         return SearchResponse(provider=provider.name, results=results, failures=failures)
     reasons = "; ".join(f"{name}: {reason}" for name, reason in failures.items())
     raise SearchUnavailableError(reasons or "no search providers configured")
+
+
+def fetch_page(url: str, timeout: float, max_chars: int, client: httpx.Client | None = None) -> str:
+    """The readable article text of a web page, cut to max_chars.
+
+    Returns "" instead of raising when the page fails, takes longer than timeout seconds in
+    all, isn't HTML, or has nothing readable. Only the first MAX_PAGE_BYTES are read.
+    """
+    try:
+        if client:
+            html = _read_html(client, url, timeout)
+        else:
+            with httpx.Client(timeout=timeout) as own_client:
+                html = _read_html(own_client, url, timeout)
+        text = trafilatura.extract(html, include_comments=False) if html else None
+    except Exception:  # noqa: BLE001 - an unreadable page falls back to its snippet
+        return ""
+    return (text or "").strip()[:max_chars].rstrip()
+
+
+def _read_html(client: httpx.Client, url: str, timeout: float) -> str:
+    """The page's HTML, or "" if it fails or isn't HTML. Gives up after timeout seconds."""
+    deadline = time.monotonic() + timeout
+    headers = {"User-Agent": USER_AGENT, "Accept": "text/html,application/xhtml+xml"}
+    with client.stream(
+        "GET", url, headers=headers, timeout=timeout, follow_redirects=True
+    ) as response:
+        content_type = response.headers.get("Content-Type", "")
+        if response.is_error or "html" not in content_type.lower():
+            return ""
+        body = bytearray()
+        for chunk in response.iter_bytes():
+            body += chunk
+            if len(body) >= MAX_PAGE_BYTES or time.monotonic() > deadline:
+                break
+        return bytes(body[:MAX_PAGE_BYTES]).decode(response.encoding or "utf-8", errors="replace")
