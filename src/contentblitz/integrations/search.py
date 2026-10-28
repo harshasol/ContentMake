@@ -189,7 +189,10 @@ def fetch_page(url: str, timeout: float, max_chars: int, client: httpx.Client | 
 
 
 def _read_html(client: httpx.Client, url: str, timeout: float) -> str:
-    """The page's HTML, or "" if it fails or isn't HTML. Gives up after timeout seconds."""
+    """The page's HTML, or "" if it fails, isn't HTML, or isn't read within timeout seconds.
+
+    A page cut off by the deadline gives "", not the partial HTML read so far.
+    """
     deadline = time.monotonic() + timeout
     headers = {"User-Agent": USER_AGENT, "Accept": "text/html,application/xhtml+xml"}
     with client.stream(
@@ -199,8 +202,25 @@ def _read_html(client: httpx.Client, url: str, timeout: float) -> str:
         if response.is_error or "html" not in content_type.lower():
             return ""
         body = bytearray()
+        if not _time_left(response, deadline):
+            return ""
         for chunk in response.iter_bytes():
             body += chunk
-            if len(body) >= MAX_PAGE_BYTES or time.monotonic() > deadline:
+            if not _time_left(response, deadline):
+                return ""
+            if len(body) >= MAX_PAGE_BYTES:
                 break
         return bytes(body[:MAX_PAGE_BYTES]).decode(response.encoding or "utf-8", errors="replace")
+
+
+def _time_left(response: httpx.Response, deadline: float) -> bool:
+    """Whether the deadline is still ahead; if so, the next read may wait only until then.
+
+    httpx has no total timeout, but httpcore reads the request's timeout settings before every
+    read, so lowering "read" here keeps a stalled body from running past the deadline.
+    """
+    left = deadline - time.monotonic()
+    timeouts = response.request.extensions.get("timeout")
+    if isinstance(timeouts, dict):
+        timeouts["read"] = max(left, 0.001)
+    return left > 0
