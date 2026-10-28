@@ -35,6 +35,22 @@ class Topic(TypedDict):
     piece_ids: NotRequired[list[str]]
 
 
+PieceKind = Literal["blog", "linkedin_post", "image"]
+
+
+class Revision(TypedDict):
+    """One saved version of a Content Piece's text; refinements start from the latest."""
+
+    text: str
+
+
+class ContentPiece(TypedDict):
+    kind: PieceKind
+    topic_id: str
+    title: str
+    revisions: list[Revision]  # oldest first
+
+
 class PlanStep(TypedDict):
     agent: AgentName
     target: NotRequired[str | None]  # Content Piece id, for refinements
@@ -45,6 +61,7 @@ class ContentBlitzState(TypedDict, total=False):
     messages: Annotated[list[AnyMessage], add_messages]
     topics: dict[str, Topic]
     active_topic_id: str | None
+    content_pieces: dict[str, ContentPiece]  # keyed by Content Piece id
     intent: Intent
     plan: list[PlanStep]
     completed_steps: list[PlanStep]  # a prefix of `plan`, in the order the steps ran

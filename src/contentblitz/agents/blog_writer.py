@@ -2,8 +2,9 @@
 
 from langchain_core.messages import AIMessage
 
+from contentblitz.workflow.refine import stub_progress
 from contentblitz.workflow.state import ContentBlitzState
 
 
 def blog_writer(state: ContentBlitzState) -> ContentBlitzState:
-    return {"messages": [AIMessage(content="SEO Blog Writer: done (stub).")]}
+    return {"messages": [AIMessage(content=stub_progress("SEO Blog Writer", state))]}

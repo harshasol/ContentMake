@@ -67,12 +67,6 @@ def test_unclear_gets_the_clarifying_question(monkeypatch, with_api_key):
     assert send(build_graph(), "do something with this") == [question]
 
 
-def test_refine_requests_are_not_supported_yet(monkeypatch, with_api_key):
-    fake_router(monkeypatch, lambda _: RoutingDecision(intent="refine", instructions="shorter"))
-    [reply] = send(build_graph(), "make it shorter")
-    assert "not supported yet" in reply
-
-
 def test_invalid_routing_reply_gets_a_generic_clarifying_question(monkeypatch, with_api_key):
     def invalid(_):
         raise StructuredOutputError("bad reply")
@@ -259,3 +253,119 @@ def test_each_run_starts_a_fresh_plan(monkeypatch, with_api_key):
     assert send(graph, "hello") == ["Hi!"]
     state = graph.get_state(config()).values
     assert (state["intent"], state["plan"], state["completed_steps"]) == ("chat", [], [])
+
+
+def piece(kind, title, topic_id="topic-1"):
+    return {"kind": kind, "topic_id": topic_id, "title": title, "revisions": [{"text": "draft"}]}
+
+
+def with_pieces(**pieces):
+    return {**researched_topic(), "content_pieces": pieces}
+
+
+def refine(instructions, target=None, formats=()):
+    decision = RoutingDecision(
+        intent="refine", refine_target=target, instructions=instructions, formats=list(formats)
+    )
+    return lambda _: decision
+
+
+def test_refine_runs_one_step_to_the_writer_of_the_named_piece(monkeypatch, with_api_key):
+    fake_router(monkeypatch, refine("make it punchier", target="piece-2"))
+    start = with_pieces(
+        **{
+            "piece-1": piece("blog", "AI in the clinic"),
+            "piece-2": piece("linkedin_post", "AI hype"),
+        }
+    )
+    graph = build_graph()
+    replies = send_with(graph, "make the LinkedIn post punchier", start)
+
+    assert replies == [
+        "Refining *AI hype* (LinkedIn post)",
+        'LinkedIn Post Writer: refining piece-2 with "make it punchier" (stub).',
+    ]
+    state = graph.get_state(config()).values
+    step = {"agent": "linkedin_writer", "target": "piece-2", "instructions": "make it punchier"}
+    assert (state["intent"], state["plan"], state["completed_steps"]) == ("refine", [step], [step])
+
+
+def test_refine_without_a_target_uses_the_only_piece_of_that_kind_on_the_active_topic(
+    monkeypatch, with_api_key
+):
+    fake_router(monkeypatch, refine("shorter", formats=["linkedin_post"]))
+    start = with_pieces(
+        **{
+            "piece-1": piece("blog", "AI in the clinic"),
+            "piece-2": piece("linkedin_post", "AI hype"),
+            "piece-3": piece("linkedin_post", "Old post", topic_id="topic-2"),
+        }
+    )
+    replies = send_with(build_graph(), "shorten the LinkedIn post", start)
+    assert replies == [
+        "Refining *AI hype* (LinkedIn post)",
+        'LinkedIn Post Writer: refining piece-2 with "shorter" (stub).',
+    ]
+
+
+def test_refine_it_uses_the_only_piece_on_the_active_topic(monkeypatch, with_api_key):
+    fake_router(monkeypatch, refine("brighter colours"))
+    start = with_pieces(
+        **{
+            "piece-1": piece("image", "Robot doctor"),
+            "piece-2": piece("blog", "Old blog", topic_id="topic-2"),
+        }
+    )
+    replies = send_with(build_graph(), "make it brighter", start)
+    assert replies == [
+        "Refining *Robot doctor* (image)",
+        'Image Generation Agent: refining piece-1 with "brighter colours" (stub).',
+    ]
+
+
+def test_routing_is_given_a_summary_of_the_content_pieces(monkeypatch, with_api_key):
+    router = fake_router(monkeypatch, chat("Sure."))
+    start = with_pieces(
+        **{
+            "piece-1": piece("blog", "AI in the clinic"),
+            "piece-2": piece("linkedin_post", "Old post", topic_id="topic-2"),
+        }
+    )
+    start["topics"]["topic-2"] = {"name": "Remote work"}
+    send_with(build_graph(), "which pieces do I have?", start)
+
+    context = "\n".join(m["content"] for m in router.calls[-1]["messages"] if m["role"] == "system")
+    assert "- piece-1: blog on AI in healthcare, titled AI in the clinic" in context
+    assert "- piece-2: linkedin_post on Remote work, titled Old post" in context
+
+
+def test_refine_with_several_candidates_asks_which_piece_and_runs_nothing(
+    monkeypatch, with_api_key
+):
+    fake_router(monkeypatch, refine("make it punchier"))
+    start = with_pieces(
+        **{
+            "piece-1": piece("blog", "AI in the clinic"),
+            "piece-2": piece("linkedin_post", "AI hype"),
+        }
+    )
+    graph = build_graph()
+    [question] = send_with(graph, "make it punchier", start)
+
+    assert question == (
+        "Which piece would you like me to refine?\n"
+        "- *AI in the clinic* (blog)\n"
+        "- *AI hype* (LinkedIn post)"
+    )
+    state = graph.get_state(config()).values
+    assert (state["intent"], state["plan"], state["completed_steps"]) == ("refine", [], [])
+
+
+def test_refine_with_no_pieces_says_there_is_nothing_to_refine_yet(monkeypatch, with_api_key):
+    fake_router(monkeypatch, refine("shorter", target="piece-9", formats=["blog"]))
+    graph = build_graph()
+    [reply] = send_with(graph, "shorten the blog", researched_topic())
+
+    assert reply == qh.NOTHING_TO_REFINE
+    state = graph.get_state(config()).values
+    assert (state["plan"], state["completed_steps"]) == ([], [])
