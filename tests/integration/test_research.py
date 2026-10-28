@@ -429,7 +429,7 @@ def test_failed_fresh_research_leaves_the_topics_research_record_and_brief_as_th
 
 
 def researched_topics():
-    """Two Topics seeded with an old research record and a Research Brief; the first is active."""
+    """Two Topics seeded with an old Research Record and a Research Brief; the first is active."""
 
     def topic(name, url):
         record = {

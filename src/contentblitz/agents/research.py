@@ -2,7 +2,7 @@
 
 It plans a few search queries with the `research` model, runs each through the search
 fallback chain, merges the results into ranked Sources and saves them on the active Topic
-as its research record. It does not summarise: that is the Content Strategist's job.
+as its Research Record. It does not summarise: that is the Content Strategist's job.
 """
 
 from concurrent.futures import ThreadPoolExecutor
