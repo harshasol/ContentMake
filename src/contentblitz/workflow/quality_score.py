@@ -32,11 +32,16 @@ def review_average(review: Review) -> float:
     return sum(scores) / len(scores)
 
 
+def _check_points(checks: list[CheckResult]) -> float:
+    """The checks' share of CHECK_POINTS, split equally between the checks that apply."""
+    return CHECK_POINTS * sum(c["passed"] for c in checks) / len(checks)
+
+
 def quality_score(
     checks: list[CheckResult], review: Review | None, pass_mark: float
 ) -> QualityScore:
     """The score for a draft's check results and the reviewer's verdict, if it gave one."""
-    check_points = CHECK_POINTS * sum(c["passed"] for c in checks) / len(checks)
+    check_points = _check_points(checks)
     passed = all(c["passed"] for c in checks)
     if review is None:
         score = check_points * 100 / CHECK_POINTS
@@ -45,3 +50,16 @@ def quality_score(
         score = check_points + average / 10 * REVIEWER_POINTS
         passed = passed and average >= pass_mark
     return {"score": round(score), "passed": passed, "checks": checks, "review": review}
+
+
+def comparable_points(quality: QualityScore) -> float:
+    """The points that rank one attempt against another, from 0 to 100.
+
+    The score itself, except that an unreviewed attempt gets no reviewer points rather than
+    its check points scaled to 100, so it doesn't outrank a reviewed attempt on the reviewer
+    failing alone. When every attempt is unreviewed, they rank as their scores do.
+    """
+    points = _check_points(quality["checks"])
+    if quality["review"] is not None:
+        points += review_average(quality["review"]) / 10 * REVIEWER_POINTS
+    return points

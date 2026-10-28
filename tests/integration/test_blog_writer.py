@@ -471,6 +471,18 @@ def test_the_loop_stops_after_the_maximum_revisions_and_keeps_the_highest_scorin
     assert (quality["score"], quality["passed"], quality["revisions_used"]) == (82, False, 3)
 
 
+def test_an_attempt_the_reviewer_missed_counts_no_reviewer_points_when_choosing_the_best(model):
+    # Both pass 5 of 6 checks. Reviewed with engagement 6: 58.3 + 18 = 76. Unreviewed, its
+    # score is 83 (its check points scaled to 100), but it is compared on its 58.3 check points.
+    model.reply = [NEARLY, blog_draft(body=PASSING_BODY, title="Unreviewed")]
+    model.verdict = [verdict(engagement=6), RuntimeError("every provider is down")]
+    [reply], state = run_plan(BLOG, {"topic-1": topic()})
+
+    [piece_id] = state["topics"]["topic-1"]["piece_ids"]
+    assert state["content_pieces"][piece_id]["title"] == "Nearly there"
+    assert "Quality Score: 76/100" in reply.replace("*", "")
+
+
 def test_the_maximum_revisions_comes_from_config(model, tmp_path, monkeypatch):
     models = tmp_path / "models.yaml"
     defaults = DEFAULT_CONFIG_PATH.read_text()

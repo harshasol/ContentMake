@@ -19,7 +19,7 @@ from langgraph.graph import END, START, StateGraph
 from contentblitz.core.config import get_model_config
 from contentblitz.workflow.content_checks import CheckResult
 from contentblitz.workflow.progress import progress_message
-from contentblitz.workflow.quality_score import QualityScore, quality_score
+from contentblitz.workflow.quality_score import QualityScore, comparable_points, quality_score
 from contentblitz.workflow.reviewer import Review
 from contentblitz.workflow.state import ContentBlitzState
 
@@ -139,12 +139,24 @@ def _after_revise(state: LoopState) -> str:
     return "finalise" if "checks" in state["attempts"][-1] else "check"
 
 
+def _best(attempts: list[Attempt]) -> Attempt:
+    """The attempt to keep: one that passed, else the highest-scoring, the earliest on a tie.
+
+    Scores are compared with `comparable_points`, so an attempt the reviewer missed doesn't win
+    on its check points scaled to 100.
+    """
+    return max(
+        attempts,
+        key=lambda a: (a["quality_score"]["passed"], comparable_points(a["quality_score"])),
+    )
+
+
 def _finalise_node(fmt: QualityFormat):
     def finalise(state: LoopState) -> LoopState:
         attempts = state.get("attempts") or []
         if not attempts:
             return {"result": {"messages": [progress_message(fmt.failure(state))]}}
-        kept = max(attempts, key=lambda a: a["quality_score"]["score"])  # earliest on a tie
+        kept = _best(attempts)
         quality = {**kept["quality_score"], "revisions_used": len(attempts) - 1}
         return {"result": fmt.finalise(state, {**kept, "quality_score": quality})}
 
