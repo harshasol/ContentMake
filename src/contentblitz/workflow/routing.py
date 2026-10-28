@@ -8,6 +8,7 @@ from contentblitz.workflow.formats import Format
 
 Intent = Literal["new_content", "refine", "chat", "unclear"]
 TopicAnswer = Literal["new", "continue"]
+Template = Literal["how-to", "listicle", "comparison", "thought leadership"]
 
 
 def _drop_defaults(schema: dict) -> None:
@@ -29,6 +30,15 @@ class RoutingDecision(BaseModel):
     fresh_research: bool = Field(False, description="Whether fresh research was asked for.")
     refine_target: str | None = Field(None, description="Content Piece id to refine.")
     instructions: str | None = Field(None, description="Instructions to pass on to the writers.")
+    target_keyword: str | None = Field(
+        None, description="The blog's target keyword, only if the user set one."
+    )
+    template: Template | None = Field(
+        None, description="The blog's template, only if the user chose one."
+    )
+    length: int | None = Field(
+        None, description="The blog's length in words, only if the user asked for one."
+    )
     reply: str | None = Field(None, description="The answer, for chat only.")
     show_research_report: bool = Field(
         False, description="For chat only: the user asked to see the research report."
