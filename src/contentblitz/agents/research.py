@@ -38,7 +38,7 @@ NO_SOURCES = (
     "I couldn't find any Sources for *{topic}*, so I stopped the plan. "
     "Try rephrasing the Topic or your instructions."
 )
-NO_TOPIC = "Deep Research Agent: there's no active Topic to research."
+NO_TOPIC = "There's no active Topic to research, so I stopped the plan."
 
 
 class QueryPlan(BaseModel):
@@ -160,7 +160,7 @@ def _report(
 def research(state: ContentBlitzState) -> ContentBlitzState:
     topic = active_topic(state)
     if not topic:
-        return {"messages": [progress_message(NO_TOPIC)]}
+        return {"abort_reason": NO_TOPIC}
     name = topic["name"]
     providers = search.configured_providers()
     if not providers:

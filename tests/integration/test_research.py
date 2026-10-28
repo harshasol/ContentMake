@@ -8,11 +8,13 @@ from langchain_core.messages import HumanMessage
 from langsmith import tracing_context
 
 from contentblitz.agents import query_handler as qh
+from contentblitz.agents.research import NO_TOPIC, research
 from contentblitz.core.config import Settings
 from contentblitz.integrations import search
 from contentblitz.integrations.search import SearchProviderError, SearchResult
 from contentblitz.workflow.graph import build_graph
 from contentblitz.workflow.routing import RoutingDecision
+from contentblitz.workflow.sources import site_of
 
 NO_SOURCES = (
     "I couldn't find any Sources for *AI in healthcare*, so I stopped the plan. "
@@ -240,6 +242,38 @@ def test_at_most_two_sources_come_from_one_site(monkeypatch):
     assert [s["site"] for s in record["sources"]] == ["bigsite.com", "small.org", "bigsite.com"]
 
 
+def test_subdomains_count_as_the_same_site(monkeypatch):
+    fake_model(monkeypatch)
+    pages = ["https://news.bbc.co.uk/a", "https://www.bbc.co.uk/b", "https://bbc.co.uk/c"]
+    fake_search(
+        monkeypatch,
+        FakeProvider(
+            "SerpAPI",
+            {QUERIES[0]: [hit(url) for url in pages], QUERIES[1]: [hit("https://small.org/a")]},
+        ),
+    )
+    _, state = run(build_graph())
+
+    record = research_record(state)
+    assert urls(record) == ["https://news.bbc.co.uk/a", "https://small.org/a", pages[1]]
+    assert [s["site"] for s in record["sources"]] == ["bbc.co.uk", "small.org", "bbc.co.uk"]
+
+
+@pytest.mark.parametrize(
+    ("url", "site"),
+    [
+        ("https://www.example.com/a", "example.com"),
+        ("https://blog.example.com/a", "example.com"),
+        ("https://news.bbc.co.uk/a", "bbc.co.uk"),
+        ("https://www.abc.net.au/a", "abc.net.au"),
+        ("https://www.heise.de/a", "heise.de"),
+        ("http://127.0.0.1:8000/a", "127.0.0.1"),
+    ],
+)
+def test_a_sources_site_is_its_registered_domain(url, site):
+    assert site_of(url) == site
+
+
 def test_sources_found_by_more_searches_and_higher_up_rank_first(monkeypatch):
     fake_model(monkeypatch)
     fake_search(
@@ -353,6 +387,10 @@ def test_with_no_search_provider_configured_the_marketer_is_told_which_keys_to_s
 
     assert "SERPAPI_API_KEY" in replies[1] and "TAVILY_API_KEY" in replies[1]
     assert not state["topics"]["topic-1"].get("research")
+
+
+def test_with_no_active_topic_research_stops_the_plan():
+    assert research({"topics": {}, "active_topic_id": None}) == {"abort_reason": NO_TOPIC}
 
 
 def test_when_no_search_finds_anything_no_research_is_saved(monkeypatch):

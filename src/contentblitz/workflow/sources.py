@@ -8,6 +8,8 @@ from contentblitz.workflow.state import ResearchSource
 
 MAX_PER_SITE = 2
 _TRACKING_PARAMS = {"gclid", "fbclid"}
+# Labels that country codes register sites under (bbc.co.uk, abc.net.au): the site keeps three.
+_COUNTRY_SECOND_LEVEL = {"ac", "co", "com", "edu", "gov", "net", "org"}
 
 
 @dataclass
@@ -43,8 +45,13 @@ def normalise_url(url: str) -> str:
 
 
 def site_of(url: str) -> str:
+    """The domain a URL's site is registered under, so news.bbc.co.uk and bbc.co.uk are one site."""
     host = urlsplit(url).hostname or ""
-    return host.removeprefix("www.")
+    if host.replace(".", "").isdigit():
+        return host
+    labels = host.split(".")
+    under_country = len(labels[-1]) == 2 and labels[-2] in _COUNTRY_SECOND_LEVEL
+    return ".".join(labels[-3:] if len(labels) > 2 and under_country else labels[-2:])
 
 
 def merge_sources(searches: list[QuerySearch], max_sources: int) -> list[ResearchSource]:
