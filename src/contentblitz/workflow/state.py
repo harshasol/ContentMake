@@ -100,7 +100,7 @@ class Revision(TypedDict):
     # A blog's SEO fields; the keyword and template carry over to its refinements.
     meta_description: NotRequired[str]
     target_keyword: NotRequired[str]
-    template: NotRequired[str]
+    template: NotRequired[Template]
     # How it measured up when it was made: the score and each check's result.
     quality_score: NotRequired[QualityScore]
 

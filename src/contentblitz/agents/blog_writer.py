@@ -170,7 +170,7 @@ def _keyword(state: ContentBlitzState) -> str:
     )
 
 
-def _template(state: ContentBlitzState) -> str | None:
+def _template(state: ContentBlitzState) -> Template | None:
     """The template: the request's when it names one, otherwise the refined blog's. None lets
     the writer pick."""
     return _step(state).get("template") or _carried_over(state, "template")
