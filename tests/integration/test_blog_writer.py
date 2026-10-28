@@ -309,7 +309,7 @@ def test_a_blog_that_fails_a_check_does_not_pass_even_with_full_marks_from_the_r
     assert revision_of(state)["quality_score"]["passed"] is False
 
 
-def test_the_reviewer_rating_and_top_3_suggestions_are_posted_and_all_are_saved(model):
+def test_the_reviewers_engagement_score_and_top_3_suggestions_are_posted_and_all_are_saved(model):
     [reply], state = run_plan(BLOG, {"topic-1": topic()})
 
     after_body = reply.removeprefix(BODY)

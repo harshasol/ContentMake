@@ -4,7 +4,7 @@ The blog step runs the blog's quality loop. Its draft is one structured call to 
 `blog_writer` model, given the whole Brief, its target and secondary keywords, the four
 template guides, the target word range and the step's instructions. It returns the template
 it used, the title, the meta description and the Markdown body, citing the Brief's Sources
-as `[n]`. The loop checks the draft against the blog's SEO rules, and the AI reviewer rates its
+as `[n]`. The loop checks the draft against the blog's SEO rules, and the AI reviewer scores its
 hook, flow, clarity and call to action. A draft that doesn't pass is revised: the same call,
 given the current draft and what to fix. The kept Attempt is posted and saved with its
 Quality Score and how many revisions were used.
@@ -272,8 +272,8 @@ def _review_text(found: Review | None) -> str:
     if found is None:
         return "*Engagement: reviewer unavailable*"
     suggestions = "\n".join(f"- {s}" for s in found["suggestions"][:SUGGESTIONS_SHOWN])
-    rating = f"**Engagement:** {found['engagement']}/10"
-    return f"{rating}\n\n**Suggestions:**\n{suggestions}" if suggestions else rating
+    engagement = f"**Engagement:** {found['engagement']}/10"
+    return f"{engagement}\n\n**Suggestions:**\n{suggestions}" if suggestions else engagement
 
 
 def _quality_text(quality: QualityScore) -> str:

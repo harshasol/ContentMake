@@ -1,4 +1,4 @@
-"""The AI reviewer: rates a draft for engagement and suggests improvements. See spec #19.
+"""The AI reviewer: scores a draft for engagement and suggests improvements. See spec #19.
 
 One structured call to the `quality_judge` model, so a cheaper model can judge while a
 stronger one writes. Each format gives its own judging criteria. Given a Brand Profile, the
