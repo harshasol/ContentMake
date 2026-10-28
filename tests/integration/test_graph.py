@@ -110,6 +110,29 @@ def test_routing_sees_the_last_ten_messages_with_the_query_handler_model(monkeyp
     ]
 
 
+def test_progress_and_plan_messages_do_not_use_up_the_history_window(monkeypatch, with_api_key):
+    everything = new_content("blog", "linkedin_post", "image")(None)
+    router = fake_router(
+        monkeypatch,
+        lambda text: everything if text == "the works" else chat("reply to {text}")(text),
+    )
+    graph = build_graph()
+    send(graph, "first")
+    send(graph, "second")
+    assert len(send(graph, "the works")) == 6
+    send(graph, "last")
+
+    conversation = [m for m in router.calls[-1]["messages"] if m["role"] != "system"]
+    assert conversation == [
+        {"role": "user", "content": "first"},
+        {"role": "assistant", "content": "reply to first"},
+        {"role": "user", "content": "second"},
+        {"role": "assistant", "content": "reply to second"},
+        {"role": "user", "content": "the works"},
+        {"role": "user", "content": "last"},
+    ]
+
+
 def test_conversation_is_kept_per_thread(monkeypatch, with_api_key):
     fake_router(monkeypatch, chat("reply to {text}"))
     graph = build_graph()

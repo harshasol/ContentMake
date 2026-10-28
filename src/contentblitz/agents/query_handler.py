@@ -9,6 +9,7 @@ from langchain_core.messages import AIMessage, AnyMessage
 from contentblitz.core.config import get_settings
 from contentblitz.integrations import llm
 from contentblitz.workflow.plan import build_plan, describe_plan, replan
+from contentblitz.workflow.progress import is_progress, progress_message
 from contentblitz.workflow.refine import (
     active_topic_pieces,
     describe_refine,
@@ -92,14 +93,16 @@ _ROLES = {"human": "user", "ai": "assistant"}
 
 
 def _conversation(messages: list[AnyMessage]) -> list[dict]:
-    recent = [m for m in messages if m.type in _ROLES][-HISTORY_WINDOW:]
+    """The latest user turns and replies; plan and agent progress messages don't count."""
+    turns = [m for m in messages if m.type in _ROLES and not is_progress(m)]
+    recent = turns[-HISTORY_WINDOW:]
     return [{"role": _ROLES[m.type], "content": m.content} for m in recent]
 
 
-def _reply(text: str, **update) -> ContentBlitzState:
+def _reply(text: str | AIMessage, **update) -> ContentBlitzState:
     """A reply that runs no steps. Every run starts with a fresh plan and no pending question."""
     return {
-        "messages": [AIMessage(content=text)],
+        "messages": [text if isinstance(text, AIMessage) else AIMessage(content=text)],
         "plan": [],
         "completed_steps": [],
         "pending_topic_question": None,
@@ -118,8 +121,8 @@ def _chat_or_clarifying_text(decision: RoutingDecision) -> str:
 def _run_plan(plan: list[PlanStep], topic_update: ContentBlitzState) -> ContentBlitzState:
     """Post the plan for the Topic the update makes active, and hand it to the dispatcher."""
     topic = topic_update["topics"][topic_update["active_topic_id"]]
-    reply = _reply(describe_plan(plan, topic["name"]), intent="new_content", plan=plan)
-    return {**reply, **topic_update}
+    announcement = progress_message(describe_plan(plan, topic["name"]))
+    return {**_reply(announcement, intent="new_content", plan=plan), **topic_update}
 
 
 def _current_topic(state: ContentBlitzState) -> ContentBlitzState:
@@ -145,7 +148,7 @@ def _refine(state: ContentBlitzState, decision: RoutingDecision) -> ContentBlitz
         return _reply(which_piece_question(state, candidates), intent="refine")
     [piece_id] = candidates
     plan = [refine_step(state, piece_id, decision.instructions)]
-    return _reply(describe_refine(state, piece_id), intent="refine", plan=plan)
+    return _reply(progress_message(describe_refine(state, piece_id)), intent="refine", plan=plan)
 
 
 def _ask_topic_question(
