@@ -475,6 +475,36 @@ def test_matching_ignores_thousands_separators_percent_wording_and_spacing(
     assert stat["verified"] is verified
 
 
+@pytest.mark.parametrize(
+    ("figure", "page_text", "verified"),
+    [
+        # A year isn't the number being claimed: 45% must be in the Source too.
+        ("In 2024, 45% of clinics", "In 2024, 12% of clinics used AI.", False),
+        ("In 2024, 45% of clinics", "Some 45% of clinics used AI last year.", True),
+        ("45% of clinics (2024)", "In 2024, 12% of clinics used AI.", False),
+        # Every number counts, not just the first.
+        ("3 in 4 patients", "3 in 10 patients waited.", False),
+        ("3 in 4 patients", "Now 3 in 4 patients are seen within a week.", True),
+        ("1,200 of 5,000 hospitals", "1,200 hospitals use it.", False),
+        # A year that is the only number is the claim itself.
+        ("2019", "The first device was cleared in 2019.", True),
+        ("2019", "The first device was cleared in 2021.", False),
+        # A grouped number is not a year, even if its digits look like one.
+        ("1,950 clinics in 2024", "There were 1,950 clinics in 2023.", True),
+    ],
+)
+def test_every_significant_number_in_a_figure_must_be_in_a_cited_source(
+    model, figure, page_text, verified
+):
+    record = research_record("who.int")
+    record["sources"][0]["page_text"] = page_text
+    model.reply = draft(statistics=[statistic(figure, 1)])
+    _, state = run_plan(RESEARCH_ONLY, {"topic-1": topic(record=record)})
+
+    [stat] = state["topics"]["topic-1"]["brief"]["statistics"]
+    assert stat["verified"] is verified
+
+
 def test_a_number_in_a_cited_sources_snippet_verifies_it(model):
     record = research_record("who.int")
     record["sources"][0]["snippet"] = "Over 950 AI devices are cleared."
