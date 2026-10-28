@@ -2,6 +2,7 @@
 
 from functools import lru_cache
 from pathlib import Path
+from typing import Literal
 
 import yaml
 from pydantic import BaseModel, Field
@@ -55,7 +56,14 @@ class QualityOptions(BaseModel):
 
 
 class SearchOptions(BaseModel):
-    providers: list[str] = Field(min_length=1)
+    """Search providers in fallback order, and the caps on each research run."""
+
+    providers: list[Literal["serpapi", "tavily"]] = Field(min_length=1)
+    queries_per_run: int = Field(4, ge=1)
+    max_sources: int = Field(10, ge=1)
+    pages_to_read: int = Field(6, ge=0)
+    page_timeout_seconds: float = Field(8, gt=0)
+    text_cap_chars: int = Field(2000, ge=0)
 
 
 class ModelConfig(BaseModel):
