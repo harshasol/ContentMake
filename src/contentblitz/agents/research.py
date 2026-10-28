@@ -6,4 +6,4 @@ from contentblitz.workflow.state import ContentBlitzState
 
 
 def research(state: ContentBlitzState) -> ContentBlitzState:
-    return {"messages": [AIMessage(content="Deep Research Agent is not implemented yet.")]}
+    return {"messages": [AIMessage(content="Deep Research Agent: done (stub).")]}

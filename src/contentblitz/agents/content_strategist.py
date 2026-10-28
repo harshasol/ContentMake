@@ -6,4 +6,4 @@ from contentblitz.workflow.state import ContentBlitzState
 
 
 def content_strategist(state: ContentBlitzState) -> ContentBlitzState:
-    return {"messages": [AIMessage(content="Content Strategist is not implemented yet.")]}
+    return {"messages": [AIMessage(content="Content Strategist: done (stub).")]}
