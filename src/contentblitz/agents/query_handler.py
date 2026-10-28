@@ -172,7 +172,7 @@ def _refine(state: ContentBlitzState, decision: RoutingDecision) -> ContentBlitz
     if len(candidates) > 1:
         return _reply(which_piece_question(state, candidates), intent="refine")
     [piece_id] = candidates
-    plan = [refine_step(state, piece_id, decision.instructions)]
+    plan = [refine_step(state, piece_id, decision)]
     return _reply(progress_message(describe_refine(state, piece_id)), intent="refine", plan=plan)
 
 

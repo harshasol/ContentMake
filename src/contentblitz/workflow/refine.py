@@ -1,6 +1,7 @@
 """Resolves which Content Piece a refine request targets, and plans its one refine step."""
 
 from contentblitz.workflow.formats import PIECE_FORMATS
+from contentblitz.workflow.plan import BLOG_OPTIONS
 from contentblitz.workflow.routing import RoutingDecision
 from contentblitz.workflow.state import ContentBlitzState, PlanStep
 from contentblitz.workflow.topics import active_topic
@@ -33,9 +34,18 @@ def resolve_target(state: ContentBlitzState, decision: RoutingDecision) -> list[
     return [pid for pid in active_topic_pieces(state) if pieces[pid]["kind"] in kinds]
 
 
-def refine_step(state: ContentBlitzState, piece_id: str, instructions: str | None) -> PlanStep:
+def refine_step(state: ContentBlitzState, piece_id: str, decision: RoutingDecision) -> PlanStep:
+    """The one step that refines `piece_id`. A blog's also gets the request's blog options, so
+    a refinement can change its keyword, template or length."""
     kind = state["content_pieces"][piece_id]["kind"]
-    return {"agent": PIECE_FORMATS[kind].agent, "target": piece_id, "instructions": instructions}
+    step: PlanStep = {
+        "agent": PIECE_FORMATS[kind].agent,
+        "target": piece_id,
+        "instructions": decision.instructions,
+    }
+    if kind == "blog":
+        step |= {o: v for o in BLOG_OPTIONS if (v := getattr(decision, o)) is not None}
+    return step
 
 
 def _label(state: ContentBlitzState, piece_id: str) -> str:

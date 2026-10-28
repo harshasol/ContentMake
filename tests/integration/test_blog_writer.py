@@ -148,10 +148,11 @@ def config(thread="t1"):
     return {"configurable": {"thread_id": thread}}
 
 
-def run_plan(plan, topics=None, graph=None, thread="t1"):
+def run_plan(plan, topics=None, graph=None, thread="t1", pieces=None):
     """Run `plan` from the dispatcher, as if the Query Handler had just posted it.
 
-    Returns the replies the plan produced and the state afterwards.
+    `pieces` seeds the Content Pieces. Returns the replies the plan produced and the state
+    afterwards.
     """
     graph = graph or build_graph()
     before = len(graph.get_state(config(thread)).values.get("messages", []))
@@ -163,6 +164,8 @@ def run_plan(plan, topics=None, graph=None, thread="t1"):
     }
     if topics is not None:
         seeded |= {"topics": topics, "active_topic_id": "topic-1"}
+    if pieces is not None:
+        seeded["content_pieces"] = pieces
     graph.update_state(config(thread), seeded, as_node="query_handler")
     result = graph.invoke(None, config(thread))
     return [m.content for m in result["messages"][before + 1 :]], result
@@ -657,3 +660,168 @@ def test_without_a_length_in_the_request_the_default_range_applies(model):
     result = length_check(state)
     assert result["passed"]
     assert "900-1800" in result["reason"]
+
+
+# Refining a blog: a refine step targets a blog and starts from its latest Revision
+
+HAND_EDIT_BODY = BODY.replace(
+    "AI in healthcare is changing how scans are read [1].",
+    "I rewrote this intro myself: AI in healthcare is changing how scans are read [1].",
+)
+DRAFT_REVISION = {
+    "text": BODY,
+    "meta_description": META,
+    "target_keyword": "AI in healthcare",
+    "template": "thought leadership",
+    "origin": "draft",
+    "created_at": "2026-10-21T10:00:00+00:00",
+}
+HAND_EDIT = {
+    "text": HAND_EDIT_BODY,
+    "meta_description": META_155,
+    "target_keyword": "AI in healthcare",
+    "template": "thought leadership",
+    "origin": "hand_edit",
+    "created_at": "2026-10-22T10:00:00+00:00",
+}
+
+
+def refine_blog(
+    instructions="make the intro shorter", revisions=(DRAFT_REVISION, HAND_EDIT), **options
+):
+    """Run a refine step on the seeded blog piece-1, by default with a hand edit as its latest
+    Revision. `options` are the request's blog options on the step."""
+    plan = [{"agent": "blog_writer", "target": "piece-1", "instructions": instructions, **options}]
+    blog = {
+        "kind": "blog",
+        "topic_id": "topic-1",
+        "title": "AI in Healthcare: How Hospitals Read Scans Faster",
+        "revisions": list(revisions),
+    }
+    seeded = topic() | {"piece_ids": ["piece-1"]}
+    return run_plan(plan, {"topic-1": seeded}, pieces={"piece-1": blog})
+
+
+def test_refining_a_blog_revises_its_latest_revision_even_a_hand_edit(model):
+    model.reply = PASSING
+    refine_blog()
+
+    refine = prompt_of(model.calls_to("blog_writer")[0])
+    assert HAND_EDIT_BODY in refine and META_155 in refine  # the latest Revision, to change
+    assert "make the intro shorter" in refine
+
+
+def test_a_refined_blog_is_added_as_a_new_refinement_revision_on_the_same_piece(model):
+    model.reply = PASSING
+    _, state = refine_blog()
+
+    assert list(state["content_pieces"]) == ["piece-1"]  # no new Content Piece
+    assert state["topics"]["topic-1"]["piece_ids"] == ["piece-1"]
+    draft, hand_edit, refined = state["content_pieces"]["piece-1"]["revisions"]
+    assert (draft, hand_edit) == (DRAFT_REVISION, HAND_EDIT)  # earlier Revisions are unchanged
+    assert datetime.fromisoformat(refined.pop("created_at")) > datetime.fromisoformat(
+        HAND_EDIT["created_at"]
+    )
+    quality = refined.pop("quality_score")
+    assert (quality["passed"], quality["revisions_used"]) == (True, 0)
+    assert refined == {
+        "text": PASSING_BODY,
+        "meta_description": META_155,
+        "target_keyword": "AI in healthcare",
+        "template": "thought leadership",
+        "origin": "refinement",
+    }
+
+
+def test_a_refinement_that_fails_a_check_is_revised_until_one_passes(model):
+    model.reply = [FAILING, PASSING]
+    [reply], state = refine_blog()
+
+    calls = model.calls_to("blog_writer")
+    assert len(calls) == 2  # the refinement, then one automatic revision
+    assert len(model.calls_to("quality_judge")) == 2
+    revise = prompt_of(calls[1])
+    assert BODY in revise and "keyword density" in revise  # the refined draft and what failed
+    assert "Automatic revisions: 1 of 3" in reply.replace("*", "")
+    *_, refined = state["content_pieces"]["piece-1"]["revisions"]
+    assert (refined["text"], refined["quality_score"]["revisions_used"]) == (PASSING_BODY, 1)
+
+
+def test_the_chat_shows_the_refined_blog_its_meta_description_and_quality_score(model):
+    model.reply = PASSING
+    model.verdict = verdict(engagement=10)
+    [reply], _ = refine_blog()
+
+    assert reply.startswith(PASSING_BODY)
+    after_body = reply.removeprefix(PASSING_BODY).replace("*", "")
+    assert f"Meta description: {META_155}" in after_body
+    assert "Quality Score: 100/100" in after_body
+    assert "keyword density 1.8% ✓" in after_body
+
+
+WRITTEN_FOR = {"target_keyword": "AI diagnostics", "template": "listicle"}
+
+
+def test_a_refinement_keeps_the_keyword_and_template_of_the_latest_revision(model):
+    # The Brief suggests "AI in healthcare"; the blog was written for "AI diagnostics".
+    model.reply = blog_draft(template="comparison")  # the template the model says it used
+    _, state = refine_blog(revisions=[DRAFT_REVISION | WRITTEN_FOR, HAND_EDIT | WRITTEN_FOR])
+
+    refine = prompt_of(model.calls_to("blog_writer")[0])
+    assert "Target keyword: AI diagnostics" in refine
+    assert "Template: listicle" in refine
+    *_, refined = state["content_pieces"]["piece-1"]["revisions"]
+    assert (refined["target_keyword"], refined["template"]) == ("AI diagnostics", "listicle")
+
+
+def test_a_hand_edit_that_records_no_keyword_or_template_keeps_the_ones_before_it(model):
+    bare_edit = {k: v for k, v in HAND_EDIT.items() if k not in WRITTEN_FOR}
+    _, state = refine_blog(revisions=[DRAFT_REVISION | WRITTEN_FOR, bare_edit])
+
+    *_, refined = state["content_pieces"]["piece-1"]["revisions"]
+    assert (refined["target_keyword"], refined["template"]) == ("AI diagnostics", "listicle")
+
+
+def test_a_refinement_that_sets_a_keyword_template_and_length_uses_them(model):
+    model.reply = blog_draft(body=PASSING_BODY)
+    _, state = refine_blog(
+        "cut it to 600 words, as a how-to on AI radiology",
+        target_keyword="AI radiology",
+        template="how-to",
+        length=600,
+    )
+
+    refine = prompt_of(model.calls_to("blog_writer")[0])
+    assert "Target keyword: AI radiology" in refine
+    assert "Template: how-to" in refine
+    assert "Target length: 600 words" in refine
+    *_, refined = state["content_pieces"]["piece-1"]["revisions"]
+    assert (refined["target_keyword"], refined["template"]) == ("AI radiology", "how-to")
+    [length] = [c for c in refined["quality_score"]["checks"] if c["name"] == "length"]
+    assert "510-690" in length["reason"]
+
+
+def test_a_failed_refinement_posts_an_error_and_leaves_the_revisions_unchanged(model):
+    model.reply = RuntimeError("every provider is down")
+    [reply], state = refine_blog()
+
+    assert reply == (
+        "I couldn't refine *AI in Healthcare: How Hospitals Read Scans Faster*: the model "
+        "didn't give a usable reply. Its latest Revision is unchanged, so ask again to retry."
+    )
+    assert state["content_pieces"]["piece-1"]["revisions"] == [DRAFT_REVISION, HAND_EDIT]
+
+
+def test_refining_a_blog_whose_topic_has_no_brief_says_so_and_changes_nothing(model):
+    # Fresh research clears the Brief; if the Content Strategist then fails, there is none.
+    plan = [{"agent": "blog_writer", "target": "piece-1", "instructions": "shorter"}]
+    seeded = topic() | {"brief": None, "piece_ids": ["piece-1"]}
+    blog = {"kind": "blog", "topic_id": "topic-1", "title": "AI now", "revisions": [HAND_EDIT]}
+    [reply], state = run_plan(plan, {"topic-1": seeded}, pieces={"piece-1": blog})
+
+    assert reply == (
+        "I can't refine *AI now* yet: *AI in healthcare* has no Research Brief to check it "
+        "against. Ask me to research it again first."
+    )
+    assert model.calls == []
+    assert state["content_pieces"]["piece-1"]["revisions"] == [HAND_EDIT]
