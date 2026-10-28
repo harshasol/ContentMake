@@ -108,8 +108,9 @@ def verdict(**overrides):
 class FakeModel:
     """Stands in for every model: scripted blog drafts and reviewer verdicts, one per call.
 
-    The blog writer gets `reply` and the reviewer gets `verdict`; an exception is raised.
-    Other agents (the LinkedIn Writer is still a stub) aren't expected to call.
+    The blog writer gets `reply` and the reviewer gets `verdict`; an exception is raised. Either
+    may be a list, one per attempt: the nth call to that agent gets the nth item, and the last
+    item repeats. Other agents (the LinkedIn Writer is still a stub) aren't expected to call.
     """
 
     def __init__(self, reply, verdict):
@@ -120,6 +121,8 @@ class FakeModel:
     def __call__(self, agent, messages, schema):
         self.calls.append({"agent": agent, "messages": messages, "schema": schema})
         reply = self.verdict if agent == "quality_judge" else self.reply
+        if isinstance(reply, list):
+            reply = reply[min(len(self.calls_to(agent)), len(reply)) - 1]
         if isinstance(reply, Exception):
             raise reply
         return llm.Reply(schema.model_validate(reply), "openai/gpt-4o")
@@ -318,7 +321,7 @@ def test_the_reviewer_rating_and_top_3_suggestions_are_posted_and_all_are_saved(
 def test_the_reviewer_is_given_the_blog_and_its_judging_criteria(model):
     run_plan(BLOG, {"topic-1": topic()})
 
-    [call] = model.calls_to("quality_judge")
+    call = model.calls_to("quality_judge")[0]
     prompt = "\n".join(m["content"] for m in call["messages"])
     for fact in [BODY, META, "hook", "flow", "clarity", "call to action"]:
         assert fact.lower() in prompt.lower(), fact
@@ -373,7 +376,7 @@ def test_the_writer_model_is_given_the_whole_brief_keywords_templates_length_and
     plan = [{"agent": "blog_writer", "instructions": "aimed at hospital CIOs"}]
     run_plan(plan, {"topic-1": topic()})
 
-    [call] = model.calls_to("blog_writer")
+    call = model.calls_to("blog_writer")[0]  # the first draft
     prompt = "\n".join(m["content"] for m in call["messages"])
     for fact in [
         "aimed at hospital CIOs",
@@ -428,3 +431,19 @@ def test_a_first_draft_that_passes_is_finalised_with_no_revisions_used(model):
     assert "Automatic revisions: 0 of 3" in reply.replace("*", "")
     quality = revision_of(state)["quality_score"]
     assert (quality["passed"], quality["revisions_used"]) == (True, 0)
+
+
+PASSING = blog_draft(body=PASSING_BODY, meta_description=META_155)
+FAILING = blog_draft(meta_description=META_155)  # fails 3 checks: see the Quality Score tests
+
+
+def test_a_failing_draft_is_revised_until_one_passes_and_the_loop_stops_there(model):
+    model.reply = [FAILING, FAILING, PASSING, FAILING]
+    [reply], state = run_plan(BLOG, {"topic-1": topic()})
+
+    assert len(model.calls_to("blog_writer")) == 3
+    assert len(model.calls_to("quality_judge")) == 3
+    assert reply.startswith(PASSING_BODY)
+    assert "Automatic revisions: 2 of 3" in reply.replace("*", "")
+    quality = revision_of(state)["quality_score"]
+    assert (quality["passed"], quality["revisions_used"]) == (True, 2)

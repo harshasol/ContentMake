@@ -625,6 +625,7 @@ def test_after_a_stopped_plan_the_next_request_runs_its_whole_plan(monkeypatch):
         "- readability grade 0.9 ✓\n"
         "- length 7 words ✗\n"
         "- citations 1 Source cited ✗\n\n"
+        "**Automatic revisions:** 3 of 3\n\n"
         "**Engagement:** 8/10",
         "LinkedIn Post Writer: done (stub).",
     ]

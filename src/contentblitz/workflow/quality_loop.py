@@ -1,12 +1,13 @@
 """The quality loop: the subgraph a writer step runs in, one per format. See spec #19.
 
-For now it is draft → check → judge → finalise. The revise loop (#32) joins it between judge
-and finalise, so the plan dispatcher never needs rewiring: it runs the writer's step, and the
-step runs its format's loop.
+The loop is draft → check → judge → (revise → check → judge)… → finalise. The plan dispatcher
+runs the writer's step, and the step runs its format's loop.
 
 Each draft the loop makes is an attempt. Check runs the format's content checks on it, and
-judge asks the AI reviewer for its verdict and gives the attempt its Quality Score. Attempts
-are not Revisions: finalise saves only the one it keeps.
+judge asks the AI reviewer for its verdict and gives the attempt its Quality Score. An attempt
+that doesn't pass is revised: the writer changes the current draft, given the failed checks and
+the reviewer's suggestions, at most `max_revisions` times. The loop stops at the first attempt
+that passes. Attempts are not Revisions: finalise saves only the one it keeps.
 """
 
 from collections.abc import Callable
@@ -47,6 +48,9 @@ class QualityFormat:
     name: str
     # The first draft, or None when every provider failed.
     draft: Callable[[ContentBlitzState], dict | None]
+    # The current draft changed to answer the feedback (see `feedback`), or None when every
+    # provider failed.
+    revise: Callable[[ContentBlitzState, dict, str], dict | None]
     # The content checks' results for a draft, in the order the chat lists them.
     checks: Callable[[ContentBlitzState, dict], list[CheckResult]]
     # The AI reviewer's verdict on a draft, with the format's judging criteria, or None when
@@ -56,6 +60,24 @@ class QualityFormat:
     finalise: Callable[[ContentBlitzState, Attempt], ContentBlitzState]
     # The chat message when no draft could be made. The plan carries on.
     failure: Callable[[ContentBlitzState], str]
+
+
+def feedback(attempt: Attempt) -> str:
+    """What the writer is asked to fix in an attempt: each failed check with its measured
+    value and target, and the reviewer's suggestions."""
+    quality = attempt["quality_score"]
+    failed = [
+        f"- {c['name']} ({c['measured']}): {c['reason']}"
+        for c in quality["checks"]
+        if not c["passed"]
+    ]
+    suggestions = [f"- {s}" for s in (quality["review"] or {}).get("suggestions", [])]
+    parts = []
+    if failed:
+        parts.append("These checks failed:\n" + "\n".join(failed))
+    if suggestions:
+        parts.append("The reviewer suggests:\n" + "\n".join(suggestions))
+    return "\n\n".join(parts)
 
 
 def _draft_node(fmt: QualityFormat):
@@ -93,6 +115,30 @@ def _judge_node(fmt: QualityFormat):
     return judge
 
 
+def _after_judge(state: LoopState) -> str:
+    """Finalise once the latest attempt passes or the revisions are used up; else revise."""
+    attempts = state.get("attempts") or []
+    if not attempts or attempts[-1]["quality_score"]["passed"]:
+        return "finalise"
+    revisions_used = len(attempts) - 1
+    return "finalise" if revisions_used >= get_model_config().quality.max_revisions else "revise"
+
+
+def _revise_node(fmt: QualityFormat):
+    def revise(state: LoopState) -> LoopState:
+        """Asks the writer to revise the latest attempt. A failed call adds no attempt."""
+        attempts = state["attempts"]
+        made = fmt.revise(state, attempts[-1]["draft"], feedback(attempts[-1]))
+        return {} if made is None else {"attempts": [*attempts, {"draft": made}]}
+
+    return revise
+
+
+def _after_revise(state: LoopState) -> str:
+    """Check the new attempt, or finalise when the revise call made none."""
+    return "finalise" if "checks" in state["attempts"][-1] else "check"
+
+
 def _finalise_node(fmt: QualityFormat):
     def finalise(state: LoopState) -> LoopState:
         attempts = state.get("attempts") or []
@@ -111,11 +157,13 @@ def quality_loop(fmt: QualityFormat) -> Callable[[ContentBlitzState], ContentBli
     builder.add_node("draft", _draft_node(fmt))
     builder.add_node("check", _check_node(fmt))
     builder.add_node("judge", _judge_node(fmt))
+    builder.add_node("revise", _revise_node(fmt))
     builder.add_node("finalise", _finalise_node(fmt))
     builder.add_edge(START, "draft")
     builder.add_edge("draft", "check")
     builder.add_edge("check", "judge")
-    builder.add_edge("judge", "finalise")
+    builder.add_conditional_edges("judge", _after_judge, ["revise", "finalise"])
+    builder.add_conditional_edges("revise", _after_revise, ["check", "finalise"])
     builder.add_edge("finalise", END)
     loop = builder.compile(name=f"{fmt.name} quality loop")
 

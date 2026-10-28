@@ -50,7 +50,13 @@ title, then H2 sections with H3s only under them. Optimise for the target keywor
 secondary keywords in naturally. Pick the template that fits best and follow its structure.
 Follow the marketer's instructions."""
 
-JUDGING_CRITERIA = "its hook, flow, clarity and call to action"
+REVISE_PROMPT = """\
+Revise your blog post above to fix what follows. Change only what is needed to fix it, and keep
+the rest of the post as it is. If readability failed, use shorter sentences and simpler words.
+
+{feedback}"""
+
+JUDGING_CRITERIA ="its hook, flow, clarity and call to action"
 SUGGESTIONS_SHOWN = 3
 
 NO_MODEL = (
@@ -114,13 +120,28 @@ def _prompt(state: ContentBlitzState) -> list[dict]:
     ]
 
 
-def _draft(state: ContentBlitzState) -> dict | None:
+def _write_draft(messages: list[dict]) -> dict | None:
     """The model's blog draft, or None if every provider failed or the reply never fit."""
     try:
-        reply = llm.complete_structured_reply(AGENT, _prompt(state), BlogDraft)
+        reply = llm.complete_structured_reply(AGENT, messages, BlogDraft)
     except Exception:  # noqa: BLE001 - a failed blog posts an error; the plan carries on
         return None
     return reply.value.model_dump()
+
+
+def _draft(state: ContentBlitzState) -> dict | None:
+    return _write_draft(_prompt(state))
+
+
+def _revise(state: ContentBlitzState, draft: dict, feedback: str) -> dict | None:
+    """The current draft revised to fix what the feedback names, keeping the rest."""
+    return _write_draft(
+        [
+            *_prompt(state),
+            {"role": "assistant", "content": BlogDraft.model_validate(draft).model_dump_json()},
+            {"role": "user", "content": REVISE_PROMPT.format(feedback=feedback)},
+        ]
+    )
 
 
 def _checks(state: ContentBlitzState, draft: dict) -> list[CheckResult]:
@@ -201,6 +222,7 @@ def _failure(state: ContentBlitzState) -> str:
 BLOG = QualityFormat(
     name="blog",
     draft=_draft,
+    revise=_revise,
     checks=_checks,
     judge=_judge,
     finalise=_finalise,
