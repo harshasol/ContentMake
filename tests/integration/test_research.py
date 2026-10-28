@@ -10,7 +10,7 @@ from langsmith import tracing_context
 from contentblitz.agents import query_handler as qh
 from contentblitz.agents.research import NO_TOPIC, research
 from contentblitz.core.config import Settings
-from contentblitz.integrations import search
+from contentblitz.integrations import llm, search
 from contentblitz.integrations.search import SearchProviderError, SearchResult
 from contentblitz.workflow.graph import build_graph
 from contentblitz.workflow.routing import RoutingDecision
@@ -30,9 +30,13 @@ BRIEF_DRAFT = {
         {"statement": "Regulators are catching up.", "source_numbers": [1]},
     ],
     "statistics": [],
-    "angles": [{"title": "The new colleague", "hook": "Your scan may be read twice."}],
+    "angles": [
+        {"title": "The new colleague", "hook": "Your scan may be read twice."},
+        {"title": "Regulation catches up", "hook": "Approvals keep coming."},
+        {"title": "The rural gap", "hook": "The clinics that need AI most get it last."},
+    ],
     "target_keyword": "AI in healthcare",
-    "secondary_keywords": ["AI diagnosis"],
+    "secondary_keywords": ["AI diagnosis", "medical AI regulation", "AI radiology"],
 }
 
 
@@ -111,7 +115,18 @@ def pages(monkeypatch):
 def fake_model(monkeypatch, decision=None, queries=QUERIES):
     model = FakeModel(decision or research_request(), queries)
     monkeypatch.setattr(qh.llm, "complete_structured", model)
+    answer_through_complete_structured(monkeypatch)
     return model
+
+
+def answer_through_complete_structured(monkeypatch):
+    """The Content Strategist asks for the model's reply with its name; route that call through
+    whatever fake stands in for `complete_structured`, naming the configured model."""
+
+    def reply(agent, messages, schema):
+        return llm.Reply(llm.complete_structured(agent, messages, schema), "openai/gpt-4o")
+
+    monkeypatch.setattr(llm, "complete_structured_reply", reply)
 
 
 def fake_search(monkeypatch, *providers):

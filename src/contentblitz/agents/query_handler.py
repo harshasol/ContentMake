@@ -19,7 +19,7 @@ from contentblitz.workflow.refine import (
     resolve_target,
     which_piece_question,
 )
-from contentblitz.workflow.report import render_report
+from contentblitz.workflow.report import citation, render_report
 from contentblitz.workflow.routing import RoutingDecision
 from contentblitz.workflow.state import ContentBlitzState, PlanStep
 from contentblitz.workflow.topics import UNTITLED_TOPIC, active_topic, create_topic
@@ -52,14 +52,11 @@ def _topic_context(state: ContentBlitzState) -> str:
     if not brief:
         return f"Active Topic: {topic['name']} (no Research Brief yet)."
 
-    def cited(numbers: list[int]) -> str:
-        return f"[{', '.join(map(str, numbers))}]"
-
     findings = "\n".join(
-        f"- {f['statement']} {cited(f['source_numbers'])}" for f in brief["key_findings"]
+        f"- {f['statement']} {citation(f['source_numbers'])}" for f in brief["key_findings"]
     )
     statistics = "\n".join(
-        f"- {s['figure']}: {s['description']} {cited(s['source_numbers'])}"
+        f"- {s['figure']}: {s['description']} {citation(s['source_numbers'])}"
         for s in brief["statistics"]
     )
     sources = "\n".join(f"[{s['number']}] {s['title']} ({s['url']})" for s in brief["sources"])

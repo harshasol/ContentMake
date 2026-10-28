@@ -5,7 +5,9 @@ them, then runs the workflow from the dispatcher. The model is faked at the LLM 
 module and returns a scripted draft Brief.
 """
 
+import json
 from datetime import datetime
+from types import SimpleNamespace
 
 import pytest
 from langchain_core.messages import HumanMessage
@@ -95,13 +97,13 @@ class FakeStrategist:
         reply = self.replies.pop(0) if self.replies else self.reply
         if isinstance(reply, Exception):
             raise reply
-        return schema.model_validate(reply)
+        return llm.Reply(schema.model_validate(reply), "openai/gpt-4o")
 
 
 @pytest.fixture
 def model(monkeypatch):
     fake = FakeStrategist(draft())
-    monkeypatch.setattr(llm, "complete_structured", fake)
+    monkeypatch.setattr(llm, "complete_structured_reply", fake)
     return fake
 
 
@@ -417,10 +419,23 @@ def test_the_briefs_counts_are_traced(model):
         "findings": 4,
         "statistics": 2,
         "verified_statistics": 1,
+        "unverified_statistics": 1,
         "sources": 3,
         "dropped_findings": 1,
         "dropped_statistics": 0,
     }
+
+
+def test_findings_cut_to_the_most_kept_are_not_traced_as_dropped(model):
+    findings = [{"statement": f"Finding {n}.", "source_numbers": [1]} for n in range(1, 11)]
+    model.reply = draft(key_findings=[{"statement": "Made up.", "source_numbers": [9]}, *findings])
+    client = RecordingClient()
+    with tracing_context(enabled=True, client=client):
+        run_plan(RESEARCH_ONLY, {"topic-1": topic()})
+
+    outputs = [r.get("outputs") or {} for r in client.runs.values()]
+    [traced] = [o for o in outputs if "findings" in o]
+    assert (traced["findings"], traced["dropped_findings"]) == (8, 1)
 
 
 def statistic(figure, *source_numbers):
@@ -457,6 +472,16 @@ def test_a_statistic_is_verified_when_its_number_is_in_a_cited_sources_text(mode
         ("45 percent", "Usage rose 45% last year.", True),
         ("45 %", "Usage rose  45 %  last year.", True),
         ("$4.5 billion", "A market worth $4.5\n billion.", True),
+        ("45%", "Usage rose 45-percent last year.", True),
+        ("45-percent", "Usage rose 45% last year.", True),
+        ("45%", "Usage rose 45percent last year.", True),
+        ("45 Percent", "Usage rose 45 per cent last year.", True),
+        ("1 200", "Some 1200 hospitals use it.", True),
+        ("1,200", "Some 1 200 hospitals use it.", True),
+        ("1,200", "Some 1\u00a0200 hospitals use it.", True),
+        ("1\u00a0200\u00a0000", "Some 1,200,000 scans.", True),
+        ("1 200", "Some 12 000 hospitals use it.", False),
+        ("200", "Some 1 200 hospitals use it.", False),
         ("30%", "Usage rose 130% last year.", False),
         ("30%", "Usage rose 30.5% last year.", False),
         ("45%", "We asked 45 people.", False),
@@ -464,6 +489,36 @@ def test_a_statistic_is_verified_when_its_number_is_in_a_cited_sources_text(mode
     ],
 )
 def test_matching_ignores_thousands_separators_percent_wording_and_spacing(
+    model, figure, page_text, verified
+):
+    record = research_record("who.int")
+    record["sources"][0]["page_text"] = page_text
+    model.reply = draft(statistics=[statistic(figure, 1)])
+    _, state = run_plan(RESEARCH_ONLY, {"topic-1": topic(record=record)})
+
+    [stat] = state["topics"]["topic-1"]["brief"]["statistics"]
+    assert stat["verified"] is verified
+
+
+@pytest.mark.parametrize(
+    ("figure", "page_text", "verified"),
+    [
+        # A year isn't the number being claimed: 45% must be in the Source too.
+        ("In 2024, 45% of clinics", "In 2024, 12% of clinics used AI.", False),
+        ("In 2024, 45% of clinics", "Some 45% of clinics used AI last year.", True),
+        ("45% of clinics (2024)", "In 2024, 12% of clinics used AI.", False),
+        # Every number counts, not just the first.
+        ("3 in 4 patients", "3 in 10 patients waited.", False),
+        ("3 in 4 patients", "Now 3 in 4 patients are seen within a week.", True),
+        ("1,200 of 5,000 hospitals", "1,200 hospitals use it.", False),
+        # A year that is the only number is the claim itself.
+        ("2019", "The first device was cleared in 2019.", True),
+        ("2019", "The first device was cleared in 2021.", False),
+        # A grouped number is not a year, even if its digits look like one.
+        ("1,950 clinics in 2024", "There were 1,950 clinics in 2023.", True),
+    ],
+)
+def test_every_significant_number_in_a_figure_must_be_in_a_cited_source(
     model, figure, page_text, verified
 ):
     record = research_record("who.int")
@@ -505,6 +560,18 @@ def test_too_few_grounded_findings_retries_once_saying_what_was_dropped(model):
     assert len(state["topics"]["topic-1"]["brief"]["key_findings"]) == 4
 
 
+def test_a_draft_with_too_few_findings_and_none_dropped_is_asked_for_more(model):
+    one = draft(key_findings=[{"statement": "AI reads scans faster.", "source_numbers": [2]}])
+    model.replies = [one, draft()]
+    run_plan(RESEARCH_ONLY, {"topic-1": topic()})
+
+    feedback = model.calls[1]["messages"][-1]["content"]
+    assert feedback == (
+        "The Brief needs at least 2 key findings, each citing the Sources it comes from. "
+        "The Sources are numbered 1 to 3."
+    )
+
+
 THIN_BRIEF = (
     "I couldn't build a Research Brief on *AI in healthcare*: too few findings could be traced "
     "to the Sources, so I stopped the plan. The research is kept, so ask again to retry the "
@@ -544,3 +611,61 @@ def test_a_model_failure_stops_the_plan_with_a_reason_instead_of_raising(
 
     assert replies == [NO_MODEL]
     assert state["topics"]["topic-1"] == topic()
+
+
+def test_a_brief_is_cut_to_the_most_findings_statistics_angles_and_keywords_kept(model):
+    findings = [{"statement": f"Finding {n}.", "source_numbers": [1]} for n in range(1, 11)]
+    model.reply = draft(
+        key_findings=[{"statement": "Made up.", "source_numbers": [9]}, *findings],
+        statistics=[statistic(str(n), 1) for n in range(1, 11)],
+        angles=[{"title": f"Angle {n}", "hook": "A hook."} for n in range(1, 8)],
+        secondary_keywords=[f"keyword {n}" for n in range(1, 9)],
+    )
+    _, state = run_plan(RESEARCH_ONLY, {"topic-1": topic()})
+
+    brief = state["topics"]["topic-1"]["brief"]
+    assert [f["statement"] for f in brief["key_findings"]] == [f"Finding {n}." for n in range(1, 9)]
+    assert [s["figure"] for s in brief["statistics"]] == [str(n) for n in range(1, 9)]
+    assert [a["title"] for a in brief["angles"]] == [f"Angle {n}" for n in range(1, 6)]
+    assert brief["secondary_keywords"] == [f"keyword {n}" for n in range(1, 7)]
+
+
+def litellm_reply(content, model="gpt-4o-2024-08-06"):
+    message = SimpleNamespace(content=content)
+    return SimpleNamespace(model=model, choices=[SimpleNamespace(message=message)])
+
+
+def test_the_brief_records_the_model_that_answered_not_just_the_configured_one(monkeypatch):
+    """A fallback answered: LiteLLM's reply names it, and the Brief records it."""
+    reply = litellm_reply(json.dumps(draft()), model="claude-sonnet-4-20250514")
+    monkeypatch.setattr(llm.litellm, "completion", lambda **kwargs: reply)
+    _, state = run_plan(RESEARCH_ONLY, {"topic-1": topic()})
+
+    assert state["topics"]["topic-1"]["brief"]["model"] == "claude-sonnet-4-20250514"
+
+
+@pytest.mark.parametrize(
+    "too_few",
+    [
+        {"angles": draft()["angles"][:2]},
+        {"secondary_keywords": ["AI diagnosis", "AI radiology"]},
+    ],
+    ids=["two angles", "two secondary keywords"],
+)
+def test_a_draft_with_too_few_angles_or_keywords_is_asked_for_again(monkeypatch, too_few):
+    """Faked one level lower, at LiteLLM, so the integration module's schema retry runs."""
+    replies = [json.dumps(draft(**too_few)), json.dumps(draft())]
+    calls = []
+
+    def completion(**kwargs):
+        calls.append(kwargs)
+        return litellm_reply(replies[len(calls) - 1])
+
+    monkeypatch.setattr(llm.litellm, "completion", completion)
+    _, state = run_plan(RESEARCH_ONLY, {"topic-1": topic()})
+
+    assert len(calls) == 2
+    assert "did not match the schema" in calls[1]["messages"][-1]["content"]
+    brief = state["topics"]["topic-1"]["brief"]
+    assert len(brief["angles"]) == 3
+    assert len(brief["secondary_keywords"]) == 3

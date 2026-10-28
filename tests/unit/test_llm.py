@@ -78,3 +78,29 @@ def test_complete_structured_gives_up_after_a_second_invalid_reply(monkeypatch):
     with pytest.raises(llm.StructuredOutputError):
         llm.complete_structured("query_handler", [{"role": "user", "content": "x"}], Answer)
     assert len(calls) == 2
+
+
+def test_a_structured_reply_names_the_model_that_answered(monkeypatch):
+    replies = [
+        SimpleNamespace(model="gpt-4o", choices=_reply('{"value": "lots"}').choices),
+        SimpleNamespace(model="claude-sonnet-4-20250514", choices=_reply('{"value": 7}').choices),
+    ]
+    monkeypatch.setattr(llm.litellm, "completion", lambda **kwargs: replies.pop(0))
+
+    reply = llm.complete_structured_reply(
+        "query_handler", [{"role": "user", "content": "x"}], Answer
+    )
+
+    assert reply == llm.Reply(value=Answer(value=7), model="claude-sonnet-4-20250514")
+
+
+def test_a_structured_reply_falls_back_to_the_configured_model_when_none_is_named(monkeypatch):
+    _scripted_completion(monkeypatch, ['{"value": 42}'])
+    config = load_model_config(DEFAULT_CONFIG_PATH)
+    config.agents["query_handler"].models = ["openai/gpt-4o-mini"]
+
+    reply = llm.complete_structured_reply(
+        "query_handler", [{"role": "user", "content": "x"}], Answer, config=config
+    )
+
+    assert reply.model == "openai/gpt-4o-mini"

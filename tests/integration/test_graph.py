@@ -3,7 +3,7 @@ from langchain_core.messages import HumanMessage
 
 from contentblitz.agents import query_handler as qh
 from contentblitz.core.config import Settings
-from contentblitz.integrations import search
+from contentblitz.integrations import llm, search
 from contentblitz.integrations.llm import StructuredOutputError
 from contentblitz.integrations.search import SearchResult
 from contentblitz.workflow import graph as workflow
@@ -23,9 +23,13 @@ BRIEF_DRAFT = {
         {"statement": "Regulators are catching up.", "source_numbers": [1]},
     ],
     "statistics": [],
-    "angles": [{"title": "The new colleague", "hook": "Your scan may be read twice."}],
+    "angles": [
+        {"title": "The new colleague", "hook": "Your scan may be read twice."},
+        {"title": "Regulation catches up", "hook": "Approvals keep coming."},
+        {"title": "The rural gap", "hook": "The clinics that need AI most get it last."},
+    ],
     "target_keyword": "AI in healthcare",
-    "secondary_keywords": ["AI diagnosis"],
+    "secondary_keywords": ["AI diagnosis", "medical AI regulation", "AI radiology"],
 }
 
 
@@ -33,7 +37,7 @@ class FakeRouter:
     """Stands in for the model: returns a scripted routing decision per message.
 
     Research query planning gets three fixed queries and the Content Strategist a scripted
-    draft Brief; only routing and Strategist calls are recorded.
+    draft Brief; only routing and Content Strategist calls are recorded.
     """
 
     def __init__(self, decide):
@@ -80,7 +84,18 @@ def with_api_key(monkeypatch):
 def fake_router(monkeypatch, decide):
     router = FakeRouter(decide)
     monkeypatch.setattr(qh.llm, "complete_structured", router)
+    answer_through_complete_structured(monkeypatch)
     return router
+
+
+def answer_through_complete_structured(monkeypatch):
+    """The Content Strategist asks for the model's reply with its name; route that call through
+    whatever fake stands in for `complete_structured`, naming the configured model."""
+
+    def reply(agent, messages, schema):
+        return llm.Reply(llm.complete_structured(agent, messages, schema), "openai/gpt-4o")
+
+    monkeypatch.setattr(llm, "complete_structured_reply", reply)
 
 
 def send(graph, text, thread="t1"):
@@ -295,7 +310,7 @@ def test_fresh_research_reruns_research_even_with_a_brief(monkeypatch, with_api_
 
 
 def topic_without_brief(research):
-    """A Topic whose Research Brief was never built, as a failed Strategist leaves it."""
+    """A Topic whose Research Brief was never built, as a failed Content Strategist leaves it."""
     return {
         "topics": {
             "topic-1": {"name": "AI in healthcare", "research": research, "brief": None},

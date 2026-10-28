@@ -8,11 +8,16 @@ MAX_STEPS = 6
 WRITERS = {"blog_writer", "linkedin_writer"}
 
 
+def has_writer(steps: list[PlanStep]) -> bool:
+    """Whether any of these steps is a writer's, which needs a Research Brief."""
+    return any(step["agent"] in WRITERS for step in steps)
+
+
 def build_plan(decision: RoutingDecision, topic: Topic | None) -> list[PlanStep]:
     """Research first (ADR 0001) when a writer needs a Brief or research was asked for.
 
-    A writer on a Topic with research but no Brief gets only the Strategist first, so a failed
-    Brief is rebuilt without searching the web again.
+    A writer on a Topic with research but no Brief gets only the Content Strategist first, so a
+    failed Brief is rebuilt without searching the web again.
     """
     steps: list[PlanStep] = [
         {"agent": PIECE_FORMATS[f].agent, "instructions": decision.instructions}
@@ -21,7 +26,7 @@ def build_plan(decision: RoutingDecision, topic: Topic | None) -> list[PlanStep]
     ]
     has_brief = bool(topic and topic.get("brief"))
     has_research = bool(topic and topic.get("research"))
-    needs_brief = any(s["agent"] in WRITERS for s in steps) and not has_brief
+    needs_brief = has_writer(steps) and not has_brief
     needs_research = (
         "research" in decision.formats
         or decision.fresh_research
@@ -64,3 +69,9 @@ def current_step(state: ContentBlitzState) -> PlanStep | None:
     """The next plan step that hasn't run yet, or None when the plan is complete."""
     plan, done = state.get("plan", []), state.get("completed_steps", [])
     return plan[len(done)] if len(done) < len(plan) else None
+
+
+def writers_follow(state: ContentBlitzState) -> bool:
+    """Whether a writer step comes after the current one in the plan."""
+    plan, done = state.get("plan", []), state.get("completed_steps", [])
+    return has_writer(plan[len(done) + 1 :])

@@ -32,7 +32,7 @@ class Statistic(TypedDict):
     figure: str
     description: str  # what the figure measures
     source_numbers: list[int]  # at least one, each a Source in the Brief
-    verified: bool  # its main number appears in the text or snippet of a Source it cites
+    verified: bool  # its significant numbers all appear in the text of Sources it cites
 
 
 class ContentAngle(TypedDict):
@@ -51,7 +51,7 @@ class ResearchBrief(TypedDict):
     secondary_keywords: list[str]
     sources: list[Source]
     created_at: str  # ISO 8601, UTC
-    model: str  # the configured primary content_strategist model (a fallback isn't recorded)
+    model: str  # the model that wrote the draft, as LiteLLM names it (a fallback, if one answered)
     research_gathered_at: str  # the Research Record's gathered_at
 
 
