@@ -38,7 +38,7 @@ class OneResultSearch:
 
     name = "FakeSearch"
 
-    def search(self, query, max_results=10):
+    def search(self, query, max_results=10, fresh=False):
         return [SearchResult(title="AI report", url="https://example.com/ai", snippet="AI.")]
 
 

@@ -68,6 +68,8 @@ class PlanStep(TypedDict):
     agent: AgentName
     target: NotRequired[str | None]
     instructions: NotRequired[str | None]
+    # On a research step: re-research from scratch, skipping any cached search results.
+    fresh: NotRequired[bool]
 
 
 class PendingTopicQuestion(TypedDict):

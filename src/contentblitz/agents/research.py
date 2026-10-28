@@ -70,13 +70,13 @@ def _now() -> str:
 
 
 def _search_all(
-    providers: list[search.SearchProvider], queries: list[str]
+    providers: list[search.SearchProvider], queries: list[str], fresh: bool
 ) -> tuple[list[QuerySearch], list[dict]]:
     """Each query through the fallback chain. A query no provider answers is skipped."""
     searches, outcomes = [], []
     for query in queries:
         try:
-            response = search.search_with_fallback(providers, query)
+            response = search.search_with_fallback(providers, query, fresh=fresh)
         except SearchUnavailableError as error:
             outcomes.append({"query": query, "provider": None, "results": 0, "error": str(error)})
             continue
@@ -157,7 +157,7 @@ def research(state: ContentBlitzState) -> ContentBlitzState:
     options = get_model_config().search
     step = current_step(state) or {}
     queries = _plan_queries(name, step.get("instructions"), options.queries_per_run)
-    searches, outcomes = _search_all(providers, queries)
+    searches, outcomes = _search_all(providers, queries, fresh=step.get("fresh", False))
     sources = merge_sources(searches, options.max_sources)
     _trace(name, queries, outcomes, len(sources))
     if not sources:
@@ -171,6 +171,7 @@ def research(state: ContentBlitzState) -> ContentBlitzState:
         "sources": sources,
     }
     topics = dict(state["topics"])
-    # New research makes any existing Brief stale; the next content_strategist step rebuilds it.
+    # New research (first or fresh) replaces the record and makes any existing Brief stale;
+    # the next content_strategist step rebuilds it. A failed run returned above, keeping both.
     topics[state["active_topic_id"]] = {**topic, "research": record, "brief": None}
     return {"messages": [progress_message(_report(name, searches, sources))], "topics": topics}

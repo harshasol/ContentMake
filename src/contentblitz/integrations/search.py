@@ -30,7 +30,9 @@ class SearchResult(BaseModel):
 class SearchProvider(Protocol):
     name: str
 
-    def search(self, query: str, max_results: int = 10) -> list[SearchResult]: ...
+    def search(self, query: str, max_results: int = 10, fresh: bool = False) -> list[SearchResult]:
+        """`fresh` asks for new results, so a provider must not answer from a cache."""
+        ...
 
 
 class SearchProviderError(RuntimeError):
@@ -82,7 +84,7 @@ class SerpApiProvider(_HttpProvider):
     URL = "https://serpapi.com/search.json"
     NO_RESULTS = "hasn't returned any results"
 
-    def search(self, query: str, max_results: int = 10) -> list[SearchResult]:
+    def search(self, query: str, max_results: int = 10, fresh: bool = False) -> list[SearchResult]:
         params = {"engine": "google", "q": query, "api_key": self._api_key, "num": max_results}
         body = self._send("GET", self.URL, params=params)
         error = self._error(body)
@@ -105,7 +107,7 @@ class TavilyProvider(_HttpProvider):
     name = "Tavily"
     URL = "https://api.tavily.com/search"
 
-    def search(self, query: str, max_results: int = 10) -> list[SearchResult]:
+    def search(self, query: str, max_results: int = 10, fresh: bool = False) -> list[SearchResult]:
         payload = {"query": query, "search_depth": "basic", "max_results": max_results}
         headers = {"Authorization": f"Bearer {self._api_key}"}
         body = self._send("POST", self.URL, json=payload, headers=headers)
@@ -153,12 +155,13 @@ class SearchResponse(BaseModel):
 
 
 def search_with_fallback(
-    providers: list[SearchProvider], query: str, max_results: int = 10
+    providers: list[SearchProvider], query: str, max_results: int = 10, fresh: bool = False
 ) -> SearchResponse:
+    """`fresh` is passed to every provider tried, so none answers from a cache."""
     failures: dict[str, str] = {}
     for provider in providers:
         try:
-            results = provider.search(query, max_results)
+            results = provider.search(query, max_results, fresh=fresh)
         except Exception as exc:  # noqa: BLE001 - any provider failure moves to the next one
             failures[provider.name] = str(exc)
             continue
