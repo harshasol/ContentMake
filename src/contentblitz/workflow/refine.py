@@ -1,7 +1,7 @@
 """Resolves which Content Piece a refine request targets, and plans its one refine step."""
 
 from contentblitz.workflow.formats import PIECE_FORMATS
-from contentblitz.workflow.plan import BLOG_OPTIONS
+from contentblitz.workflow.plan import blog_options
 from contentblitz.workflow.routing import RoutingDecision
 from contentblitz.workflow.state import ContentBlitzState, PlanStep
 from contentblitz.workflow.topics import active_topic
@@ -44,7 +44,7 @@ def refine_step(state: ContentBlitzState, piece_id: str, decision: RoutingDecisi
         "instructions": decision.instructions,
     }
     if kind == "blog":
-        step |= {o: v for o in BLOG_OPTIONS if (v := getattr(decision, o)) is not None}
+        step |= blog_options(decision)
     return step
 
 
