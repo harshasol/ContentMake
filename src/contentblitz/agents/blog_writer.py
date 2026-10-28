@@ -13,7 +13,6 @@ depend on the blog, unlike research and the Brief.
 """
 
 from datetime import UTC, datetime
-from typing import Literal
 
 from pydantic import BaseModel, Field
 
@@ -26,12 +25,11 @@ from contentblitz.workflow.quality_loop import Attempt, QualityFormat, quality_l
 from contentblitz.workflow.quality_score import QualityScore
 from contentblitz.workflow.report import citation
 from contentblitz.workflow.reviewer import Review, review
+from contentblitz.workflow.routing import Template
 from contentblitz.workflow.state import ContentBlitzState, ContentPiece, ResearchBrief, Revision
 from contentblitz.workflow.topics import active_topic, add_piece, new_piece_id
 
 AGENT = "blog_writer"
-
-Template = Literal["how-to", "listicle", "comparison", "thought leadership"]
 
 TEMPLATES: dict[str, str] = {
     "how-to": "the problem, then the steps to solve it, then tips",
@@ -47,7 +45,8 @@ Prefer verified statistics; use an unverified one only when you must.
 Cite every claim with the number of the Source it comes from, as [n], and end with a "Sources"
 section listing every Source you cited, with its link. Write Markdown with exactly one H1
 title, then H2 sections with H3s only under them. Optimise for the target keyword and work the
-secondary keywords in naturally. Pick the template that fits best and follow its structure.
+secondary keywords in naturally. Follow the structure of the template you are given, or pick
+the template that fits best when you aren't given one.
 Follow the marketer's instructions."""
 
 JUDGING_CRITERIA = "its hook, flow, clarity and call to action"
@@ -93,6 +92,12 @@ def _brief_text(brief: ResearchBrief) -> str:
     )
 
 
+def _keyword(state: ContentBlitzState) -> str:
+    """The target keyword: the request's when it sets one, otherwise the Brief's suggestion."""
+    step = current_step(state) or {}
+    return step.get("target_keyword") or active_topic(state)["brief"]["target_keyword"]
+
+
 def _prompt(state: ContentBlitzState) -> list[dict]:
     topic = active_topic(state)
     brief = topic["brief"]
@@ -104,9 +109,10 @@ def _prompt(state: ContentBlitzState) -> list[dict]:
         {
             "role": "user",
             "content": f"Topic: {topic['name']}\n"
-            f"Target keyword: {brief['target_keyword']}\n"
+            f"Target keyword: {_keyword(state)}\n"
             f"Secondary keywords: {', '.join(brief['secondary_keywords']) or 'none'}\n"
             f"Target length: {low}-{high} words\n"
+            f"Template: {step.get('template') or 'none given, pick the template that fits best'}\n"
             f"Instructions: {step.get('instructions') or 'none'}\n\n"
             f"Templates:\n{templates}\n\n"
             f"Research Brief:\n\n{_brief_text(brief)}",
@@ -120,7 +126,9 @@ def _draft(state: ContentBlitzState) -> dict | None:
         reply = llm.complete_structured_reply(AGENT, _prompt(state), BlogDraft)
     except Exception:  # noqa: BLE001 - a failed blog posts an error; the plan carries on
         return None
-    return reply.value.model_dump()
+    draft = reply.value.model_dump()
+    # The template the request named is the one recorded, whatever the model says it used.
+    return {**draft, "template": (current_step(state) or {}).get("template") or draft["template"]}
 
 
 def _checks(state: ContentBlitzState, draft: dict) -> list[CheckResult]:
@@ -128,7 +136,7 @@ def _checks(state: ContentBlitzState, draft: dict) -> list[CheckResult]:
     checked = Draft(
         body=draft["body"],
         meta_description=draft["meta_description"],
-        keyword=brief["target_keyword"],
+        keyword=_keyword(state),
         source_numbers=[s["number"] for s in brief["sources"]],
     )
     return check_blog(checked, get_model_config().quality.blog)
@@ -176,7 +184,7 @@ def _finalise(state: ContentBlitzState, attempt: Attempt) -> ContentBlitzState:
     revision: Revision = {
         "text": draft["body"],
         "meta_description": draft["meta_description"],
-        "target_keyword": active_topic(state)["brief"]["target_keyword"],
+        "target_keyword": _keyword(state),
         "template": draft["template"],
         "origin": "draft",
         "created_at": _now(),

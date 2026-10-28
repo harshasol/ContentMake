@@ -7,7 +7,7 @@ from langgraph.graph.message import add_messages
 
 from contentblitz.workflow.formats import AgentName, PieceKind
 from contentblitz.workflow.quality_score import QualityScore
-from contentblitz.workflow.routing import Intent
+from contentblitz.workflow.routing import Intent, Template
 
 
 class Source(TypedDict):
@@ -118,6 +118,10 @@ class PlanStep(TypedDict):
     instructions: NotRequired[str | None]
     # On a research step: re-research from scratch, skipping any cached search results.
     fresh: NotRequired[bool]
+    # On a writer step, when the request sets them: they win over the Brief and the config.
+    target_keyword: NotRequired[str]
+    template: NotRequired[Template]
+    length: NotRequired[int]  # in words, checked with a tolerance instead of the word range
 
 
 class PendingTopicQuestion(TypedDict):

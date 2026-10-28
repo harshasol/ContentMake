@@ -8,6 +8,7 @@ from contentblitz.workflow.formats import Format
 
 Intent = Literal["new_content", "refine", "chat", "unclear"]
 TopicAnswer = Literal["new", "continue"]
+Template = Literal["how-to", "listicle", "comparison", "thought leadership"]
 
 
 def _drop_defaults(schema: dict) -> None:
