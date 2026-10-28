@@ -8,7 +8,7 @@ from langchain_core.messages import AIMessage, AnyMessage
 
 from contentblitz.core.config import get_settings
 from contentblitz.integrations import llm
-from contentblitz.workflow.plan import build_plan, describe
+from contentblitz.workflow.plan import WRITERS, build_plan, describe
 from contentblitz.workflow.refine import (
     describe_refine,
     pieces_context,
@@ -53,6 +53,27 @@ def _topic_context(state: ContentBlitzState) -> str:
     )
 
 
+SAME_SUBJECT_GUIDANCE = (
+    "For new_content, set same_subject to true only if the request is about the active Topic "
+    "itself; a different or narrower subject is false, and the user will be asked."
+)
+
+
+def _topic_question_context(state: ContentBlitzState) -> list[dict]:
+    """Tells the router how to judge the subject, and about any pending Topic question."""
+    if (state.get("active_topic_id") or "") not in (state.get("topics") or {}):
+        return []
+    texts = [SAME_SUBJECT_GUIDANCE]
+    pending = state.get("pending_topic_question")
+    if pending:
+        texts.append(
+            f"Pending Topic question: you asked whether to start a new Topic *{pending['name']}* "
+            "or continue with the active Topic. Set topic_answer to 'new' or 'continue' if the "
+            "latest message answers it; otherwise leave topic_answer empty and route it normally."
+        )
+    return [{"role": "system", "content": t} for t in texts]
+
+
 GENERIC_CLARIFYING_QUESTION = (
     "Sorry, I didn't quite get that. What would you like me to do? For example: "
     '"research AI in healthcare", "write a blog about it" or "turn that into a LinkedIn post".'
@@ -71,8 +92,14 @@ def _conversation(messages: list[AnyMessage]) -> list[dict]:
 
 
 def _reply(text: str, **update) -> ContentBlitzState:
-    """A reply that runs no steps. Every run starts with a fresh plan."""
-    return {"messages": [AIMessage(content=text)], "plan": [], "completed_steps": [], **update}
+    """A reply that runs no steps. Every run starts with a fresh plan and no pending question."""
+    return {
+        "messages": [AIMessage(content=text)],
+        "plan": [],
+        "completed_steps": [],
+        "pending_topic_question": None,
+        **update,
+    }
 
 
 def _respond(decision: RoutingDecision) -> str:
@@ -110,6 +137,46 @@ def _refine(state: ContentBlitzState, decision: RoutingDecision) -> ContentBlitz
     return _reply(describe_refine(state, piece_id), intent="refine", plan=plan)
 
 
+def _ask_topic_question(
+    state: ContentBlitzState, decision: RoutingDecision
+) -> ContentBlitzState | None:
+    """Hold the plan and ask, when new content seems to be about a different subject."""
+    active = (state.get("topics") or {}).get(state.get("active_topic_id") or "")
+    if not active or decision.same_subject:
+        return None
+    plan = build_plan(decision, active)
+    if not plan:
+        return None
+    name = decision.subject or "Untitled Topic"
+    question = (
+        f"This sounds like a different subject: *{name}*. "
+        f"Start a new Topic, or continue with *{active['name']}*?"
+    )
+    held = {"name": name, "plan": plan}
+    return _reply(question, intent="new_content", pending_topic_question=held)
+
+
+def _answer_topic_question(
+    state: ContentBlitzState, decision: RoutingDecision
+) -> ContentBlitzState | None:
+    """Run the held plan on a new or the current Topic; None means handle the message normally."""
+    pending = state.get("pending_topic_question")
+    if not pending or not decision.topic_answer:
+        return None
+    topics = dict(state.get("topics") or {})
+    topic_id, plan = state.get("active_topic_id"), pending["plan"]
+    if decision.topic_answer == "new" or topic_id not in topics:
+        topic_id = f"topic-{len(topics) + 1}"
+        topics[topic_id] = {"name": pending["name"], "brief": None}
+        if any(s["agent"] in WRITERS for s in plan) and plan[0]["agent"] != "research":
+            plan = [{"agent": "research"}, {"agent": "content_strategist"}, *plan]
+    return {
+        **_reply(describe(plan, topics[topic_id]["name"]), intent="new_content", plan=plan),
+        "topics": topics,
+        "active_topic_id": topic_id,
+    }
+
+
 def query_handler(state: ContentBlitzState) -> ContentBlitzState:
     if not get_settings().openai_api_key:
         return _reply(f"(No model API key configured, echoing) {state['messages'][-1].content}")
@@ -118,6 +185,7 @@ def query_handler(state: ContentBlitzState) -> ContentBlitzState:
         {"role": "system", "content": SYSTEM_PROMPT},
         {"role": "system", "content": _topic_context(state)},
         {"role": "system", "content": pieces_context(state)},
+        *_topic_question_context(state),
         *_conversation(state["messages"]),
     ]
     try:
@@ -126,8 +194,11 @@ def query_handler(state: ContentBlitzState) -> ContentBlitzState:
         return _reply(GENERIC_CLARIFYING_QUESTION, intent="unclear")
     except Exception:
         return _reply(APOLOGY)
+    answered = _answer_topic_question(state, decision)
+    if answered:
+        return answered
     if decision.intent == "new_content":
-        return _new_content(state, decision)
+        return _ask_topic_question(state, decision) or _new_content(state, decision)
     if decision.intent == "refine":
         return _refine(state, decision)
     return _reply(_respond(decision), intent=decision.intent)
