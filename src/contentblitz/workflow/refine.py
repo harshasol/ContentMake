@@ -47,6 +47,20 @@ def describe_refine(state: ContentBlitzState, piece_id: str) -> str:
     return f"Refining {_label(state, piece_id)}"
 
 
+def active_topic_pieces(state: ContentBlitzState) -> list[str]:
+    topic_id = state.get("active_topic_id")
+    pieces = state.get("content_pieces") or {}
+    return [pid for pid, p in pieces.items() if p["topic_id"] == topic_id]
+
+
+def no_piece_of_kind(state: ContentBlitzState, decision: RoutingDecision) -> str:
+    """Says the active Topic has no piece of the requested kind, and lists the ones it has."""
+    kinds = " or ".join(PIECE_FORMATS[f].label for f in decision.formats if f in PIECE_FORMATS)
+    topic = state["topics"][state["active_topic_id"]]
+    options = "\n".join(f"- {_label(state, pid)}" for pid in active_topic_pieces(state))
+    return f"There's no {kinds} on *{topic['name']}* to refine. It has:\n{options}"
+
+
 def which_piece_question(state: ContentBlitzState, candidates: list[str]) -> str:
     options = "\n".join(f"- {_label(state, pid)}" for pid in candidates)
     return f"Which piece would you like me to refine?\n{options}"

@@ -10,7 +10,9 @@ from contentblitz.core.config import get_settings
 from contentblitz.integrations import llm
 from contentblitz.workflow.plan import build_plan, describe_plan, replan
 from contentblitz.workflow.refine import (
+    active_topic_pieces,
     describe_refine,
+    no_piece_of_kind,
     pieces_context,
     refine_step,
     resolve_target,
@@ -136,6 +138,8 @@ def _new_content(state: ContentBlitzState, decision: RoutingDecision) -> Content
 def _refine(state: ContentBlitzState, decision: RoutingDecision) -> ContentBlitzState:
     candidates = resolve_target(state, decision)
     if not candidates:
+        if active_topic(state) and active_topic_pieces(state):
+            return _reply(no_piece_of_kind(state, decision), intent="refine")
         return _reply(NOTHING_TO_REFINE, intent="refine")
     if len(candidates) > 1:
         return _reply(which_piece_question(state, candidates), intent="refine")

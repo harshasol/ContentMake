@@ -372,6 +372,26 @@ def test_refine_with_no_pieces_says_there_is_nothing_to_refine_yet(monkeypatch, 
     assert (state["plan"], state["completed_steps"]) == ([], [])
 
 
+def test_refine_of_a_missing_kind_lists_the_pieces_the_topic_has(monkeypatch, with_api_key):
+    fake_router(monkeypatch, refine("shorter", formats=["linkedin_post"]))
+    start = with_pieces(
+        **{
+            "piece-1": piece("blog", "AI in the clinic"),
+            "piece-2": piece("image", "Robot doctor"),
+        }
+    )
+    graph = build_graph()
+    [reply] = send_with(graph, "shorten the LinkedIn post", start)
+
+    assert reply == (
+        "There's no LinkedIn post on *AI in healthcare* to refine. It has:\n"
+        "- *AI in the clinic* (blog)\n"
+        "- *Robot doctor* (image)"
+    )
+    state = graph.get_state(config()).values
+    assert (state["plan"], state["completed_steps"]) == ([], [])
+
+
 def test_refine_ignores_pieces_on_other_topics_unless_named(monkeypatch, with_api_key):
     start = with_pieces(**{"piece-1": piece("blog", "Old blog", topic_id="topic-2")})
     fake_router(monkeypatch, refine("shorter", formats=["blog"]))
