@@ -198,8 +198,11 @@ def test_the_same_page_found_twice_or_with_tracking_parameters_is_one_source(mon
         FakeProvider(
             "SerpAPI",
             {
-                QUERIES[0]: [hit("https://example.com/guide"), hit("https://other.org/x")],
-                QUERIES[1]: [hit("https://EXAMPLE.com/guide/?utm_source=news&utm_medium=x#top")],
+                QUERIES[0]: [
+                    hit("https://EXAMPLE.com/guide/?utm_source=news&utm_medium=x#top"),
+                    hit("https://other.org/x"),
+                ],
+                QUERIES[1]: [hit("https://example.com/guide")],
                 QUERIES[2]: [
                     hit("https://example.com/guide?gclid=abc&fbclid=def"),
                     hit("https://example.com/guide?page=2&utm_campaign=y"),
@@ -209,11 +212,13 @@ def test_the_same_page_found_twice_or_with_tracking_parameters_is_one_source(mon
     )
     replies, state = run(build_graph())
 
-    assert urls(research_record(state)) == [
-        "https://example.com/guide",
+    record = research_record(state)
+    assert urls(record) == [  # each Source keeps the URL it was first found at
+        "https://EXAMPLE.com/guide/?utm_source=news&utm_medium=x#top",
         "https://other.org/x",
-        "https://example.com/guide?page=2",
+        "https://example.com/guide?page=2&utm_campaign=y",
     ]
+    assert [s["site"] for s in record["sources"]] == ["example.com", "other.org", "example.com"]
     assert "3 searches, 3 Sources from 2 sites" in replies[1]
 
 
@@ -539,8 +544,8 @@ def test_each_topics_research_is_kept_separately(monkeypatch):
     provider.results = {QUERIES[0]: [hit("https://finance.org/")]}
     _, state = run(graph, "research AI in finance", start={"active_topic_id": None})
 
-    assert urls(research_record(state, "topic-1")) == ["https://healthcare.org"]
-    assert urls(research_record(state, "topic-2")) == ["https://finance.org"]
+    assert urls(research_record(state, "topic-1")) == ["https://healthcare.org/"]
+    assert urls(research_record(state, "topic-2")) == ["https://finance.org/"]
 
 
 class RecordingClient:
