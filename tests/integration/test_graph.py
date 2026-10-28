@@ -938,3 +938,46 @@ def test_new_topic_ids_follow_the_highest_topic_number_and_never_overwrite(
         "notes": notes,
         "topic-4": {"name": "AI in finance", "brief": None, "piece_ids": []},
     }
+
+
+BLOG_OPTIONS = {"target_keyword": "AI diagnostics", "template": "listicle", "length": 600}
+
+
+def blog_revision(state):
+    [piece_id] = state["topics"][state["active_topic_id"]]["piece_ids"]
+    [revision] = state["content_pieces"][piece_id]["revisions"]
+    return revision
+
+
+def test_the_requests_keyword_template_and_length_reach_the_blog_step(monkeypatch, with_api_key):
+    decision = new_content("blog", "linkedin_post", same_topic=True)(None)
+    fake_router(monkeypatch, lambda _: decision.model_copy(update=BLOG_OPTIONS))
+    graph = build_graph()
+    send_with(graph, "a 600-word listicle, target keyword: AI diagnostics", researched_topic())
+
+    state = graph.get_state(config()).values
+    assert state["plan"] == [
+        {"agent": "blog_writer", "instructions": None, **BLOG_OPTIONS},
+        {"agent": "linkedin_writer", "instructions": None},
+    ]
+    revision = blog_revision(state)
+    assert (revision["target_keyword"], revision["template"]) == ("AI diagnostics", "listicle")
+
+
+def test_the_requests_blog_options_carry_over_when_a_held_plan_is_rebuilt_for_a_new_topic(
+    monkeypatch, with_api_key
+):
+    asked = RADIOLOGY.model_copy(update=BLOG_OPTIONS)
+    fake_router(monkeypatch, routes(**{ASK: asked, "a new one": answer("new")}))
+    graph = build_graph()
+    send_with(graph, ASK, researched_topic())
+    send(graph, "a new one")
+
+    state = graph.get_state(config()).values
+    assert state["plan"] == [
+        {"agent": "research", "instructions": None},
+        {"agent": "content_strategist", "instructions": None},
+        {"agent": "blog_writer", "instructions": None, **BLOG_OPTIONS},
+    ]
+    revision = blog_revision(state)
+    assert (revision["target_keyword"], revision["template"]) == ("AI diagnostics", "listicle")
