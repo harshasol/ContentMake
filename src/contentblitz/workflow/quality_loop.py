@@ -144,7 +144,7 @@ def _finalise_node(fmt: QualityFormat):
         attempts = state.get("attempts") or []
         if not attempts:
             return {"result": {"messages": [progress_message(fmt.failure(state))]}}
-        kept = attempts[-1]
+        kept = max(attempts, key=lambda a: a["quality_score"]["score"])  # earliest on a tie
         quality = {**kept["quality_score"], "revisions_used": len(attempts) - 1}
         return {"result": fmt.finalise(state, {**kept, "quality_score": quality})}
 

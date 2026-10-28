@@ -10,6 +10,7 @@ from datetime import datetime
 import pytest
 from langchain_core.messages import HumanMessage
 
+from contentblitz.core.config import DEFAULT_CONFIG_PATH
 from contentblitz.integrations import llm
 from contentblitz.workflow.graph import build_graph
 
@@ -447,3 +448,36 @@ def test_a_failing_draft_is_revised_until_one_passes_and_the_loop_stops_there(mo
     assert "Automatic revisions: 2 of 3" in reply.replace("*", "")
     quality = revision_of(state)["quality_score"]
     assert (quality["passed"], quality["revisions_used"]) == (True, 2)
+
+
+# Passes every check but the meta description, which is too short: 5 of 6 checks.
+NEARLY = blog_draft(body=PASSING_BODY, title="Nearly there")
+
+
+def test_the_loop_stops_after_the_maximum_revisions_and_keeps_the_highest_scoring_attempt(model):
+    # 3 of 6 checks: 35 + 24 = 59. 5 of 6 checks: 58.3 + 24 = 82.
+    model.reply = [FAILING, NEARLY, FAILING, FAILING, PASSING]
+    [reply], state = run_plan(BLOG, {"topic-1": topic()})
+
+    assert len(model.calls_to("blog_writer")) == 4  # the first draft and 3 revisions
+    assert len(model.calls_to("quality_judge")) == 4
+    assert reply.startswith(PASSING_BODY)
+    assert "Automatic revisions: 3 of 3" in reply.replace("*", "")
+    [piece_id] = state["topics"]["topic-1"]["piece_ids"]
+    piece = state["content_pieces"][piece_id]
+    assert piece["title"] == "Nearly there"
+    [revision] = piece["revisions"]  # the attempts are not Revisions
+    quality = revision["quality_score"]
+    assert (quality["score"], quality["passed"], quality["revisions_used"]) == (82, False, 3)
+
+
+def test_the_maximum_revisions_comes_from_config(model, tmp_path, monkeypatch):
+    models = tmp_path / "models.yaml"
+    defaults = DEFAULT_CONFIG_PATH.read_text()
+    models.write_text(defaults.replace("max_revisions: 3", "max_revisions: 1"))
+    monkeypatch.setenv("CONTENTBLITZ_CONFIG", str(models))
+    model.reply = FAILING
+    [reply], _ = run_plan(BLOG, {"topic-1": topic()})
+
+    assert len(model.calls_to("blog_writer")) == 2
+    assert "Automatic revisions: 1 of 1" in reply.replace("*", "")
