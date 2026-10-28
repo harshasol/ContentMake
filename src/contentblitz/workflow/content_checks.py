@@ -1,4 +1,4 @@
-"""Content checks: deterministic measurements of a draft against its format's rules. See #19.
+"""Content checks: deterministic measurements of a draft against its format's rules. See spec #19.
 
 Each check returns a `CheckResult`: pass or fail, the measured value as the chat shows it,
 and a short reason that names the target, which is also the revise loop's feedback.
