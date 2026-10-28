@@ -13,6 +13,10 @@ from contentblitz.integrations.search import SearchProviderError, SearchResult
 from contentblitz.workflow.graph import build_graph
 from contentblitz.workflow.routing import RoutingDecision
 
+NO_SOURCES = (
+    "I couldn't find any Sources for *AI in healthcare*, so I stopped the plan. "
+    "Try rephrasing the Topic or your instructions."
+)
 QUERIES = ["AI in healthcare 2026", "AI diagnosis statistics", "AI healthcare regulation"]
 
 
@@ -312,8 +316,90 @@ def test_when_no_search_finds_anything_no_research_is_saved(monkeypatch):
     fake_search(monkeypatch, FakeProvider("SerpAPI"))
     replies, state = run(build_graph())
 
-    assert replies[1] == "I couldn't find any Sources for *AI in healthcare*."
+    assert replies[1:] == [NO_SOURCES]
     assert not state["topics"]["topic-1"].get("research")
+
+
+def blog_request(topic_name="AI in healthcare", fresh_research=False, same_topic=False):
+    return RoutingDecision(
+        intent="new_content",
+        topic_name=topic_name,
+        same_topic=same_topic,
+        formats=["blog", "linkedin_post"],
+        fresh_research=fresh_research,
+    )
+
+
+def test_when_no_search_finds_anything_the_rest_of_the_plan_stops(monkeypatch):
+    fake_model(monkeypatch, blog_request())
+    fake_search(monkeypatch, FakeProvider("SerpAPI"))
+    replies, state = run(build_graph(), "write a blog and a LinkedIn post on AI in healthcare")
+
+    assert replies == [
+        "Plan for *AI in healthcare*: research → brief → blog → LinkedIn post",
+        NO_SOURCES,
+    ]
+    assert state["completed_steps"] == [{"agent": "research", "instructions": None}]
+
+
+def test_with_no_search_provider_configured_the_rest_of_the_plan_stops(monkeypatch):
+    fake_model(monkeypatch, blog_request())
+    fake_search(monkeypatch)
+    replies, state = run(build_graph(), "write a blog and a LinkedIn post on AI in healthcare")
+
+    assert replies[1:] == [
+        "I couldn't research *AI in healthcare*: no search provider is configured, "
+        "so I stopped the plan. Set SERPAPI_API_KEY or TAVILY_API_KEY in the environment."
+    ]
+    assert state["completed_steps"] == [{"agent": "research", "instructions": None}]
+
+
+def test_failed_fresh_research_leaves_the_topics_research_record_and_brief_as_they_were(
+    monkeypatch,
+):
+    fake_model(monkeypatch, blog_request(fresh_research=True, same_topic=True))
+    fake_search(monkeypatch, FakeProvider("SerpAPI", fail=True))
+    record = {
+        "queries": ["AI in healthcare"],
+        "providers": ["Tavily"],
+        "gathered_at": "2026-10-01T09:00:00+00:00",
+        "sources": [],
+    }
+    brief = {"summary": "AI speeds up diagnosis.", "key_findings": [], "sources": []}
+    topic = {"name": "AI in healthcare", "research": record, "brief": brief, "piece_ids": []}
+    start = {"topics": {"topic-1": topic}, "active_topic_id": "topic-1"}
+    replies, state = run(build_graph(), "find newer sources, then a blog", start=start)
+
+    assert replies[1:] == [NO_SOURCES]
+    assert state["topics"]["topic-1"] == {
+        "name": "AI in healthcare",
+        "research": {
+            "queries": ["AI in healthcare"],
+            "providers": ["Tavily"],
+            "gathered_at": "2026-10-01T09:00:00+00:00",
+            "sources": [],
+        },
+        "brief": {"summary": "AI speeds up diagnosis.", "key_findings": [], "sources": []},
+        "piece_ids": [],
+    }
+
+
+def test_after_a_stopped_plan_the_next_request_runs_its_whole_plan(monkeypatch):
+    fake_model(monkeypatch, blog_request(same_topic=True))
+    provider = FakeProvider("SerpAPI")
+    fake_search(monkeypatch, provider)
+    graph = build_graph()
+    run(graph, "write a blog and a LinkedIn post on AI in healthcare")
+
+    provider.results = {QUERIES[0]: [hit("https://who.int/ai")]}
+    replies, _ = run(graph, "try again")
+
+    assert replies[1:] == [
+        "Researched *AI in healthcare*: 3 searches, 1 Source from 1 site via SerpAPI",
+        "Content Strategist: done (stub).",
+        "SEO Blog Writer: done (stub).",
+        "LinkedIn Post Writer: done (stub).",
+    ]
 
 
 def test_if_query_planning_fails_research_searches_for_the_topic_itself(monkeypatch):

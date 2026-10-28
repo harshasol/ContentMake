@@ -85,4 +85,6 @@ class ContentBlitzState(TypedDict, total=False):
     intent: Intent
     plan: list[PlanStep]
     completed_steps: list[PlanStep]
+    # Set by an agent to stop the plan: the dispatcher posts it and runs no more steps.
+    abort_reason: str | None
     pending_topic_question: PendingTopicQuestion | None
