@@ -1,6 +1,6 @@
 """Resolves which Content Piece a refine request targets, and plans its one refine step."""
 
-from contentblitz.workflow.plan import FORMAT_AGENTS, current_step
+from contentblitz.workflow.plan import FORMAT_AGENTS
 from contentblitz.workflow.routing import RoutingDecision
 from contentblitz.workflow.state import ContentBlitzState, PlanStep
 
@@ -38,14 +38,6 @@ def resolve_target(state: ContentBlitzState, decision: RoutingDecision) -> list[
 def refine_step(state: ContentBlitzState, piece_id: str, instructions: str | None) -> PlanStep:
     kind = state["content_pieces"][piece_id]["kind"]
     return {"agent": FORMAT_AGENTS[kind], "target": piece_id, "instructions": instructions}
-
-
-def stub_progress(agent_label: str, state: ContentBlitzState) -> str:
-    """What a stub writer reports for its step: the refine target and instructions, if any."""
-    step = current_step(state) or {}
-    if not step.get("target"):
-        return f"{agent_label}: done (stub)."
-    return f'{agent_label}: refining {step["target"]} with "{step.get("instructions")}" (stub).'
 
 
 def _label(state: ContentBlitzState, piece_id: str) -> str:
