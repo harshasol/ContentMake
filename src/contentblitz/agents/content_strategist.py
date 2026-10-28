@@ -2,7 +2,8 @@
 
 It makes one structured call to the `content_strategist` model for a draft Brief, then grounds
 the draft in code: the Source list is copied from the Research Record, citations to Sources
-that don't exist are removed, and findings or statistics left uncited are dropped.
+that don't exist are removed, findings or statistics left uncited are dropped, and each
+statistic is marked verified or not against the text of the Sources it cites.
 
 If fewer than 2 findings survive, it retries once, telling the model what was dropped. If the
 retry is still too thin, or the model fails, it stops the plan (ADR 0001) and leaves the Topic's
@@ -25,7 +26,9 @@ from contentblitz.workflow.state import (
     ResearchRecord,
     ResearchSource,
     Source,
+    Statistic,
 )
+from contentblitz.workflow.statistics import is_verified
 from contentblitz.workflow.topics import active_topic
 
 AGENT = "content_strategist"
@@ -162,12 +165,25 @@ def _grounded[T: DraftFinding | DraftStatistic](claims: list[T], source_count: i
     return grounded
 
 
+def _verified(statistics: list[dict], record: ResearchRecord) -> list[Statistic]:
+    """Marks each statistic verified when its number is in the text of a Source it cites."""
+    return [
+        {
+            **s,
+            "verified": is_verified(
+                s["figure"], [record["sources"][n - 1] for n in s["source_numbers"]]
+            ),
+        }
+        for s in statistics
+    ]
+
+
 def _brief(draft: DraftBrief, record: ResearchRecord) -> ResearchBrief:
     count = len(record["sources"])
     return {
         "summary": draft.summary,
         "key_findings": _grounded(draft.key_findings, count),
-        "statistics": _grounded(draft.statistics, count),
+        "statistics": _verified(_grounded(draft.statistics, count), record),
         "angles": [a.model_dump() for a in draft.angles],
         "target_keyword": draft.target_keyword,
         "secondary_keywords": draft.secondary_keywords,
@@ -185,6 +201,7 @@ def _trace(draft: DraftBrief, brief: ResearchBrief) -> dict:
     return {
         "findings": findings,
         "statistics": statistics,
+        "verified_statistics": sum(s["verified"] for s in brief["statistics"]),
         "sources": len(brief["sources"]),
         "dropped_findings": len(draft.key_findings) - findings,
         "dropped_statistics": len(draft.statistics) - statistics,

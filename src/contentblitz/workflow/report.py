@@ -6,7 +6,9 @@ and free. The chat, "show me the research" and the Research Panel all use it.
 
 from datetime import datetime
 
-from contentblitz.workflow.state import ResearchBrief, Source
+from contentblitz.workflow.state import ResearchBrief, Source, Statistic
+
+VERIFIED_NOTE = "*Verified: the number appears in a cited Source's text.*"
 
 
 def _date(iso: str) -> str:
@@ -28,14 +30,23 @@ def _statistics(brief: ResearchBrief, sources: dict[int, Source]) -> str:
         return "No statistics were found in the Sources."
     rows = [
         f"| {_cell(s['figure'])} | {_cell(s['description'])} | "
-        f"{_citations(s['source_numbers'], sources)} |"
+        f"{_citations(s['source_numbers'], sources)} | {'Yes' if s['verified'] else 'No'} |"
         for s in brief["statistics"]
     ]
-    return "\n".join(["| Figure | What it measures | Sources |", "| --- | --- | --- |", *rows])
+    header = ["| Figure | What it measures | Sources | Verified |", "| --- | --- | --- | --- |"]
+    return "\n".join([*header, *rows]) + f"\n\n{VERIFIED_NOTE}"
 
 
 def _plural(count: int, word: str) -> str:
     return f"{count} {word if count == 1 else word + 's'}"
+
+
+def _statistics_count(statistics: list[Statistic]) -> str:
+    """For example "4 statistics (3 verified)", or just "0 statistics" when there are none."""
+    count = _plural(len(statistics), "statistic")
+    if not statistics:
+        return count
+    return f"{count} ({sum(s['verified'] for s in statistics)} verified)"
 
 
 def summary_line(brief: ResearchBrief) -> str:
@@ -43,7 +54,7 @@ def summary_line(brief: ResearchBrief) -> str:
     counts = ", ".join(
         [
             _plural(len(brief["key_findings"]), "finding"),
-            _plural(len(brief["statistics"]), "statistic"),
+            _statistics_count(brief["statistics"]),
             _plural(len(brief["sources"]), "Source"),
         ]
     )
