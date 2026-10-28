@@ -330,7 +330,7 @@ def test_a_search_that_fails_on_every_provider_is_skipped(monkeypatch):
 
     assert (
         replies[1]
-        == "Researched *AI in healthcare*: 2 searches, 2 Sources from 2 sites via SerpAPI"
+        == "Researched *AI in healthcare*: 3 searches, 2 Sources from 2 sites via SerpAPI"
     )
     assert research_record(state)["queries"] == QUERIES
 

@@ -127,7 +127,10 @@ def _plural(count: int, word: str, plural: str | None = None) -> str:
     return f"{count} {word if count == 1 else plural or word + 's'}"
 
 
-def _report(topic: str, searches: list[QuerySearch], sources: list[ResearchSource]) -> str:
+def _report(
+    topic: str, queries: list[str], searches: list[QuerySearch], sources: list[ResearchSource]
+) -> str:
+    """The progress message. It counts every query run, including any no provider answered."""
     answered = list(dict.fromkeys(s.response.provider for s in searches))
     failed = {name for s in searches for name in s.response.failures}
     via = " and ".join(answered)
@@ -135,7 +138,7 @@ def _report(topic: str, searches: list[QuerySearch], sources: list[ResearchSourc
         via += f" ({' and '.join(failed)} failed)"
     sites = len({s["site"] for s in sources})
     return (
-        f"Researched *{topic}*: {_plural(len(searches), 'search', 'searches')}, "
+        f"Researched *{topic}*: {_plural(len(queries), 'search', 'searches')}, "
         f"{_plural(len(sources), 'Source')} from {_plural(sites, 'site')} via {via}"
     )
 
@@ -174,4 +177,7 @@ def research(state: ContentBlitzState) -> ContentBlitzState:
     # New research (first or fresh) replaces the record and makes any existing Brief stale;
     # the next content_strategist step rebuilds it. A failed run returned above, keeping both.
     topics[state["active_topic_id"]] = {**topic, "research": record, "brief": None}
-    return {"messages": [progress_message(_report(name, searches, sources))], "topics": topics}
+    return {
+        "messages": [progress_message(_report(name, queries, searches, sources))],
+        "topics": topics,
+    }
