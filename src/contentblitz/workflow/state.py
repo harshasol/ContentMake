@@ -6,6 +6,7 @@ from langchain_core.messages import AnyMessage
 from langgraph.graph.message import add_messages
 
 from contentblitz.workflow.formats import AgentName, PieceKind
+from contentblitz.workflow.quality_score import QualityScore
 from contentblitz.workflow.routing import Intent
 
 
@@ -100,6 +101,8 @@ class Revision(TypedDict):
     meta_description: NotRequired[str]
     target_keyword: NotRequired[str]
     template: NotRequired[str]
+    # How it measured up when it was made: the score and each check's result.
+    quality_score: NotRequired[QualityScore]
 
 
 class ContentPiece(TypedDict):

@@ -4,7 +4,8 @@ The blog step runs the blog's quality loop. Its draft is one structured call to 
 `blog_writer` model, given the whole Brief, its target and secondary keywords, the four
 template guides, the target word range and the step's instructions. It returns the template
 it used, the title, the meta description and the Markdown body, citing the Brief's Sources
-as `[n]`.
+as `[n]`. The loop checks the draft against the blog's SEO rules, and the kept attempt is
+posted and saved with its Quality Score.
 
 If every provider fails, the step posts an error and the plan carries on: other pieces don't
 depend on the blog, unlike research and the Brief.
@@ -17,9 +18,11 @@ from pydantic import BaseModel, Field
 
 from contentblitz.core.config import get_model_config
 from contentblitz.integrations import llm
+from contentblitz.workflow.content_checks import CheckResult, Draft, check_blog
 from contentblitz.workflow.plan import current_step
 from contentblitz.workflow.progress import progress_message, stub_progress
-from contentblitz.workflow.quality_loop import QualityFormat, quality_loop
+from contentblitz.workflow.quality_loop import Attempt, QualityFormat, quality_loop
+from contentblitz.workflow.quality_score import QualityScore
 from contentblitz.workflow.report import citation
 from contentblitz.workflow.state import ContentBlitzState, ContentPiece, ResearchBrief, Revision
 from contentblitz.workflow.topics import active_topic, add_piece, new_piece_id
@@ -115,11 +118,30 @@ def _draft(state: ContentBlitzState) -> dict | None:
     return reply.value.model_dump()
 
 
-def _chat_text(draft: dict) -> str:
+def _checks(state: ContentBlitzState, draft: dict) -> list[CheckResult]:
+    brief = active_topic(state)["brief"]
+    checked = Draft(
+        body=draft["body"],
+        meta_description=draft["meta_description"],
+        keyword=brief["target_keyword"],
+        source_numbers=[s["number"] for s in brief["sources"]],
+    )
+    return check_blog(checked, get_model_config().quality.blog)
+
+
+def _quality_text(quality: QualityScore) -> str:
+    checks = "\n".join(
+        f"- {c['name']} {c['measured']} {'✓' if c['passed'] else '✗'}" for c in quality["checks"]
+    )
+    return f"**Quality Score:** {quality['score']}/100\n\n{checks}"
+
+
+def _chat_text(draft: dict, quality: QualityScore) -> str:
     return (
         f"{draft['body']}\n\n---\n\n"
         f"**Meta description:** {draft['meta_description']}\n\n"
-        f"**Template:** {draft['template']}"
+        f"**Template:** {draft['template']}\n\n"
+        f"{_quality_text(quality)}"
     )
 
 
@@ -127,8 +149,9 @@ def _now() -> str:
     return datetime.now(UTC).isoformat(timespec="seconds")
 
 
-def _finalise(state: ContentBlitzState, draft: dict) -> ContentBlitzState:
-    """Saves the kept draft as a new blog Content Piece with its first Revision, and posts it."""
+def _finalise(state: ContentBlitzState, attempt: Attempt) -> ContentBlitzState:
+    """Saves the kept attempt as a new blog Content Piece with its first Revision, and posts it."""
+    draft, quality = attempt["draft"], attempt["quality_score"]
     revision: Revision = {
         "text": draft["body"],
         "meta_description": draft["meta_description"],
@@ -136,6 +159,7 @@ def _finalise(state: ContentBlitzState, draft: dict) -> ContentBlitzState:
         "template": draft["template"],
         "origin": "draft",
         "created_at": _now(),
+        "quality_score": quality,
     }
     piece: ContentPiece = {
         "kind": "blog",
@@ -144,14 +168,16 @@ def _finalise(state: ContentBlitzState, draft: dict) -> ContentBlitzState:
         "revisions": [revision],
     }
     saved = add_piece(state, new_piece_id(state), piece)
-    return {**saved, "messages": [progress_message(_chat_text(draft))]}
+    return {**saved, "messages": [progress_message(_chat_text(draft, quality))]}
 
 
 def _failure(state: ContentBlitzState) -> str:
     return NO_MODEL.format(topic=active_topic(state)["name"])
 
 
-BLOG = QualityFormat(name="blog", draft=_draft, finalise=_finalise, failure=_failure)
+BLOG = QualityFormat(
+    name="blog", draft=_draft, checks=_checks, finalise=_finalise, failure=_failure
+)
 _write = quality_loop(BLOG)
 
 

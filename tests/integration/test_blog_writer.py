@@ -171,6 +171,7 @@ def test_the_blog_is_saved_as_a_content_piece_on_the_topic_with_its_first_revisi
     [revision] = piece["revisions"]
     created_at = revision.pop("created_at")
     assert datetime.fromisoformat(created_at) > datetime.fromisoformat(BRIEF_CREATED_AT)
+    revision.pop("quality_score")  # see the Quality Score tests
     assert revision == {
         "text": BODY,
         "meta_description": META,
@@ -178,6 +179,66 @@ def test_the_blog_is_saved_as_a_content_piece_on_the_topic_with_its_first_revisi
         "template": "thought leadership",
         "origin": "draft",
     }
+
+
+# 155 characters, with the target keyword
+META_155 = (
+    "AI in healthcare helps radiologists read scans faster and spot disease earlier, while "
+    "regulators race to keep up with hundreds of newly cleared AI devices."
+)
+
+
+def test_the_blog_is_checked_and_its_quality_score_is_posted_and_saved_on_the_revision(model):
+    # BODY, leaving out its Sources section and Markdown: 35 words, "AI in healthcare" twice
+    # (2 x 3 / 35 = 17.1%); one H1 with the keyword but only 2 H2s, neither with it. The
+    # meta description passes, so 1 of 3 checks passes: 70 x 1/3 check points, scaled to 100.
+    model.reply = blog_draft(meta_description=META_155)
+    [reply], state = run_plan(BLOG, {"topic-1": topic()})
+
+    after_body = reply.removeprefix(BODY)
+    assert "Quality Score: 33/100" in after_body.replace("*", "")
+    for line in [
+        "keyword density 17.1% ✗",
+        "meta description 155 chars ✓",
+        "headings 1 H1, 2 H2s ✗",
+    ]:
+        assert line in after_body, line
+
+    [piece_id] = state["topics"]["topic-1"]["piece_ids"]
+    [revision] = state["content_pieces"][piece_id]["revisions"]
+    quality = revision["quality_score"]
+    assert quality["score"] == 33
+    assert [(c["name"], c["passed"], c["measured"]) for c in quality["checks"]] == [
+        ("keyword density", False, "17.1%"),
+        ("meta description", True, "155 chars"),
+        ("headings", False, "1 H1, 2 H2s"),
+    ]
+    assert all(c["reason"] for c in quality["checks"])
+
+
+def test_a_blog_that_passes_every_check_scores_100(model):
+    # Headings (3 + 4 + 1 + 1) and 4 x 98 filler words = 401 words, with "AI in healthcare"
+    # twice: 2 x 3 / 401 = 1.5%. One H1 and three H2s with the keyword in the H1 and an H2.
+    filler = " ".join(["word"] * 98)
+    body = (
+        "# AI in healthcare\n\n"
+        f"{filler} [1]\n\n"
+        "## AI in healthcare today\n\n"
+        f"{filler} [2]\n\n"
+        "## Diagnosis\n\n"
+        f"{filler}\n\n"
+        "## Regulation\n\n"
+        f"{filler} [3]\n\n"
+        "## Sources\n\n"
+        "1. [Report 1 from who.int](https://who.int/report-1)"
+    )
+    model.reply = blog_draft(body=body, meta_description=META_155)
+    [reply], state = run_plan(BLOG, {"topic-1": topic()})
+
+    assert "Quality Score: 100/100" in reply.replace("*", "")
+    [piece_id] = state["topics"]["topic-1"]["piece_ids"]
+    [revision] = state["content_pieces"][piece_id]["revisions"]
+    assert revision["quality_score"]["score"] == 100
 
 
 def test_a_second_blog_on_the_same_topic_is_a_separate_content_piece(model):
