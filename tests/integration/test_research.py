@@ -39,9 +39,16 @@ BRIEF_DRAFT = {
     "secondary_keywords": ["AI diagnosis", "medical AI regulation", "AI radiology"],
 }
 
+BLOG_DRAFT = {
+    "template": "how-to",
+    "title": "AI in healthcare",
+    "meta_description": "How AI in healthcare speeds up diagnosis.",
+    "body": "# AI in healthcare\n\nAI reads scans faster [1].",
+}
+
 
 class FakeModel:
-    """Stands in for the model: a scripted routing decision, query plan and draft Brief."""
+    """Stands in for the model: a scripted routing decision, query plan, draft Brief and blog."""
 
     def __init__(self, decision, queries):
         self.decision = decision
@@ -54,6 +61,8 @@ class FakeModel:
             return schema(queries=self.queries)
         if agent == "content_strategist":
             return schema.model_validate(BRIEF_DRAFT)
+        if agent == "blog_writer":
+            return schema.model_validate(BLOG_DRAFT)
         return self.decision
 
 
@@ -602,7 +611,9 @@ def test_after_a_stopped_plan_the_next_request_runs_its_whole_plan(monkeypatch):
         "Researched *AI in healthcare*: 3 searches, 1 Source from 1 site via SerpAPI",
         "Research Brief ready: 2 findings, 0 statistics, 1 Source. "
         "Ask 'show me the research' to read it.",
-        "SEO Blog Writer: done (stub).",
+        "# AI in healthcare\n\nAI reads scans faster [1].\n\n---\n\n"
+        "**Meta description:** How AI in healthcare speeds up diagnosis.\n\n"
+        "**Template:** how-to",
         "LinkedIn Post Writer: done (stub).",
     ]
 

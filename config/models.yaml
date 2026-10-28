@@ -34,3 +34,5 @@ llm:
 
 quality:
   max_revisions: 3
+  blog:
+    word_range: [900, 1800]      # target word count, when the instructions don't set a length

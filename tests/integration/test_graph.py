@@ -32,12 +32,20 @@ BRIEF_DRAFT = {
     "secondary_keywords": ["AI diagnosis", "medical AI regulation", "AI radiology"],
 }
 
+BLOG_DRAFT = {
+    "template": "how-to",
+    "title": "AI in healthcare",
+    "meta_description": "How AI in healthcare speeds up diagnosis.",
+    "body": "# AI in healthcare\n\nAI reads scans faster [1].",
+}
+
 
 class FakeRouter:
     """Stands in for the model: returns a scripted routing decision per message.
 
-    Research query planning gets three fixed queries and the Content Strategist a scripted
-    draft Brief; only routing and Content Strategist calls are recorded.
+    Research query planning gets three fixed queries, the Content Strategist a scripted draft
+    Brief and the blog writer a scripted blog; only routing and Content Strategist calls are
+    recorded.
     """
 
     def __init__(self, decide):
@@ -51,6 +59,8 @@ class FakeRouter:
         if agent == "content_strategist":
             self.strategist_calls.append(messages)
             return schema.model_validate(BRIEF_DRAFT)
+        if agent == "blog_writer":
+            return schema.model_validate(BLOG_DRAFT)
         self.calls.append({"agent": agent, "messages": messages, "schema": schema})
         return self.decide(messages[-1]["content"])
 
@@ -229,7 +239,11 @@ BRIEF = (
     "Research Brief ready: 2 findings, 0 statistics, 1 Source. "
     "Ask 'show me the research' to read it."
 )
-BLOG = "SEO Blog Writer: done (stub)."
+BLOG = (
+    "# AI in healthcare\n\nAI reads scans faster [1].\n\n---\n\n"
+    "**Meta description:** How AI in healthcare speeds up diagnosis.\n\n"
+    "**Template:** how-to"
+)
 LINKEDIN = "LinkedIn Post Writer: done (stub)."
 IMAGE = "Image Generation Agent: done (stub)."
 
@@ -258,7 +272,7 @@ def test_first_content_request_creates_the_active_topic_and_records_the_steps(
     state = graph.get_state(config()).values
     assert list(state["topics"]) == ["topic-1"]
     topic = state["topics"]["topic-1"]
-    assert (topic["name"], topic["piece_ids"]) == ("AI in healthcare", [])
+    assert (topic["name"], topic["piece_ids"]) == ("AI in healthcare", ["piece-1"])
     assert [s["url"] for s in topic["research"]["sources"]] == ["https://example.com/ai"]
     assert [s["url"] for s in topic["brief"]["sources"]] == ["https://example.com/ai"]
     assert state["active_topic_id"] == "topic-1"
@@ -766,7 +780,7 @@ def test_answering_new_creates_the_topic_and_runs_the_held_plan_research_first(
     state = graph.get_state(config()).values
     assert state["active_topic_id"] == "topic-2"
     new_topic = state["topics"]["topic-2"]
-    assert (new_topic["name"], new_topic["piece_ids"]) == ("AI in radiology", [])
+    assert (new_topic["name"], new_topic["piece_ids"]) == ("AI in radiology", ["piece-1"])
     assert new_topic["research"]["sources"]
     assert new_topic["brief"]["sources"]
     assert state["topics"]["topic-1"] == researched_topic()["topics"]["topic-1"]

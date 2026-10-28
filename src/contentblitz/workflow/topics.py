@@ -1,11 +1,17 @@
 """Finding and creating Topics, and adding Content Pieces to them, in the workflow state."""
 
 import re
+from collections.abc import Iterable
 
 from contentblitz.workflow.state import ContentBlitzState, ContentPiece, Topic
 
 UNTITLED_TOPIC = "Untitled Topic"
-_TOPIC_ID = re.compile(r"topic-(\d+)")
+
+
+def _next_id(prefix: str, ids: Iterable[str]) -> str:
+    """`<prefix>-N` after the highest existing one, so a new id never replaces an existing one."""
+    numbers = [int(m[1]) for i in ids if (m := re.fullmatch(rf"{prefix}-(\d+)", i))]
+    return f"{prefix}-{max(numbers, default=0) + 1}"
 
 
 def active_topic(state: ContentBlitzState) -> Topic | None:
@@ -13,15 +19,16 @@ def active_topic(state: ContentBlitzState) -> Topic | None:
 
 
 def create_topic(state: ContentBlitzState, name: str | None) -> ContentBlitzState:
-    """The state update that adds a new Topic and makes it active.
-
-    Its id follows the highest existing `topic-N`, so it never replaces an existing Topic.
-    """
+    """The state update that adds a new Topic, with the next `topic-N` id, and makes it active."""
     topics = dict(state.get("topics") or {})
-    numbers = [int(m[1]) for tid in topics if (m := _TOPIC_ID.fullmatch(tid))]
-    topic_id = f"topic-{max(numbers, default=0) + 1}"
+    topic_id = _next_id("topic", topics)
     topics[topic_id] = {"name": name or UNTITLED_TOPIC, "brief": None, "piece_ids": []}
     return {"topics": topics, "active_topic_id": topic_id}
+
+
+def new_piece_id(state: ContentBlitzState) -> str:
+    """The next `piece-N` id: a new Content Piece never replaces an existing one."""
+    return _next_id("piece", state.get("content_pieces") or {})
 
 
 def add_piece(state: ContentBlitzState, piece_id: str, piece: ContentPiece) -> ContentBlitzState:
