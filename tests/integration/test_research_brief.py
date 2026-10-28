@@ -240,10 +240,12 @@ AI is speeding up diagnosis. Regulators are catching up.
 
 ## Statistics
 
-| Figure | What it measures | Sources |
-| --- | --- | --- |
-| 30% | faster scan reading | [[2]](https://nature.com/report-2) |
-| 950 | AI devices cleared by the FDA | [[3]](https://fda.gov/report-3) |
+| Figure | What it measures | Sources | Verified |
+| --- | --- | --- | --- |
+| 30% | faster scan reading | [[2]](https://nature.com/report-2) | Yes |
+| 950 | AI devices cleared by the FDA | [[3]](https://fda.gov/report-3) | No |
+
+*Verified: the number appears in a cited Source's text.*
 
 ## Content angles
 
@@ -278,11 +280,19 @@ def test_when_writers_follow_the_strategist_posts_a_one_line_summary(model, writ
     replies, state = run_plan(plan, {"topic-1": topic()})
 
     assert replies[0] == (
-        "Research Brief ready: 4 findings, 1 statistic, 3 Sources. "
+        "Research Brief ready: 4 findings, 1 statistic (1 verified), 3 Sources. "
         "Ask 'show me the research' to read it."
     )
     assert len(replies) == 2  # the writer ran after it
     assert state["topics"]["topic-1"]["brief"]["summary"]
+
+
+def test_the_one_line_summary_counts_the_verified_statistics(model):
+    # 30% is in Source 2's text; 950 is in no Source's text.
+    plan = [*RESEARCH_ONLY, {"agent": "blog_writer", "instructions": None}]
+    replies, _ = run_plan(plan, {"topic-1": topic()})
+
+    assert replies[0].startswith("Research Brief ready: 4 findings, 2 statistics (1 verified), ")
 
 
 def test_an_image_after_the_brief_still_gets_the_full_report(model):
@@ -399,6 +409,7 @@ def test_the_briefs_counts_are_traced(model):
     assert traced == {
         "findings": 4,
         "statistics": 2,
+        "verified_statistics": 1,
         "sources": 3,
         "dropped_findings": 1,
         "dropped_statistics": 0,

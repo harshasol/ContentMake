@@ -157,6 +157,7 @@ def _trace(draft: DraftBrief, brief: ResearchBrief) -> dict:
     return {
         "findings": findings,
         "statistics": statistics,
+        "verified_statistics": sum(s["verified"] for s in brief["statistics"]),
         "sources": len(brief["sources"]),
         "dropped_findings": len(draft.key_findings) - findings,
         "dropped_statistics": len(draft.statistics) - statistics,
