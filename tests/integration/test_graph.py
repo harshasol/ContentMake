@@ -744,16 +744,39 @@ def test_refine_of_a_missing_kind_lists_the_pieces_the_topic_has(monkeypatch, wi
 
 
 def test_refine_ignores_pieces_on_other_topics_unless_named(monkeypatch, with_api_key):
-    start = with_pieces(**{"piece-1": piece("blog", "Old blog", topic_id="topic-2")})
-    fake_router(monkeypatch, refine("shorter", formats=["blog"]))
-    assert send_with(build_graph(), "shorten the blog", start) == [qh.NOTHING_TO_REFINE]
+    start = with_pieces(**{"piece-1": piece("linkedin_post", "Old post", topic_id="topic-2")})
+    fake_router(monkeypatch, refine("shorter", formats=["linkedin_post"]))
+    assert send_with(build_graph(), "shorten the post", start) == [qh.NOTHING_TO_REFINE]
 
     fake_router(monkeypatch, refine("shorter", target="piece-1"))
-    replies = send_with(build_graph(), "shorten the old blog", start)
+    replies = send_with(build_graph(), "shorten the old post", start)
     assert replies == [
-        "Refining *Old blog* (blog)",
-        'SEO Blog Writer: refining piece-1 with "shorter" (stub).',
+        "Refining *Old post* (LinkedIn post)",
+        'LinkedIn Post Writer: refining piece-1 with "shorter" (stub).',
     ]
+
+
+def test_the_requests_keyword_template_and_length_reach_a_blog_refine_step(
+    monkeypatch, with_api_key
+):
+    decision = refine("as a 600-word listicle on AI diagnostics", formats=["blog"])(None)
+    fake_router(monkeypatch, lambda _: decision.model_copy(update=BLOG_OPTIONS))
+    start = with_pieces(**{"piece-1": piece("blog", "AI in the clinic")})
+    graph = build_graph()
+    send_with(graph, "make it a 600-word listicle, target keyword: AI diagnostics", start)
+
+    state = graph.get_state(config()).values
+    instructions = "as a 600-word listicle on AI diagnostics"
+    assert state["plan"] == [
+        {"agent": "blog_writer", "target": "piece-1", "instructions": instructions, **BLOG_OPTIONS}
+    ]
+    draft, refined = state["content_pieces"]["piece-1"]["revisions"]
+    assert draft == {"text": "draft"}
+    assert (refined["origin"], refined["target_keyword"], refined["template"]) == (
+        "refinement",
+        "AI diagnostics",
+        "listicle",
+    )
 
 
 def routes(**decisions):

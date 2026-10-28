@@ -1,9 +1,9 @@
-"""Finding and creating Topics, and adding Content Pieces to them, in the workflow state."""
+"""Finding and creating Topics, and adding Content Pieces and Revisions, in the workflow state."""
 
 import re
 from collections.abc import Iterable
 
-from contentblitz.workflow.state import ContentBlitzState, ContentPiece, Topic
+from contentblitz.workflow.state import ContentBlitzState, ContentPiece, Revision, Topic
 
 UNTITLED_TOPIC = "Untitled Topic"
 
@@ -38,3 +38,11 @@ def add_piece(state: ContentBlitzState, piece_id: str, piece: ContentPiece) -> C
     topics[piece["topic_id"]] = {**topic, "piece_ids": [*topic.get("piece_ids", []), piece_id]}
     pieces = {**(state.get("content_pieces") or {}), piece_id: piece}
     return {"topics": topics, "content_pieces": pieces}
+
+
+def add_revision(state: ContentBlitzState, piece_id: str, revision: Revision) -> ContentBlitzState:
+    """The state update that adds a Revision to a Content Piece, after its earlier ones."""
+    pieces = dict(state["content_pieces"])
+    piece = pieces[piece_id]
+    pieces[piece_id] = {**piece, "revisions": [*piece["revisions"], revision]}
+    return {"content_pieces": pieces}
