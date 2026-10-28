@@ -182,3 +182,42 @@ def test_heading_structure_violations_fail_and_say_why(body, measured, problem):
 def test_headings_inside_code_blocks_are_not_headings():
     body = GOOD_HEADINGS.replace("Text.", "```\n# not a heading\n```")
     assert check("headings", body)["passed"]
+
+
+# Readability
+
+EASY = "The cat sat on the mat. The dog ran to the park."
+HARD = (
+    "Organizational transformation necessitates comprehensive reconsideration of "
+    "institutional methodologies, particularly regarding interdepartmental communication "
+    "infrastructure."
+)
+
+
+def test_readability_is_the_flesch_kincaid_grade_at_or_below_the_maximum():
+    # 12 one-syllable words in 2 sentences: 0.39 x 6 + 11.8 x 1 - 15.59 = -1.45
+    result = check("readability", EASY)
+    assert result["passed"]
+    assert result["measured"] == "grade -1.4"
+    assert "10" in result["reason"]
+
+
+def test_readability_above_the_maximum_fails_and_says_the_target():
+    result = check("readability", HARD)
+    assert not result["passed"]
+    assert result["measured"] == "grade 42.1"
+    assert "10" in result["reason"]
+
+
+def test_readability_maximum_comes_from_the_rules():
+    assert not check("readability", EASY, rules=BlogQuality(max_grade=-2))["passed"]
+
+
+def test_readability_reads_headings_as_sentences_and_leaves_out_the_sources_section():
+    # "The cat and the dog." and "The cat sat on the mat.": 11 one-syllable words in 2
+    # sentences, 0.39 x 5.5 + 11.8 - 15.59 = -1.645. The Sources section isn't read.
+    body = (
+        "# The cat and the dog\n\nThe cat sat on the mat.\n\n"
+        f"## Sources\n\n1. [{HARD}](https://example.com)\n"
+    )
+    assert check("readability", body)["measured"] == "grade -1.6"

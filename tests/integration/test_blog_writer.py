@@ -191,46 +191,53 @@ META_155 = (
 def test_the_blog_is_checked_and_its_quality_score_is_posted_and_saved_on_the_revision(model):
     # BODY, leaving out its Sources section and Markdown: 35 words, "AI in healthcare" twice
     # (2 x 3 / 35 = 17.1%); one H1 with the keyword but only 2 H2s, neither with it. The
-    # meta description passes, so 1 of 3 checks passes: 70 x 1/3 check points, scaled to 100.
+    # meta description and readability pass, so 2 of 4 checks pass: 70 x 2/4 check points,
+    # scaled to 100.
     model.reply = blog_draft(meta_description=META_155)
     [reply], state = run_plan(BLOG, {"topic-1": topic()})
 
     after_body = reply.removeprefix(BODY)
-    assert "Quality Score: 33/100" in after_body.replace("*", "")
+    assert "Quality Score: 50/100" in after_body.replace("*", "")
     for line in [
         "keyword density 17.1% ✗",
         "meta description 155 chars ✓",
         "headings 1 H1, 2 H2s ✗",
+        "readability grade 7.0 ✓",
     ]:
         assert line in after_body, line
 
     [piece_id] = state["topics"]["topic-1"]["piece_ids"]
     [revision] = state["content_pieces"][piece_id]["revisions"]
     quality = revision["quality_score"]
-    assert quality["score"] == 33
+    assert quality["score"] == 50
     assert [(c["name"], c["passed"], c["measured"]) for c in quality["checks"]] == [
         ("keyword density", False, "17.1%"),
         ("meta description", True, "155 chars"),
         ("headings", False, "1 H1, 2 H2s"),
+        ("readability", True, "grade 7.0"),
     ]
     assert all(c["reason"] for c in quality["checks"])
 
 
 def test_a_blog_that_passes_every_check_scores_100(model):
-    # Headings (3 + 4 + 1 + 1) and 4 x 98 filler words = 401 words, with "AI in healthcare"
-    # twice: 2 x 3 / 401 = 1.5%. One H1 and three H2s with the keyword in the H1 and an H2.
-    filler = " ".join(["word"] * 98)
+    # Each section has a lead sentence with "AI in healthcare" and 34 short sentences of 7
+    # words: 3 + 4 + 1 + 1 heading words and 5 + 5 + 6 + 5 + 4 x 238 sentence words = 982
+    # words, with the keyword 6 times: 6 x 3 / 982 = 1.8%. One H1 and three H2s with the
+    # keyword in the H1 and an H2. Sources 1-3 are each cited, and listed.
+    filler = " ".join(["Doctors use this tool to read scans."] * 34)
     body = (
         "# AI in healthcare\n\n"
-        f"{filler} [1]\n\n"
+        f"AI in healthcare is here [1]. {filler}\n\n"
         "## AI in healthcare today\n\n"
-        f"{filler} [2]\n\n"
+        f"AI in healthcare reads scans [2]. {filler}\n\n"
         "## Diagnosis\n\n"
-        f"{filler}\n\n"
+        f"AI in healthcare finds disease early. {filler}\n\n"
         "## Regulation\n\n"
-        f"{filler} [3]\n\n"
+        f"AI in healthcare needs rules [3]. {filler}\n\n"
         "## Sources\n\n"
-        "1. [Report 1 from who.int](https://who.int/report-1)"
+        "1. [Report 1 from who.int](https://who.int/report-1)\n"
+        "2. [Report 2 from nature.com](https://nature.com/report-2)\n"
+        "3. [Report 3 from fda.gov](https://fda.gov/report-3)"
     )
     model.reply = blog_draft(body=body, meta_description=META_155)
     [reply], state = run_plan(BLOG, {"topic-1": topic()})

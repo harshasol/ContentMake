@@ -12,6 +12,8 @@ import re
 from dataclasses import dataclass
 from typing import TypedDict
 
+import textstat
+
 from contentblitz.core.config import BlogQuality
 
 
@@ -185,10 +187,28 @@ def headings(draft: Draft, min_h2s: int = 3) -> CheckResult:
     }
 
 
+def readability(draft: Draft, max_grade: float) -> CheckResult:
+    """The prose's Flesch-Kincaid grade level is at most `max_grade`.
+
+    A line that doesn't end a sentence, such as a heading or a list item, reads as one.
+    """
+    lines = [line.strip() for line in _prose(draft.body).splitlines() if line.strip()]
+    text = " ".join(line if line[-1] in ".!?" else f"{line}." for line in lines)
+    grade = textstat.flesch_kincaid_grade(text)
+    measured = f"grade {grade:.1f}"
+    return {
+        "name": "readability",
+        "passed": grade <= max_grade,
+        "measured": measured,
+        "reason": f"Flesch-Kincaid {measured}; the target is at most grade {max_grade:g}",
+    }
+
+
 def check_blog(draft: Draft, rules: BlogQuality) -> list[CheckResult]:
     """Every blog check's result, in the order the chat lists them."""
     return [
         keyword_density(draft, rules.density_range),
         meta_description(draft, rules.meta_length_range),
         headings(draft),
+        readability(draft, rules.max_grade),
     ]
