@@ -157,11 +157,6 @@ def _report(
     )
 
 
-def _missing_keys() -> str:
-    keys = [search.PROVIDERS[name][1].upper() for name in get_model_config().search.providers]
-    return " or ".join(keys)
-
-
 def research(state: ContentBlitzState) -> ContentBlitzState:
     topic = active_topic(state)
     if not topic:
@@ -170,7 +165,8 @@ def research(state: ContentBlitzState) -> ContentBlitzState:
     providers = search.configured_providers()
     if not providers:
         _trace([], [], 0)
-        return {"abort_reason": NO_PROVIDERS.format(topic=name, keys=_missing_keys())}
+        keys = " or ".join(search.missing_key_names())
+        return {"abort_reason": NO_PROVIDERS.format(topic=name, keys=keys)}
 
     options = get_model_config().search
     step = current_step(state) or {}

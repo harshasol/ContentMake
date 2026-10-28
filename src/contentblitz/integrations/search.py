@@ -5,7 +5,9 @@ Page text is read with fetch_page, which extracts the readable article with traf
 """
 
 import time
-from typing import Protocol
+from collections.abc import Iterator
+from contextlib import contextmanager
+from typing import NamedTuple, Protocol
 
 import httpx
 import trafilatura
@@ -48,8 +50,18 @@ class SearchUnavailableError(RuntimeError):
         self.failures = failures
 
 
+@contextmanager
+def _http_client(client: httpx.Client | None, timeout: float) -> Iterator[httpx.Client]:
+    """The injected client, else a short-lived one with this timeout, closed afterwards."""
+    if client:
+        yield client
+    else:
+        with httpx.Client(timeout=timeout) as own_client:
+            yield own_client
+
+
 class _HttpProvider:
-    name = ""
+    name: str  # set by each provider
 
     def __init__(self, api_key: str, client: httpx.Client | None = None):
         self._api_key = api_key
@@ -58,11 +70,8 @@ class _HttpProvider:
     def _send(self, method: str, url: str, **kwargs) -> dict:
         """Send the request and return its JSON body, raising SearchProviderError on failure."""
         try:
-            if self._client:
-                response = self._client.request(method, url, **kwargs)
-            else:
-                with httpx.Client(timeout=REQUEST_TIMEOUT_SECONDS) as client:
-                    response = client.request(method, url, **kwargs)
+            with _http_client(self._client, REQUEST_TIMEOUT_SECONDS) as client:
+                response = client.request(method, url, **kwargs)
         except httpx.TimeoutException as exc:
             raise SearchProviderError("timed out") from exc
         except httpx.HTTPError as exc:
@@ -79,6 +88,7 @@ class _HttpProvider:
 
     @staticmethod
     def _error(body: dict) -> str | None:
+        """The provider's error message in a reply body, if any. Each provider reads its own."""
         return None
 
 
@@ -131,10 +141,15 @@ class TavilyProvider(_HttpProvider):
         return detail.get("error") if isinstance(detail, dict) else detail
 
 
-# Config name → (provider class, the Settings field holding its API key)
-PROVIDERS: dict[str, tuple[type[_HttpProvider], str]] = {
-    "serpapi": (SerpApiProvider, "serpapi_api_key"),
-    "tavily": (TavilyProvider, "tavily_api_key"),
+class ProviderEntry(NamedTuple):
+    provider_class: type[_HttpProvider]
+    key_field: str  # the Settings field holding its API key
+
+
+# Config name → its provider
+PROVIDERS: dict[str, ProviderEntry] = {
+    "serpapi": ProviderEntry(SerpApiProvider, "serpapi_api_key"),
+    "tavily": ProviderEntry(TavilyProvider, "tavily_api_key"),
 }
 
 
@@ -152,6 +167,12 @@ def configured_providers(
         if api_key := getattr(settings, key_field):
             providers.append(provider_class(api_key, client))
     return providers
+
+
+def missing_key_names(config: ModelConfig | None = None) -> list[str]:
+    """The environment variables that would configure each provider, in config order."""
+    config = config or get_model_config()
+    return [PROVIDERS[name].key_field.upper() for name in config.search.providers]
 
 
 class SearchResponse(BaseModel):
@@ -184,11 +205,8 @@ def fetch_page(url: str, timeout: float, max_chars: int, client: httpx.Client | 
     all, isn't HTML, or has nothing readable. Only the first MAX_PAGE_BYTES are read.
     """
     try:
-        if client:
-            html = _read_html(client, url, timeout)
-        else:
-            with httpx.Client(timeout=timeout) as own_client:
-                html = _read_html(own_client, url, timeout)
+        with _http_client(client, timeout) as http_client:
+            html = _read_html(http_client, url, timeout)
         text = trafilatura.extract(html, include_comments=False) if html else None
     except Exception:  # noqa: BLE001 - an unreadable page falls back to its snippet
         return ""
