@@ -32,6 +32,7 @@ class Statistic(TypedDict):
     figure: str
     description: str  # what the figure measures
     source_numbers: list[int]  # at least one, each a Source in the Brief
+    verified: bool  # its main number appears in the text or snippet of a Source it cites
 
 
 class ContentAngle(TypedDict):

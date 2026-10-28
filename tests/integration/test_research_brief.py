@@ -40,6 +40,7 @@ def research_record(*sites):
 
 
 HEALTHCARE = research_record("who.int", "nature.com", "fda.gov")
+HEALTHCARE["sources"][1]["page_text"] = "Radiologists using AI read scans 30 percent faster."
 
 
 def topic(name="AI in healthcare", record=HEALTHCARE):
@@ -137,6 +138,7 @@ def test_the_brief_is_saved_on_the_topic_with_sources_from_the_research_record(m
         "figure": "950",
         "description": "AI devices cleared by the FDA",
         "source_numbers": [3],
+        "verified": False,
     }
     assert brief["angles"][2] == {
         "title": "The rural gap",
@@ -215,7 +217,7 @@ def test_citations_to_sources_that_dont_exist_are_removed_and_uncited_claims_dro
         {"statement": "Hospitals pilot AI first.", "source_numbers": [1]},
     ]
     assert brief["statistics"] == [
-        {"figure": "30%", "description": "faster reading", "source_numbers": [2]},
+        {"figure": "30%", "description": "faster reading", "source_numbers": [2], "verified": True},
     ]
 
 
@@ -401,3 +403,64 @@ def test_the_briefs_counts_are_traced(model):
         "dropped_findings": 1,
         "dropped_statistics": 0,
     }
+
+
+def statistic(figure, *source_numbers):
+    return {"figure": figure, "description": "a figure", "source_numbers": list(source_numbers)}
+
+
+def test_a_statistic_is_verified_when_its_number_is_in_a_cited_sources_text(model):
+    record = research_record("who.int", "nature.com", "fda.gov")
+    record["sources"][1]["page_text"] = "Reading was 30% faster with AI."
+    record["sources"][2]["page_text"] = "The FDA has cleared 950 devices."
+    model.reply = draft(
+        statistics=[
+            statistic("30%", 1, 2),  # in Source 2, which it cites
+            statistic("950", 1),  # only in Source 3, which it doesn't cite
+            statistic("12", 1, 2, 3),  # in no Source at all
+        ]
+    )
+    _, state = run_plan(RESEARCH_ONLY, {"topic-1": topic(record=record)})
+
+    statistics = state["topics"]["topic-1"]["brief"]["statistics"]
+    assert [(s["figure"], s["verified"]) for s in statistics] == [
+        ("30%", True),
+        ("950", False),
+        ("12", False),
+    ]
+
+
+@pytest.mark.parametrize(
+    ("figure", "page_text", "verified"),
+    [
+        ("1,200", "Some 1200 hospitals use it.", True),
+        ("1200", "Some 1,200 hospitals use it.", True),
+        ("45%", "Usage rose 45 percent last year.", True),
+        ("45 percent", "Usage rose 45% last year.", True),
+        ("45 %", "Usage rose  45 %  last year.", True),
+        ("$4.5 billion", "A market worth $4.5\n billion.", True),
+        ("30%", "Usage rose 130% last year.", False),
+        ("30%", "Usage rose 30.5% last year.", False),
+        ("45%", "We asked 45 people.", False),
+        ("1,200", "Some 12,000 hospitals use it.", False),
+    ],
+)
+def test_matching_ignores_thousands_separators_percent_wording_and_spacing(
+    model, figure, page_text, verified
+):
+    record = research_record("who.int")
+    record["sources"][0]["page_text"] = page_text
+    model.reply = draft(statistics=[statistic(figure, 1)])
+    _, state = run_plan(RESEARCH_ONLY, {"topic-1": topic(record=record)})
+
+    [stat] = state["topics"]["topic-1"]["brief"]["statistics"]
+    assert stat["verified"] is verified
+
+
+def test_a_number_in_a_cited_sources_snippet_verifies_it(model):
+    record = research_record("who.int")
+    record["sources"][0]["snippet"] = "Over 950 AI devices are cleared."
+    model.reply = draft(statistics=[statistic("950", 1)])
+    _, state = run_plan(RESEARCH_ONLY, {"topic-1": topic(record=record)})
+
+    assert state["topics"]["topic-1"]["brief"]["statistics"][0]["verified"] is True
