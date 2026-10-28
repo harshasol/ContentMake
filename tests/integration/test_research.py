@@ -45,10 +45,12 @@ BLOG_DRAFT = {
     "meta_description": "How AI in healthcare speeds up diagnosis.",
     "body": "# AI in healthcare\n\nAI reads scans faster [1].",
 }
+VERDICT = {"engagement": 8, "suggestions": []}
 
 
 class FakeModel:
-    """Stands in for the model: a scripted routing decision, query plan, draft Brief and blog."""
+    """Stands in for the model: a scripted routing decision, query plan, draft Brief, blog and
+    reviewer verdict."""
 
     def __init__(self, decision, queries):
         self.decision = decision
@@ -63,6 +65,8 @@ class FakeModel:
             return schema.model_validate(BRIEF_DRAFT)
         if agent == "blog_writer":
             return schema.model_validate(BLOG_DRAFT)
+        if agent == "quality_judge":
+            return schema.model_validate(VERDICT)
         return self.decision
 
 
@@ -614,10 +618,11 @@ def test_after_a_stopped_plan_the_next_request_runs_its_whole_plan(monkeypatch):
         "# AI in healthcare\n\nAI reads scans faster [1].\n\n---\n\n"
         "**Meta description:** How AI in healthcare speeds up diagnosis.\n\n"
         "**Template:** how-to\n\n"
-        "**Quality Score:** 0/100\n\n"
+        "**Quality Score:** 24/100\n\n"
         "- keyword density 42.9% ✗\n"
         "- meta description 41 chars ✗\n"
-        "- headings 1 H1, 0 H2s ✗",
+        "- headings 1 H1, 0 H2s ✗\n\n"
+        "**Engagement:** 8/10",
         "LinkedIn Post Writer: done (stub).",
     ]
 

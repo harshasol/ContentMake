@@ -4,8 +4,9 @@ The blog step runs the blog's quality loop. Its draft is one structured call to 
 `blog_writer` model, given the whole Brief, its target and secondary keywords, the four
 template guides, the target word range and the step's instructions. It returns the template
 it used, the title, the meta description and the Markdown body, citing the Brief's Sources
-as `[n]`. The loop checks the draft against the blog's SEO rules, and the kept attempt is
-posted and saved with its Quality Score.
+as `[n]`. The loop checks the draft against the blog's SEO rules, the AI reviewer rates its
+hook, flow, clarity and call to action, and the kept attempt is posted and saved with its
+Quality Score.
 
 If every provider fails, the step posts an error and the plan carries on: other pieces don't
 depend on the blog, unlike research and the Brief.
@@ -24,6 +25,7 @@ from contentblitz.workflow.progress import progress_message, stub_progress
 from contentblitz.workflow.quality_loop import Attempt, QualityFormat, quality_loop
 from contentblitz.workflow.quality_score import QualityScore
 from contentblitz.workflow.report import citation
+from contentblitz.workflow.reviewer import Review, review
 from contentblitz.workflow.state import ContentBlitzState, ContentPiece, ResearchBrief, Revision
 from contentblitz.workflow.topics import active_topic, add_piece, new_piece_id
 
@@ -47,6 +49,9 @@ section listing every Source you cited, with its link. Write Markdown with exact
 title, then H2 sections with H3s only under them. Optimise for the target keyword and work the
 secondary keywords in naturally. Pick the template that fits best and follow its structure.
 Follow the marketer's instructions."""
+
+JUDGING_CRITERIA = "its hook, flow, clarity and call to action"
+SUGGESTIONS_SHOWN = 3
 
 NO_MODEL = (
     "I couldn't write the blog on *{topic}*: the model didn't give a usable reply. "
@@ -129,11 +134,27 @@ def _checks(state: ContentBlitzState, draft: dict) -> list[CheckResult]:
     return check_blog(checked, get_model_config().quality.blog)
 
 
+def _judge(state: ContentBlitzState, draft: dict) -> Review | None:
+    text = f"Meta description: {draft['meta_description']}\n\nBlog post:\n\n{draft['body']}"
+    return review(text, JUDGING_CRITERIA)
+
+
+def _review_text(found: Review | None) -> str:
+    if found is None:
+        return "*Engagement: reviewer unavailable*"
+    suggestions = "\n".join(f"- {s}" for s in found["suggestions"][:SUGGESTIONS_SHOWN])
+    rating = f"**Engagement:** {found['engagement']}/10"
+    return f"{rating}\n\n**Suggestions:**\n{suggestions}" if suggestions else rating
+
+
 def _quality_text(quality: QualityScore) -> str:
     checks = "\n".join(
         f"- {c['name']} {c['measured']} {'✓' if c['passed'] else '✗'}" for c in quality["checks"]
     )
-    return f"**Quality Score:** {quality['score']}/100\n\n{checks}"
+    return (
+        f"**Quality Score:** {quality['score']}/100\n\n{checks}\n\n"
+        f"{_review_text(quality['review'])}"
+    )
 
 
 def _chat_text(draft: dict, quality: QualityScore) -> str:
@@ -176,7 +197,12 @@ def _failure(state: ContentBlitzState) -> str:
 
 
 BLOG = QualityFormat(
-    name="blog", draft=_draft, checks=_checks, finalise=_finalise, failure=_failure
+    name="blog",
+    draft=_draft,
+    checks=_checks,
+    judge=_judge,
+    finalise=_finalise,
+    failure=_failure,
 )
 _write = quality_loop(BLOG)
 
