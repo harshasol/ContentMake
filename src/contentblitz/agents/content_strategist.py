@@ -39,6 +39,15 @@ NO_RESEARCH = (
     "Ask me to research it first."
 )
 
+RETRY_LATER = (
+    "so I stopped the plan. The research is kept, so ask again to retry the Brief without "
+    "searching the web again."
+)
+THIN_BRIEF = (
+    "I couldn't build a Research Brief on *{topic}*: too few findings could be traced to the "
+    "Sources, " + RETRY_LATER
+)
+
 MIN_FINDINGS = 2
 
 CITE = "The numbers of the Sources it comes from, as listed, e.g. [1, 3]."
@@ -193,6 +202,8 @@ def content_strategist(state: ContentBlitzState) -> ContentBlitzState:
         draft = llm.complete_structured(AGENT, retry, DraftBrief)
         brief = _brief(draft, record)
         _trace(draft, brief)
+        if len(brief["key_findings"]) < MIN_FINDINGS:
+            return {"abort_reason": THIN_BRIEF.format(topic=topic["name"])}
     topics = dict(state["topics"])
     topics[state["active_topic_id"]] = {**topic, "brief": brief}
     if _writers_follow(state):

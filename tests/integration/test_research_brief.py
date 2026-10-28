@@ -429,3 +429,20 @@ def test_too_few_grounded_findings_retries_once_saying_what_was_dropped(model):
     for fact in ["Made up.", "Never cited.", "1 to 3"]:
         assert fact in feedback
     assert len(state["topics"]["topic-1"]["brief"]["key_findings"]) == 4
+
+
+THIN_BRIEF = (
+    "I couldn't build a Research Brief on *AI in healthcare*: too few findings could be traced "
+    "to the Sources, so I stopped the plan. The research is kept, so ask again to retry the "
+    "Brief without searching the web again."
+)
+
+
+def test_a_second_thin_draft_stops_the_plan_before_any_writer_runs(model):
+    model.reply = THIN
+    plan = [*RESEARCH_ONLY, {"agent": "blog_writer", "instructions": None}]
+    replies, state = run_plan(plan, {"topic-1": topic()})
+
+    assert replies == [THIN_BRIEF]
+    assert len(model.calls) == 2
+    assert state["topics"]["topic-1"] == topic()
