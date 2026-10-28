@@ -15,6 +15,7 @@ from dataclasses import dataclass
 from typing import NotRequired, TypedDict
 
 from langgraph.graph import END, START, StateGraph
+from langsmith import traceable
 
 from contentblitz.core.config import get_model_config
 from contentblitz.workflow.content_checks import CheckResult
@@ -101,6 +102,11 @@ def _check_node(fmt: QualityFormat):
 
 
 def _judge_node(fmt: QualityFormat):
+    @traceable(name=f"{fmt.name} attempt")
+    def trace(attempt: int, quality: QualityScore) -> dict:
+        """Puts an attempt's check results, reviewer scores and Quality Score in the trace."""
+        return {"attempt": attempt, "quality_score": quality}
+
     def judge(state: LoopState) -> LoopState:
         """Asks the reviewer for its verdict on the latest attempt, and gives it its score."""
         attempts = state.get("attempts") or []
@@ -110,6 +116,7 @@ def _judge_node(fmt: QualityFormat):
         review = fmt.judge(state, latest["draft"])
         pass_mark = get_model_config().quality.pass_mark
         scored = quality_score(latest["checks"], review, pass_mark)
+        trace(len(attempts), scored)
         return {"attempts": [*earlier, {**latest, "quality_score": scored}]}
 
     return judge

@@ -9,6 +9,7 @@ from datetime import datetime
 
 import pytest
 from langchain_core.messages import HumanMessage
+from langsmith import tracing_context
 
 from contentblitz.core.config import DEFAULT_CONFIG_PATH
 from contentblitz.integrations import llm
@@ -508,6 +509,39 @@ def test_an_attempt_the_reviewer_missed_counts_no_reviewer_points_when_choosing_
     [piece_id] = state["topics"]["topic-1"]["piece_ids"]
     assert state["content_pieces"][piece_id]["title"] == "Nearly there"
     assert "Quality Score: 76/100" in reply.replace("*", "")
+
+
+class RecordingClient:
+    """A LangSmith client that keeps the runs it is sent instead of uploading them."""
+
+    def __init__(self):
+        self.runs = {}
+
+    def create_run(self, **run):
+        self.runs[run["id"]] = run
+
+    def update_run(self, run_id, **update):
+        self.runs.setdefault(run_id, {}).update(update)
+
+    def __getattr__(self, name):
+        return lambda *args, **kwargs: None
+
+
+def test_each_attempts_checks_reviewer_scores_and_quality_score_are_traced(model):
+    model.reply = [FAILING, PASSING]
+    model.verdict = [verdict(engagement=8), verdict(engagement=9)]
+    client = RecordingClient()
+    with tracing_context(enabled=True, client=client):
+        _, state = run_plan(BLOG, {"topic-1": topic()})
+
+    runs = sorted(client.runs.values(), key=lambda r: r["start_time"])
+    traced = [(r.get("outputs") or {}) for r in runs if r.get("name") == "blog attempt"]
+    assert [t["attempt"] for t in traced] == [1, 2]
+    first, second = (t["quality_score"] for t in traced)
+    assert (first["score"], first["passed"], first["review"]["engagement"]) == (59, False, 8)
+    assert [c["passed"] for c in first["checks"]] == [False, True, False, True, False, True]
+    assert (second["score"], second["passed"], second["review"]["engagement"]) == (97, True, 9)
+    assert all(c["passed"] for c in second["checks"])
 
 
 def test_the_maximum_revisions_comes_from_config(model, tmp_path, monkeypatch):
