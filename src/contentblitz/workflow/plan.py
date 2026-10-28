@@ -22,7 +22,8 @@ def build_plan(decision: RoutingDecision, topic: Topic | None) -> list[PlanStep]
         or (any(s["agent"] in WRITERS for s in steps) and not has_brief)
     )
     if needs_research:
-        steps = [{"agent": "research"}, {"agent": "content_strategist"}, *steps]
+        research: PlanStep = {"agent": "research", "instructions": decision.instructions}
+        steps = [research, {"agent": "content_strategist"}, *steps]
     unique: list[PlanStep] = []
     for step in steps:
         if step not in unique:

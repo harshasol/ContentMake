@@ -22,8 +22,10 @@ class Working:
 
 
 def test_falls_back_to_next_provider():
-    results = search_with_fallback([Failing(), Working()], "ai")
-    assert results[0].url == "https://example.com"
+    response = search_with_fallback([Failing(), Working()], "ai")
+    assert response.results[0].url == "https://example.com"
+    assert response.provider == "working"
+    assert response.failures == {"failing": "quota exceeded"}
 
 
 def test_raises_when_every_provider_fails():
