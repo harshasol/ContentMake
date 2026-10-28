@@ -23,6 +23,8 @@ def build_plan(decision: RoutingDecision, topic: Topic | None) -> list[PlanStep]
     )
     if needs_research:
         research: PlanStep = {"agent": "research", "instructions": decision.instructions}
+        if decision.fresh_research:
+            research["fresh"] = True
         steps = [research, {"agent": "content_strategist"}, *steps]
     unique: list[PlanStep] = []
     for step in steps:

@@ -43,9 +43,11 @@ class FakeProvider:
         self.results = results or {}
         self.fail = fail
         self.queries = []
+        self.fresh = []  # the fresh flag each search was called with
 
-    def search(self, query, max_results=10):
+    def search(self, query, max_results=10, fresh=False):
         self.queries.append(query)
+        self.fresh.append(fresh)
         if self.fail:
             raise SearchProviderError("quota exceeded")
         outcome = self.results.get(query, [])
@@ -382,6 +384,76 @@ def test_failed_fresh_research_leaves_the_topics_research_record_and_brief_as_th
         "brief": {"summary": "AI speeds up diagnosis.", "key_findings": [], "sources": []},
         "piece_ids": [],
     }
+
+
+def researched_topics():
+    """Two Topics seeded with an old research record and a Research Brief; the first is active."""
+
+    def topic(name, url):
+        record = {
+            "queries": [name],
+            "providers": ["Tavily"],
+            "gathered_at": "2026-10-01T09:00:00+00:00",
+            "sources": [
+                {
+                    "title": "Old page",
+                    "url": url,
+                    "site": url.split("/")[2],
+                    "snippet": "Old.",
+                    "page_text": "",
+                    "query": name,
+                    "provider": "Tavily",
+                    "retrieved_at": "2026-10-01T09:00:00+00:00",
+                }
+            ],
+        }
+        brief = {"summary": f"Old Brief on {name}.", "key_findings": [], "sources": []}
+        return {"name": name, "research": record, "brief": brief, "piece_ids": []}
+
+    return {
+        "topics": {
+            "topic-1": topic("AI in healthcare", "https://old.org/ai"),
+            "topic-2": topic("AI in finance", "https://old.org/finance"),
+        },
+        "active_topic_id": "topic-1",
+    }
+
+
+def test_fresh_research_replaces_the_research_record_and_clears_the_brief(monkeypatch):
+    fake_model(monkeypatch, blog_request(fresh_research=True, same_topic=True))
+    provider = FakeProvider("SerpAPI", {QUERIES[0]: [hit("https://new.org/ai")]})
+    fake_search(monkeypatch, provider)
+    start = researched_topics()
+    replies, state = run(build_graph(), "find newer sources, then a blog", start=start)
+
+    assert replies[1] == (
+        "Researched *AI in healthcare*: 3 searches, 1 Source from 1 site via SerpAPI"
+    )
+    topic = state["topics"]["topic-1"]
+    assert topic["research"]["queries"] == QUERIES
+    assert urls(topic["research"]) == ["https://new.org/ai"]
+    assert topic["brief"] is None
+    assert state["topics"]["topic-2"] == researched_topics()["topics"]["topic-2"]
+
+
+def test_fresh_research_tells_every_search_to_skip_cached_results(monkeypatch):
+    fake_model(monkeypatch, blog_request(fresh_research=True, same_topic=True))
+    serpapi = FakeProvider("SerpAPI", fail=True)
+    tavily = FakeProvider("Tavily", {QUERIES[0]: [hit("https://new.org/ai")]})
+    fake_search(monkeypatch, serpapi, tavily)
+    run(build_graph(), "find newer sources, then a blog", start=researched_topics())
+
+    assert serpapi.fresh == [True, True, True]
+    assert tavily.fresh == [True, True, True]
+
+
+def test_research_that_is_not_fresh_may_use_cached_results(monkeypatch):
+    fake_model(monkeypatch)
+    provider = FakeProvider("SerpAPI", {QUERIES[0]: [hit("https://new.org/ai")]})
+    fake_search(monkeypatch, provider)
+    run(build_graph())
+
+    assert provider.fresh == [False, False, False]
 
 
 def test_after_a_stopped_plan_the_next_request_runs_its_whole_plan(monkeypatch):
