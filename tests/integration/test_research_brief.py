@@ -97,13 +97,13 @@ class FakeStrategist:
         reply = self.replies.pop(0) if self.replies else self.reply
         if isinstance(reply, Exception):
             raise reply
-        return schema.model_validate(reply)
+        return llm.Reply(schema.model_validate(reply), "openai/gpt-4o")
 
 
 @pytest.fixture
 def model(monkeypatch):
     fake = FakeStrategist(draft())
-    monkeypatch.setattr(llm, "complete_structured", fake)
+    monkeypatch.setattr(llm, "complete_structured_reply", fake)
     return fake
 
 
@@ -618,8 +618,18 @@ def test_a_brief_is_cut_to_the_most_findings_statistics_angles_and_keywords_kept
     assert brief["secondary_keywords"] == [f"keyword {n}" for n in range(1, 7)]
 
 
-def litellm_reply(content):
-    return SimpleNamespace(choices=[SimpleNamespace(message=SimpleNamespace(content=content))])
+def litellm_reply(content, model="gpt-4o-2024-08-06"):
+    message = SimpleNamespace(content=content)
+    return SimpleNamespace(model=model, choices=[SimpleNamespace(message=message)])
+
+
+def test_the_brief_records_the_model_that_answered_not_just_the_configured_one(monkeypatch):
+    """A fallback answered: LiteLLM's reply names it, and the Brief records it."""
+    reply = litellm_reply(json.dumps(draft()), model="claude-sonnet-4-20250514")
+    monkeypatch.setattr(llm.litellm, "completion", lambda **kwargs: reply)
+    _, state = run_plan(RESEARCH_ONLY, {"topic-1": topic()})
+
+    assert state["topics"]["topic-1"]["brief"]["model"] == "claude-sonnet-4-20250514"
 
 
 @pytest.mark.parametrize(

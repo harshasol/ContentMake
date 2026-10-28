@@ -15,7 +15,6 @@ from datetime import UTC, datetime
 from langsmith import traceable
 from pydantic import BaseModel, Field
 
-from contentblitz.core.config import get_model_config
 from contentblitz.integrations import llm
 from contentblitz.workflow.plan import WRITERS, current_step
 from contentblitz.workflow.progress import progress_message
@@ -134,10 +133,10 @@ def _prompt(name: str, instructions: str | None, record: ResearchRecord) -> list
     ]
 
 
-def _draft(messages: list[dict]) -> DraftBrief | None:
+def _draft(messages: list[dict]) -> llm.Reply[DraftBrief] | None:
     """The model's draft Brief, or None if every provider failed or the reply never fit."""
     try:
-        return llm.complete_structured(AGENT, messages, DraftBrief)
+        return llm.complete_structured_reply(AGENT, messages, DraftBrief)
     except Exception:  # noqa: BLE001 - any model failure stops the plan with a reason (#17)
         return None
 
@@ -186,7 +185,7 @@ def _verified(statistics: list[dict], record: ResearchRecord) -> list[Statistic]
     ]
 
 
-def _brief(draft: DraftBrief, record: ResearchRecord) -> ResearchBrief:
+def _brief(draft: DraftBrief, record: ResearchRecord, model: str) -> ResearchBrief:
     count = len(record["sources"])
     return {
         "summary": draft.summary,
@@ -197,7 +196,7 @@ def _brief(draft: DraftBrief, record: ResearchRecord) -> ResearchBrief:
         "secondary_keywords": draft.secondary_keywords[:MAX_SECONDARY_KEYWORDS],
         "sources": _sources(record),
         "created_at": _now(),
-        "model": get_model_config().for_agent(AGENT).primary,
+        "model": model,
         "research_gathered_at": record["gathered_at"],
     }
 
@@ -233,10 +232,11 @@ def content_strategist(state: ContentBlitzState) -> ContentBlitzState:
         return {"abort_reason": NO_RESEARCH.format(topic=topic["name"])}
     step = current_step(state) or {}
     messages = _prompt(topic["name"], step.get("instructions"), record)
-    draft = _draft(messages)
-    if draft is None:
+    reply = _draft(messages)
+    if reply is None:
         return {"abort_reason": NO_MODEL.format(topic=topic["name"])}
-    brief = _brief(draft, record)
+    draft = reply.value
+    brief = _brief(draft, record, reply.model)
     _trace(draft, brief)
     if len(brief["key_findings"]) < MIN_FINDINGS:
         retry = [
@@ -244,10 +244,11 @@ def content_strategist(state: ContentBlitzState) -> ContentBlitzState:
             {"role": "assistant", "content": draft.model_dump_json()},
             {"role": "user", "content": _feedback(draft, len(record["sources"]))},
         ]
-        draft = _draft(retry)
-        if draft is None:
+        reply = _draft(retry)
+        if reply is None:
             return {"abort_reason": NO_MODEL.format(topic=topic["name"])}
-        brief = _brief(draft, record)
+        draft = reply.value
+        brief = _brief(draft, record, reply.model)
         _trace(draft, brief)
         if len(brief["key_findings"]) < MIN_FINDINGS:
             return {"abort_reason": THIN_BRIEF.format(topic=topic["name"])}

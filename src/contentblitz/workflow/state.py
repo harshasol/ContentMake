@@ -51,7 +51,7 @@ class ResearchBrief(TypedDict):
     secondary_keywords: list[str]
     sources: list[Source]
     created_at: str  # ISO 8601, UTC
-    model: str  # the configured primary content_strategist model (a fallback isn't recorded)
+    model: str  # the model that wrote the draft, as LiteLLM names it (a fallback, if one answered)
     research_gathered_at: str  # the Research Record's gathered_at
 
 

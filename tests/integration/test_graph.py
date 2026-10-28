@@ -3,7 +3,7 @@ from langchain_core.messages import HumanMessage
 
 from contentblitz.agents import query_handler as qh
 from contentblitz.core.config import Settings
-from contentblitz.integrations import search
+from contentblitz.integrations import llm, search
 from contentblitz.integrations.llm import StructuredOutputError
 from contentblitz.integrations.search import SearchResult
 from contentblitz.workflow import graph as workflow
@@ -84,7 +84,18 @@ def with_api_key(monkeypatch):
 def fake_router(monkeypatch, decide):
     router = FakeRouter(decide)
     monkeypatch.setattr(qh.llm, "complete_structured", router)
+    answer_through_complete_structured(monkeypatch)
     return router
+
+
+def answer_through_complete_structured(monkeypatch):
+    """The Content Strategist asks for the model's reply with its name; route that call through
+    whatever fake stands in for `complete_structured`, naming the configured model."""
+
+    def reply(agent, messages, schema):
+        return llm.Reply(llm.complete_structured(agent, messages, schema), "openai/gpt-4o")
+
+    monkeypatch.setattr(llm, "complete_structured_reply", reply)
 
 
 def send(graph, text, thread="t1"):
