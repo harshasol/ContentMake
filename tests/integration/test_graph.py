@@ -33,7 +33,7 @@ class FakeRouter:
     """Stands in for the model: returns a scripted routing decision per message.
 
     Research query planning gets three fixed queries and the Content Strategist a scripted
-    draft Brief; only routing and Strategist calls are recorded.
+    draft Brief; only routing and Content Strategist calls are recorded.
     """
 
     def __init__(self, decide):
@@ -295,7 +295,7 @@ def test_fresh_research_reruns_research_even_with_a_brief(monkeypatch, with_api_
 
 
 def topic_without_brief(research):
-    """A Topic whose Research Brief was never built, as a failed Strategist leaves it."""
+    """A Topic whose Research Brief was never built, as a failed Content Strategist leaves it."""
     return {
         "topics": {
             "topic-1": {"name": "AI in healthcare", "research": research, "brief": None},

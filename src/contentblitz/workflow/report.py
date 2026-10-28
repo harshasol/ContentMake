@@ -1,7 +1,8 @@
 """The research report: how a Research Brief is shown to the marketer. See spec #6.
 
 Rendering is deterministic Markdown with no model call, so showing the report is instant
-and free. The chat, "show me the research" and the Research Panel all use it.
+and free. The chat and "show me the research" use it, and the Content workspace UI (#23)
+will show it.
 """
 
 from datetime import datetime

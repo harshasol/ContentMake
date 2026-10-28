@@ -11,8 +11,8 @@ WRITERS = {"blog_writer", "linkedin_writer"}
 def build_plan(decision: RoutingDecision, topic: Topic | None) -> list[PlanStep]:
     """Research first (ADR 0001) when a writer needs a Brief or research was asked for.
 
-    A writer on a Topic with research but no Brief gets only the Strategist first, so a failed
-    Brief is rebuilt without searching the web again.
+    A writer on a Topic with research but no Brief gets only the Content Strategist first, so a
+    failed Brief is rebuilt without searching the web again.
     """
     steps: list[PlanStep] = [
         {"agent": PIECE_FORMATS[f].agent, "instructions": decision.instructions}

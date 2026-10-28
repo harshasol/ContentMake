@@ -1,4 +1,4 @@
-"""Content Strategist: turns the active Topic's Research Record into a Research Brief. See #6.
+"""Content Strategist: turns a Topic's Research Record into a Research Brief. See spec #6.
 
 It makes one structured call to the `content_strategist` model for a draft Brief, then grounds
 the draft in code: the Source list is copied from the Research Record, citations to Sources
@@ -6,8 +6,8 @@ that don't exist are removed, findings or statistics left uncited are dropped, a
 statistic is marked verified or not against the text of the Sources it cites.
 
 If fewer than 2 findings survive, it retries once, telling the model what was dropped. If the
-retry is still too thin, or the model fails, it stops the plan (ADR 0001) and leaves the Topic's
-Research Record as it was, so the next request rebuilds only the Brief.
+retry is still too thin, or the model fails, it stops the plan (spec #6, #17) and leaves the
+Topic's Research Record as it was, so the next request rebuilds only the Brief.
 """
 
 from datetime import UTC, datetime
@@ -133,7 +133,7 @@ def _draft(messages: list[dict]) -> DraftBrief | None:
     """The model's draft Brief, or None if every provider failed or the reply never fit."""
     try:
         return llm.complete_structured(AGENT, messages, DraftBrief)
-    except Exception:  # noqa: BLE001 - any model failure stops the plan with a reason (ADR 0001)
+    except Exception:  # noqa: BLE001 - any model failure stops the plan with a reason (#17)
         return None
 
 

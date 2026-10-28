@@ -1,4 +1,4 @@
-"""Checking a Research Brief's statistics against the text of the Sources they cite. See #16.
+"""Checking a Research Brief's statistics against the text of the Sources they cite. See spec #6.
 
 A statistic is verified when its main number (the first number in its figure) appears in the
 page text or snippet of a Source it cites. Matching ignores thousands separators, `%` versus
