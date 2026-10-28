@@ -1,5 +1,6 @@
 """Research runs through the compiled workflow, with the model and search providers faked."""
 
+import threading
 from datetime import datetime
 
 import pytest
@@ -57,6 +58,28 @@ def hit(url, title=None):
 @pytest.fixture(autouse=True)
 def with_api_key(monkeypatch):
     monkeypatch.setattr(qh, "get_settings", lambda: Settings(_env_file=None, openai_api_key="x"))
+
+
+class FakePages:
+    """Stands in for the page fetcher: scripted text per URL, "" for any other page."""
+
+    def __init__(self, texts=None, barrier=None):
+        self.texts = texts or {}
+        self.barrier = barrier
+        self.calls = []
+
+    def __call__(self, url, timeout, max_chars):
+        self.calls.append({"url": url, "timeout": timeout, "max_chars": max_chars})
+        if self.barrier:
+            self.barrier.wait()  # breaks, and so raises, unless every read runs at once
+        return self.texts.get(url, "")
+
+
+@pytest.fixture(autouse=True)
+def pages(monkeypatch):
+    fake = FakePages()
+    monkeypatch.setattr(search, "fetch_page", fake)
+    return fake
 
 
 def fake_model(monkeypatch, decision=None, queries=QUERIES):
@@ -385,3 +408,68 @@ def test_queries_provider_outcomes_and_source_count_are_traced(monkeypatch):
         "results": 2,
         "failures": {"SerpAPI": "quota exceeded"},
     }
+
+
+def eight_sources():
+    """One search finding eight pages on eight sites, ranked in this order."""
+    return FakeProvider("SerpAPI", {QUERIES[0]: [hit(f"https://site{n}.com/a") for n in range(8)]})
+
+
+def test_the_top_sources_get_their_page_text_and_the_rest_keep_their_snippet(monkeypatch, pages):
+    fake_model(monkeypatch)
+    fake_search(monkeypatch, eight_sources())
+    pages.texts = {f"https://site{n}.com/a": f"Full text of page {n}." for n in range(8)}
+    _, state = run(build_graph())
+
+    sources = research_record(state)["sources"]
+    assert [s["page_text"] for s in sources] == [
+        *(f"Full text of page {n}." for n in range(6)),
+        "",
+        "",
+    ]
+    assert all(s["snippet"] == f"About {s['url']}" for s in sources)
+    assert sorted(c["url"] for c in pages.calls) == [f"https://site{n}.com/a" for n in range(6)]
+    assert {(c["timeout"], c["max_chars"]) for c in pages.calls} == {(8, 2000)}
+
+
+def test_a_page_that_cant_be_read_keeps_its_snippet_and_research_carries_on(monkeypatch, pages):
+    fake_model(monkeypatch)
+    fake_search(monkeypatch, eight_sources())
+    pages.texts = {"https://site0.com/a": "Full text of page 0.", "https://site2.com/a": "Page 2."}
+    replies, state = run(build_graph())
+
+    assert replies[1].startswith("Researched *AI in healthcare*: 3 searches, 8 Sources")
+    sources = research_record(state)["sources"]
+    assert [s["page_text"] for s in sources[:3]] == ["Full text of page 0.", "", "Page 2."]
+    assert sources[1]["snippet"] == "About https://site1.com/a"
+
+
+def test_pages_are_read_in_parallel(monkeypatch, pages):
+    fake_model(monkeypatch)
+    fake_search(monkeypatch, eight_sources())
+    pages.texts = {f"https://site{n}.com/a": f"Page {n}." for n in range(6)}
+    pages.barrier = threading.Barrier(6, timeout=5)
+    _, state = run(build_graph())
+
+    assert [s["page_text"] for s in research_record(state)["sources"][:6]] == [
+        f"Page {n}." for n in range(6)
+    ]
+
+
+def test_page_reading_limits_come_from_the_config(monkeypatch, tmp_path, pages):
+    from contentblitz.core.config import DEFAULT_CONFIG_PATH
+
+    path = tmp_path / "models.yaml"
+    path.write_text(
+        DEFAULT_CONFIG_PATH.read_text()
+        .replace("pages_to_read: 6", "pages_to_read: 2")
+        .replace("page_timeout_seconds: 8", "page_timeout_seconds: 3")
+        .replace("text_cap_chars: 2000", "text_cap_chars: 500")
+    )
+    monkeypatch.setenv("CONTENTBLITZ_CONFIG", str(path))
+    fake_model(monkeypatch)
+    fake_search(monkeypatch, eight_sources())
+    run(build_graph())
+
+    assert sorted(c["url"] for c in pages.calls) == ["https://site0.com/a", "https://site1.com/a"]
+    assert {(c["timeout"], c["max_chars"]) for c in pages.calls} == {(3, 500)}

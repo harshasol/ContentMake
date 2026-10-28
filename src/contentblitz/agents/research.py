@@ -5,12 +5,13 @@ fallback chain, merges the results into ranked Sources and saves them on the act
 as its research record. It does not summarise: that is the Content Strategist's job.
 """
 
+from concurrent.futures import ThreadPoolExecutor
 from datetime import UTC, datetime
 
 from langsmith import traceable
 from pydantic import BaseModel, Field, field_validator
 
-from contentblitz.core.config import get_model_config
+from contentblitz.core.config import SearchOptions, get_model_config
 from contentblitz.integrations import llm, search
 from contentblitz.integrations.search import SearchUnavailableError
 from contentblitz.workflow.plan import current_step
@@ -88,6 +89,25 @@ def _search_all(
     return searches, outcomes
 
 
+def _read_pages(sources: list[ResearchSource], options: SearchOptions) -> list[ResearchSource]:
+    """The top Sources with their page text, read in parallel; the rest keep only their snippet.
+
+    A page that can't be read gives no text, so its Source falls back to its snippet.
+    """
+    top = sources[: options.pages_to_read]
+    if not top:
+        return sources
+
+    def read(source: ResearchSource) -> ResearchSource:
+        text = search.fetch_page(
+            source["url"], timeout=options.page_timeout_seconds, max_chars=options.text_cap_chars
+        )
+        return {**source, "page_text": text}
+
+    with ThreadPoolExecutor(max_workers=len(top)) as pool:
+        return [*pool.map(read, top), *sources[len(top) :]]
+
+
 @traceable(name="research searches")
 def _trace(
     topic: str, queries: list[str], provider_outcomes: list[dict], source_count: int
@@ -140,6 +160,7 @@ def research(state: ContentBlitzState) -> ContentBlitzState:
     _trace(name, queries, outcomes, len(sources))
     if not sources:
         return {"messages": [progress_message(NO_SOURCES.format(topic=name))]}
+    sources = _read_pages(sources, options)
 
     record: ResearchRecord = {
         "queries": queries,
