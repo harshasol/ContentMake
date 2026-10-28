@@ -17,7 +17,7 @@ from langsmith import traceable
 from pydantic import BaseModel, Field
 
 from contentblitz.integrations import llm
-from contentblitz.workflow.plan import WRITERS, current_step
+from contentblitz.workflow.plan import current_step, writers_follow
 from contentblitz.workflow.progress import progress_message
 from contentblitz.workflow.report import render_report, summary_line
 from contentblitz.workflow.state import (
@@ -261,12 +261,6 @@ def _retry(messages: list[dict], thin_draft: DraftBrief, record: ResearchRecord)
     ]
 
 
-def _writers_follow(state: ContentBlitzState) -> bool:
-    """Whether a writer step comes after this one in the plan."""
-    later = state.get("plan", [])[len(state.get("completed_steps", [])) + 1 :]
-    return any(step["agent"] in WRITERS for step in later)
-
-
 def content_strategist(state: ContentBlitzState) -> ContentBlitzState:
     topic = active_topic(state)
     if not topic:
@@ -284,7 +278,7 @@ def content_strategist(state: ContentBlitzState) -> ContentBlitzState:
     brief = attempt.brief
     topics = dict(state["topics"])
     topics[state["active_topic_id"]] = {**topic, "brief": brief}
-    if _writers_follow(state):
+    if writers_follow(state):
         chat_text = summary_line(brief)
     else:
         chat_text = render_report(topic["name"], brief)
