@@ -138,7 +138,7 @@ def _new_content(state: ContentBlitzState, decision: RoutingDecision) -> Content
 def _refine(state: ContentBlitzState, decision: RoutingDecision) -> ContentBlitzState:
     candidates = resolve_target(state, decision)
     if not candidates:
-        if active_topic(state) and active_topic_pieces(state):
+        if active_topic_pieces(state):
             return _reply(no_piece_of_kind(state, decision), intent="refine")
         return _reply(NOTHING_TO_REFINE, intent="refine")
     if len(candidates) > 1:

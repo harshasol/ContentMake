@@ -6,6 +6,7 @@ from contentblitz.core.config import Settings
 from contentblitz.integrations.llm import StructuredOutputError
 from contentblitz.workflow.graph import build_graph
 from contentblitz.workflow.routing import RoutingDecision
+from contentblitz.workflow.topics import add_piece
 
 
 def config(thread="t1"):
@@ -163,7 +164,9 @@ def test_first_content_request_creates_the_active_topic_and_records_the_steps(
     send(graph, "write a blog about AI in healthcare")
 
     state = graph.get_state(config()).values
-    assert state["topics"] == {"topic-1": {"name": "AI in healthcare", "brief": None}}
+    assert state["topics"] == {
+        "topic-1": {"name": "AI in healthcare", "brief": None, "piece_ids": []}
+    }
     assert state["active_topic_id"] == "topic-1"
     assert state["intent"] == "new_content"
     steps = [{"agent": "research"}, {"agent": "content_strategist"}]
@@ -261,7 +264,12 @@ def piece(kind, title, topic_id="topic-1"):
 
 
 def with_pieces(**pieces):
-    return {**researched_topic(), "content_pieces": pieces}
+    """A researched active Topic plus a second Topic, seeded with pieces the way agents add them."""
+    state = researched_topic()
+    state["topics"]["topic-2"] = {"name": "Remote work", "brief": None}
+    for piece_id, content_piece in pieces.items():
+        state.update(add_piece(state, piece_id, content_piece))
+    return state
 
 
 def refine(instructions, target=None, formats=()):
@@ -332,7 +340,6 @@ def test_routing_is_given_a_summary_of_the_content_pieces(monkeypatch, with_api_
             "piece-2": piece("linkedin_post", "Old post", topic_id="topic-2"),
         }
     )
-    start["topics"]["topic-2"] = {"name": "Remote work"}
     send_with(build_graph(), "which pieces do I have?", start)
 
     context = "\n".join(m["content"] for m in router.calls[-1]["messages"] if m["role"] == "system")
@@ -447,7 +454,7 @@ def test_answering_new_creates_the_topic_and_runs_the_held_plan_research_first(
     assert replies == ["Plan for *AI in radiology*: research → brief → blog", RESEARCH, BRIEF, BLOG]
     state = graph.get_state(config()).values
     assert state["active_topic_id"] == "topic-2"
-    assert state["topics"]["topic-2"] == {"name": "AI in radiology", "brief": None}
+    assert state["topics"]["topic-2"] == {"name": "AI in radiology", "brief": None, "piece_ids": []}
     assert state["topics"]["topic-1"]["name"] == "AI in healthcare"
     assert state["pending_topic_question"] is None
 
@@ -552,3 +559,22 @@ def test_with_no_active_topic_a_content_request_creates_a_topic_without_asking(
     assert state["active_topic_id"] == "topic-3"
     names = [t["name"] for t in state["topics"].values()]
     assert names == ["AI in healthcare", "AI in radiology", "AI in finance"]
+
+
+def test_new_topic_ids_follow_the_highest_topic_number_and_never_overwrite(
+    monkeypatch, with_api_key
+):
+    fake_router(monkeypatch, new_content("image", topic_name="AI in finance"))
+    healthcare = {"name": "AI in healthcare", "brief": None}
+    notes = {"name": "Notes", "brief": None}
+    start = {"topics": {"topic-3": healthcare, "notes": notes}, "active_topic_id": None}
+    graph = build_graph()
+    send_with(graph, "an image about AI in finance", start)
+
+    state = graph.get_state(config()).values
+    assert state["active_topic_id"] == "topic-4"
+    assert state["topics"] == {
+        "topic-3": healthcare,
+        "notes": notes,
+        "topic-4": {"name": "AI in finance", "brief": None, "piece_ids": []},
+    }
