@@ -57,6 +57,8 @@ def test_research_limits_default_when_not_configured(tmp_path):
     assert blog.word_range == (900, 1800)
     assert blog.density_range == (1.0, 2.0)
     assert blog.meta_length_range == (150, 160)
+    assert blog.max_grade == 10
+    assert blog.min_citations == 3
 
 
 def test_shipped_config_sets_the_blog_thresholds():
@@ -64,6 +66,8 @@ def test_shipped_config_sets_the_blog_thresholds():
     assert blog.word_range == (900, 1800)
     assert blog.density_range == (1.0, 2.0)
     assert blog.meta_length_range == (150, 160)
+    assert blog.max_grade == 10
+    assert blog.min_citations == 3
 
 
 def test_blog_thresholds_are_read_from_config(tmp_path):
@@ -73,10 +77,14 @@ def test_blog_thresholds_are_read_from_config(tmp_path):
         + "".join(f"  {a}:\n    models: [{MODELS}]\n" for a in AGENT_NAMES)
         + "image:\n  models: [openai/gpt-image-1]\nsearch:\n  providers: [tavily]\n"
         + "quality:\n  blog:\n    density_range: [0.5, 1.5]\n    meta_length_range: [120, 155]\n"
+        + "    max_grade: 8\n    word_range: [500, 700]\n    min_citations: 5\n"
     )
     blog = load_model_config(path).quality.blog
     assert blog.density_range == (0.5, 1.5)
     assert blog.meta_length_range == (120, 155)
+    assert blog.max_grade == 8
+    assert blog.word_range == (500, 700)
+    assert blog.min_citations == 5
 
 
 def test_an_unknown_search_provider_is_rejected(tmp_path):

@@ -246,10 +246,13 @@ BLOG = (
     "# AI in healthcare\n\nAI reads scans faster [1].\n\n---\n\n"
     "**Meta description:** How AI in healthcare speeds up diagnosis.\n\n"
     "**Template:** how-to\n\n"
-    "**Quality Score:** 24/100\n\n"
+    "**Quality Score:** 36/100\n\n"
     "- keyword density 42.9% ✗\n"
     "- meta description 41 chars ✗\n"
-    "- headings 1 H1, 0 H2s ✗\n\n"
+    "- headings 1 H1, 0 H2s ✗\n"
+    "- readability grade 0.9 ✓\n"
+    "- length 7 words ✗\n"
+    "- citations 1 Source cited ✗\n\n"
     "**Engagement:** 8/10"
 )
 LINKEDIN = "LinkedIn Post Writer: done (stub)."
@@ -302,7 +305,15 @@ def researched_topic(**brief):
         "angles": [],
         "target_keyword": "AI in healthcare",
         "secondary_keywords": [],
-        "sources": [],
+        "sources": [
+            {
+                "number": 1,
+                "title": "AI report",
+                "url": "https://example.com/ai",
+                "site": "example.com",
+                "retrieved_at": "2026-10-20T09:25:00+00:00",
+            }
+        ],
         "created_at": "2026-10-20T10:00:00+00:00",
         "model": "openai/gpt-4o",
         "research_gathered_at": "2026-10-20T09:30:00+00:00",

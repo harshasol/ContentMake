@@ -58,6 +58,8 @@ class BlogQuality(BaseModel):
     word_range: tuple[int, int] = (900, 1800)
     density_range: tuple[float, float] = (1.0, 2.0)  # target keyword share of words, in %
     meta_length_range: tuple[int, int] = (150, 160)  # meta description length, in characters
+    max_grade: float = 10  # highest Flesch-Kincaid grade level
+    min_citations: int = 3  # fewest distinct Sources cited
 
 
 class QualityOptions(BaseModel):
