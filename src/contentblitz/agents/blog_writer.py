@@ -215,7 +215,8 @@ def _write_draft(state: ContentBlitzState, messages: list[dict]) -> dict | None:
     return {**draft, "template": _template(state) or draft["template"]}
 
 
-def _draft(state: ContentBlitzState) -> dict | None:
+def _first_draft(state: ContentBlitzState) -> dict | None:
+    """A new blog's first Attempt, drafted from the Brief."""
     return _write_draft(state, _prompt(state))
 
 
@@ -227,7 +228,7 @@ def _draft_text(draft: dict) -> str:
     )
 
 
-def _change(state: ContentBlitzState, draft: dict, request: str) -> dict | None:
+def _redraft(state: ContentBlitzState, draft: dict, request: str) -> dict | None:
     """`draft` changed as `request` asks: the same call, given the draft to change."""
     return _write_draft(
         state,
@@ -241,7 +242,7 @@ def _change(state: ContentBlitzState, draft: dict, request: str) -> dict | None:
 
 def _revise(state: ContentBlitzState, draft: dict, feedback: str) -> dict | None:
     """The current draft revised to fix what the feedback names, keeping the rest."""
-    return _change(state, draft, REVISE_PROMPT.format(feedback=feedback))
+    return _redraft(state, draft, REVISE_PROMPT.format(feedback=feedback))
 
 
 def _latest_revision(state: ContentBlitzState) -> dict:
@@ -256,10 +257,10 @@ def _latest_revision(state: ContentBlitzState) -> dict:
     }
 
 
-def _refine(state: ContentBlitzState) -> dict | None:
+def _refined_latest_revision(state: ContentBlitzState) -> dict | None:
     """The first Attempt of a refinement: the latest Revision changed as the marketer asks."""
     instructions = _step(state).get("instructions") or ""
-    return _change(state, _latest_revision(state), REFINE_PROMPT.format(instructions=instructions))
+    return _redraft(state, _latest_revision(state), REFINE_PROMPT.format(instructions=instructions))
 
 
 def _checks(state: ContentBlitzState, draft: dict) -> list[CheckResult]:
@@ -279,11 +280,11 @@ def _judge(state: ContentBlitzState, draft: dict) -> Review | None:
     return review(text, JUDGING_CRITERIA)
 
 
-def _review_text(found: Review | None) -> str:
-    if found is None:
+def _review_text(verdict: Review | None) -> str:
+    if verdict is None:
         return "*Engagement: reviewer unavailable*"
-    suggestions = "\n".join(f"- {s}" for s in found["suggestions"][:SUGGESTIONS_SHOWN])
-    engagement = f"**Engagement:** {found['engagement']}/10"
+    suggestions = "\n".join(f"- {s}" for s in verdict["suggestions"][:SUGGESTIONS_SHOWN])
+    engagement = f"**Engagement:** {verdict['engagement']}/10"
     return f"{engagement}\n\n**Suggestions:**\n{suggestions}" if suggestions else engagement
 
 
@@ -359,7 +360,7 @@ def _refine_failure(state: ContentBlitzState) -> str:
 
 BLOG = QualityFormat(
     name="blog",
-    draft=_draft,
+    draft=_first_draft,
     revise=_revise,
     checks=_checks,
     judge=_judge,
@@ -370,20 +371,21 @@ BLOG = QualityFormat(
 BLOG_REFINEMENT = replace(
     BLOG,
     name="blog refinement",
-    draft=_refine,
+    draft=_refined_latest_revision,
     finalise=_finalise_refinement,
     failure=_refine_failure,
 )
-_write = quality_loop(BLOG)
-_refine_blog = quality_loop(BLOG_REFINEMENT)
+_write_new_blog = quality_loop(BLOG)
+_refine_existing_blog = quality_loop(BLOG_REFINEMENT)
 
 
 def blog_writer(state: ContentBlitzState) -> ContentBlitzState:
     """Writes a new blog, or refines the blog a refine step targets."""
     if not _target(state):
-        return _write(state)  # the plan builder made sure the Topic has a Brief (ADR 0001)
+        # The plan builder made sure the Topic has a Brief (ADR 0001).
+        return _write_new_blog(state)
     topic = _topic(state)
     if not topic.get("brief"):
         title = piece_title(state, _target(state))
         return {"messages": [progress_message(NO_BRIEF.format(title=title, topic=topic["name"]))]}
-    return _refine_blog(state)
+    return _refine_existing_blog(state)
