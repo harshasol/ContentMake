@@ -1,0 +1,17 @@
+{
+  "schemaVersion": 1,
+  "receiptId": "c62898f4-6da5-4d23-8124-cce72825763e",
+  "status": "current",
+  "command": "deliver",
+  "type": "architecture",
+  "input": "/Users/harshahammika/IK-FDE/Classes/Capstone/ContentBlitz - Content Marketing Agent/ContentMake/docs/architecture/candidate.json",
+  "output": "/Users/harshahammika/IK-FDE/Classes/Capstone/ContentBlitz - Content Marketing Agent/ContentMake/docs/architecture/contentblitz-architecture.html",
+  "specification": {
+    "sha256": "abdfa00db798415fd416644efaa4ecfb69366f6ba5dc3a9f870048bf8df3688c",
+    "bytes": 6794
+  },
+  "artifact": {
+    "sha256": "717701a6c34af128aefd906465f008c2b286b64ccc991e798cbc021d66fa47b2",
+    "bytes": 840561
+  }
+}
