@@ -30,6 +30,9 @@ class RoutingDecision(BaseModel):
     refine_target: str | None = Field(None, description="Content Piece id to refine.")
     instructions: str | None = Field(None, description="Instructions to pass on to the writers.")
     reply: str | None = Field(None, description="The answer, for chat only.")
+    show_research_report: bool = Field(
+        False, description="For chat only: the user asked to see the research report."
+    )
     clarifying_question: str | None = Field(
         None, description="One short question with suggested requests, for unclear only."
     )
