@@ -33,15 +33,24 @@ fi
 SP_OID=$(az ad sp show --id "$CLIENT_ID" --query id -o tsv 2> /dev/null \
   || az ad sp create --id "$CLIENT_ID" --query id -o tsv)
 
-SUBJECT="repo:$REPO:environment:production"
-if [ -z "$(az ad app federated-credential list --id "$CLIENT_ID" --query "[?subject=='$SUBJECT'].name" -o tsv)" ]; then
-  az ad app federated-credential create --id "$CLIENT_ID" -o none --parameters "{
-    \"name\": \"github-production\",
-    \"issuer\": \"https://token.actions.githubusercontent.com\",
-    \"subject\": \"$SUBJECT\",
-    \"audiences\": [\"api://AzureADTokenExchange\"]
-  }"
+# Newer repos sign OIDC tokens with immutable IDs (repo:owner@123/name@456:...), so ask
+# GitHub for the prefix it actually uses rather than assuming repo:owner/name.
+SUB_PREFIX=$(gh api "repos/$REPO/actions/oidc/customization/sub" --jq '.sub_claim_prefix // empty' 2> /dev/null || true)
+SUBJECT="${SUB_PREFIX:-repo:$REPO}:environment:production"
+CREDENTIAL="{
+  \"name\": \"github-production\",
+  \"issuer\": \"https://token.actions.githubusercontent.com\",
+  \"subject\": \"$SUBJECT\",
+  \"audiences\": [\"api://AzureADTokenExchange\"]
+}"
+EXISTING=$(az ad app federated-credential list --id "$CLIENT_ID" --query "[?name=='github-production'].subject" -o tsv)
+if [ -z "$EXISTING" ]; then
+  az ad app federated-credential create --id "$CLIENT_ID" -o none --parameters "$CREDENTIAL"
+elif [ "$EXISTING" != "$SUBJECT" ]; then
+  az ad app federated-credential update --id "$CLIENT_ID" --federated-credential-id github-production \
+    -o none --parameters "$CREDENTIAL"
 fi
+echo "    OIDC subject: $SUBJECT"
 
 assign_role() {
   local role=$1 scope=$2

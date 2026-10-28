@@ -59,10 +59,12 @@ jobs:
       - name: Smoke test
         run: |
           for _ in $(seq 1 30); do
+            # join() keeps the three values on one line; -o tsv on a list prints one per line.
             read -r latest ready fqdn < <(az containerapp show --name "$APP" --resource-group "$RG" \
-              --query "[properties.latestRevisionName, properties.latestReadyRevisionName, properties.configuration.ingress.fqdn]" \
+              --query "join(' ', [properties.latestRevisionName, properties.latestReadyRevisionName, properties.configuration.ingress.fqdn])" \
               -o tsv)
-            if [ "$latest" = "$ready" ] && curl -fsS "https://$fqdn/_stcore/health"; then
+            # The app scales to zero, so the first request waits ~20 s for a cold start.
+            if [ "$latest" = "$ready" ] && curl -fsS --max-time 60 "https://$fqdn/_stcore/health"; then
               echo
               echo "Deployed $SHA as $latest: https://$fqdn" | tee -a "$GITHUB_STEP_SUMMARY"
               exit 0
