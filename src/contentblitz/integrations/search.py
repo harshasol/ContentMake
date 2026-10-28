@@ -40,7 +40,12 @@ class SearchProviderError(RuntimeError):
 
 
 class SearchUnavailableError(RuntimeError):
-    pass
+    """No provider answered. `failures` maps each provider tried to why it failed."""
+
+    def __init__(self, failures: dict[str, str]):
+        reasons = "; ".join(f"{name}: {reason}" for name, reason in failures.items())
+        super().__init__(reasons or "no search providers configured")
+        self.failures = failures
 
 
 class _HttpProvider:
@@ -169,8 +174,7 @@ def search_with_fallback(
             failures[provider.name] = str(exc)
             continue
         return SearchResponse(provider=provider.name, results=results, failures=failures)
-    reasons = "; ".join(f"{name}: {reason}" for name, reason in failures.items())
-    raise SearchUnavailableError(reasons or "no search providers configured")
+    raise SearchUnavailableError(failures)
 
 
 def fetch_page(url: str, timeout: float, max_chars: int, client: httpx.Client | None = None) -> str:

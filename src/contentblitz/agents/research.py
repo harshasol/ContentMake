@@ -7,6 +7,7 @@ as its Research Record. It does not summarise: that is the Content Strategist's 
 
 from concurrent.futures import ThreadPoolExecutor
 from datetime import UTC, datetime
+from typing import TypedDict
 
 from langsmith import traceable
 from pydantic import BaseModel, Field, field_validator
@@ -65,26 +66,36 @@ def _plan_queries(topic: str, instructions: str | None, limit: int) -> list[str]
     return plan.queries[:limit]
 
 
+class ProviderOutcome(TypedDict):
+    """How one query fared across the search providers, for the trace."""
+
+    query: str
+    provider: str | None  # the provider that answered, or None if none did
+    results: int
+    failures: dict[str, str]  # provider name → why it failed
+
+
 def _now() -> str:
     return datetime.now(UTC).isoformat(timespec="seconds")
 
 
 def _search_all(
     providers: list[search.SearchProvider], queries: list[str], fresh: bool
-) -> tuple[list[QuerySearch], list[dict]]:
+) -> tuple[list[QuerySearch], list[ProviderOutcome]]:
     """Every query through the fallback chain at once. A query no provider answers is skipped."""
 
-    def run(query: str) -> tuple[QuerySearch | None, dict]:
+    def run(query: str) -> tuple[QuerySearch | None, ProviderOutcome]:
         try:
             response = search.search_with_fallback(providers, query, fresh=fresh)
         except SearchUnavailableError as error:
-            return None, {"query": query, "provider": None, "results": 0, "error": str(error)}
-        outcome = {
-            "query": query,
-            "provider": response.provider,
-            "results": len(response.results),
-            "failures": response.failures,
-        }
+            failed = ProviderOutcome(query=query, provider=None, results=0, failures=error.failures)
+            return None, failed
+        outcome = ProviderOutcome(
+            query=query,
+            provider=response.provider,
+            results=len(response.results),
+            failures=response.failures,
+        )
         return QuerySearch(query, response, retrieved_at=_now()), outcome
 
     with ThreadPoolExecutor(max_workers=len(queries)) as pool:
@@ -112,9 +123,7 @@ def _read_pages(sources: list[ResearchSource], options: SearchOptions) -> list[R
 
 
 @traceable(name="research searches")
-def _trace(
-    topic: str, queries: list[str], provider_outcomes: list[dict], source_count: int
-) -> dict:
+def _trace(queries: list[str], provider_outcomes: list[ProviderOutcome], source_count: int) -> dict:
     """Puts the queries, provider outcomes and Source count in the research step's trace."""
     return {
         "queries": queries,
@@ -127,11 +136,16 @@ def _plural(count: int, word: str, plural: str | None = None) -> str:
     return f"{count} {word if count == 1 else plural or word + 's'}"
 
 
+def _providers(searches: list[QuerySearch]) -> list[str]:
+    """The providers that answered, in the order they first did."""
+    return list(dict.fromkeys(s.response.provider for s in searches))
+
+
 def _report(
     topic: str, queries: list[str], searches: list[QuerySearch], sources: list[ResearchSource]
 ) -> str:
     """The progress message. It counts every query run, including any no provider answered."""
-    answered = list(dict.fromkeys(s.response.provider for s in searches))
+    answered = _providers(searches)
     failed = {name for s in searches for name in s.response.failures}
     via = " and ".join(answered)
     if failed := sorted(failed - set(answered)):
@@ -155,7 +169,7 @@ def research(state: ContentBlitzState) -> ContentBlitzState:
     name = topic["name"]
     providers = search.configured_providers()
     if not providers:
-        _trace(name, [], [], 0)
+        _trace([], [], 0)
         return {"abort_reason": NO_PROVIDERS.format(topic=name, keys=_missing_keys())}
 
     options = get_model_config().search
@@ -163,14 +177,14 @@ def research(state: ContentBlitzState) -> ContentBlitzState:
     queries = _plan_queries(name, step.get("instructions"), options.queries_per_run)
     searches, outcomes = _search_all(providers, queries, fresh=step.get("fresh", False))
     sources = merge_sources(searches, options.max_sources)
-    _trace(name, queries, outcomes, len(sources))
+    _trace(queries, outcomes, len(sources))
     if not sources:
         return {"abort_reason": NO_SOURCES.format(topic=name)}
     sources = _read_pages(sources, options)
 
     record: ResearchRecord = {
         "queries": queries,
-        "providers": list(dict.fromkeys(s.response.provider for s in searches)),
+        "providers": _providers(searches),
         "gathered_at": _now(),
         "sources": sources,
     }
