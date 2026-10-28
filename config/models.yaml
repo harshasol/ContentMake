@@ -38,3 +38,5 @@ quality:
     word_range: [900, 1800]        # target word count, when the instructions don't set a length
     density_range: [1.0, 2.0]      # target keyword share of the words, in %
     meta_length_range: [150, 160]  # meta description length, in characters
+    max_grade: 10                  # highest Flesch-Kincaid grade level
+    min_citations: 3               # fewest distinct Sources cited
