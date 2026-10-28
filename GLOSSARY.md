@@ -19,7 +19,7 @@ The raw research gathered on a Topic (the queries run, the providers that answer
 _Avoid_: Research results, research data
 
 **Source**:
-A web page or document cited in a Research Brief, with title and URL.
+A web page or document gathered by research and cited in a Research Brief, with title, URL, site and retrieval date. Its number is its rank in the Research Record, and is the citation number everywhere it is cited.
 _Avoid_: Reference, citation, link
 
 ### Content

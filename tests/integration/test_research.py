@@ -10,7 +10,7 @@ from langsmith import tracing_context
 from contentblitz.agents import query_handler as qh
 from contentblitz.agents.research import NO_TOPIC, research
 from contentblitz.core.config import Settings
-from contentblitz.integrations import search
+from contentblitz.integrations import llm, search
 from contentblitz.integrations.search import SearchProviderError, SearchResult
 from contentblitz.workflow.graph import build_graph
 from contentblitz.workflow.routing import RoutingDecision
@@ -23,8 +23,25 @@ NO_SOURCES = (
 QUERIES = ["AI in healthcare 2026", "AI diagnosis statistics", "AI healthcare regulation"]
 
 
+BRIEF_DRAFT = {
+    "summary": "AI is speeding up diagnosis.",
+    "key_findings": [
+        {"statement": "AI reads scans faster.", "source_numbers": [1]},
+        {"statement": "Regulators are catching up.", "source_numbers": [1]},
+    ],
+    "statistics": [],
+    "angles": [
+        {"title": "The new colleague", "hook": "Your scan may be read twice."},
+        {"title": "Regulation catches up", "hook": "Approvals keep coming."},
+        {"title": "The rural gap", "hook": "The clinics that need AI most get it last."},
+    ],
+    "target_keyword": "AI in healthcare",
+    "secondary_keywords": ["AI diagnosis", "medical AI regulation", "AI radiology"],
+}
+
+
 class FakeModel:
-    """Stands in for the model: a scripted routing decision, and a scripted query plan."""
+    """Stands in for the model: a scripted routing decision, query plan and draft Brief."""
 
     def __init__(self, decision, queries):
         self.decision = decision
@@ -35,6 +52,8 @@ class FakeModel:
         self.calls.append({"agent": agent, "messages": messages, "schema": schema})
         if agent == "research":
             return schema(queries=self.queries)
+        if agent == "content_strategist":
+            return schema.model_validate(BRIEF_DRAFT)
         return self.decision
 
 
@@ -96,7 +115,18 @@ def pages(monkeypatch):
 def fake_model(monkeypatch, decision=None, queries=QUERIES):
     model = FakeModel(decision or research_request(), queries)
     monkeypatch.setattr(qh.llm, "complete_structured", model)
+    answer_through_complete_structured(monkeypatch)
     return model
+
+
+def answer_through_complete_structured(monkeypatch):
+    """The Content Strategist asks for the model's reply with its name; route that call through
+    whatever fake stands in for `complete_structured`, naming the configured model."""
+
+    def reply(agent, messages, schema):
+        return llm.Reply(llm.complete_structured(agent, messages, schema), "openai/gpt-4o")
+
+    monkeypatch.setattr(llm, "complete_structured_reply", reply)
 
 
 def fake_search(monkeypatch, *providers):
@@ -436,6 +466,22 @@ def test_with_no_search_provider_configured_the_rest_of_the_plan_stops(monkeypat
     assert state["completed_steps"] == [{"agent": "research", "instructions": None}]
 
 
+def seeded_brief(summary):
+    """A Research Brief as the Content Strategist saved it on an earlier run."""
+    return {
+        "summary": summary,
+        "key_findings": [],
+        "statistics": [],
+        "angles": [],
+        "target_keyword": "AI",
+        "secondary_keywords": [],
+        "sources": [],
+        "created_at": "2026-10-01T09:05:00+00:00",
+        "model": "openai/gpt-4o",
+        "research_gathered_at": "2026-10-01T09:00:00+00:00",
+    }
+
+
 def test_failed_fresh_research_leaves_the_topics_research_record_and_brief_as_they_were(
     monkeypatch,
 ):
@@ -447,7 +493,7 @@ def test_failed_fresh_research_leaves_the_topics_research_record_and_brief_as_th
         "gathered_at": "2026-10-01T09:00:00+00:00",
         "sources": [],
     }
-    brief = {"summary": "AI speeds up diagnosis.", "key_findings": [], "sources": []}
+    brief = seeded_brief("AI speeds up diagnosis.")
     topic = {"name": "AI in healthcare", "research": record, "brief": brief, "piece_ids": []}
     start = {"topics": {"topic-1": topic}, "active_topic_id": "topic-1"}
     replies, state = run(build_graph(), "find newer sources, then a blog", start=start)
@@ -461,7 +507,7 @@ def test_failed_fresh_research_leaves_the_topics_research_record_and_brief_as_th
             "gathered_at": "2026-10-01T09:00:00+00:00",
             "sources": [],
         },
-        "brief": {"summary": "AI speeds up diagnosis.", "key_findings": [], "sources": []},
+        "brief": seeded_brief("AI speeds up diagnosis."),
         "piece_ids": [],
     }
 
@@ -487,8 +533,12 @@ def researched_topics():
                 }
             ],
         }
-        brief = {"summary": f"Old Brief on {name}.", "key_findings": [], "sources": []}
-        return {"name": name, "research": record, "brief": brief, "piece_ids": []}
+        return {
+            "name": name,
+            "research": record,
+            "brief": seeded_brief(f"Old Brief on {name}."),
+            "piece_ids": [],
+        }
 
     return {
         "topics": {
@@ -499,7 +549,7 @@ def researched_topics():
     }
 
 
-def test_fresh_research_replaces_the_research_record_and_clears_the_brief(monkeypatch):
+def test_fresh_research_replaces_the_research_record_and_the_brief_is_rebuilt_from_it(monkeypatch):
     fake_model(monkeypatch, blog_request(fresh_research=True, same_topic=True))
     provider = FakeProvider("SerpAPI", {QUERIES[0]: [hit("https://new.org/ai")]})
     fake_search(monkeypatch, provider)
@@ -512,7 +562,9 @@ def test_fresh_research_replaces_the_research_record_and_clears_the_brief(monkey
     topic = state["topics"]["topic-1"]
     assert topic["research"]["queries"] == QUERIES
     assert urls(topic["research"]) == ["https://new.org/ai"]
-    assert topic["brief"] is None
+    assert topic["brief"]["summary"] == "AI is speeding up diagnosis."
+    assert [s["url"] for s in topic["brief"]["sources"]] == ["https://new.org/ai"]
+    assert topic["brief"]["research_gathered_at"] == topic["research"]["gathered_at"]
     assert state["topics"]["topic-2"] == researched_topics()["topics"]["topic-2"]
 
 
@@ -548,7 +600,8 @@ def test_after_a_stopped_plan_the_next_request_runs_its_whole_plan(monkeypatch):
 
     assert replies[1:] == [
         "Researched *AI in healthcare*: 3 searches, 1 Source from 1 site via SerpAPI",
-        "Content Strategist: done (stub).",
+        "Research Brief ready: 2 findings, 0 statistics, 1 Source. "
+        "Ask 'show me the research' to read it.",
         "SEO Blog Writer: done (stub).",
         "LinkedIn Post Writer: done (stub).",
     ]

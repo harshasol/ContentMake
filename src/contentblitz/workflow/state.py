@@ -10,20 +10,53 @@ from contentblitz.workflow.routing import Intent
 
 
 class Source(TypedDict):
+    """A Source as cited in a Research Brief: copied from the Research Record, never the model.
+
+    Its number is its rank in the Research Record, from 1, and is the citation number
+    everywhere: in the Brief, the research report and the writers' citations.
+    """
+
+    number: int
     title: str
     url: str
+    site: str
+    retrieved_at: str  # ISO 8601, UTC
+
+
+class KeyFinding(TypedDict):
+    statement: str
+    source_numbers: list[int]  # at least one, each a Source in the Brief
+
+
+class Statistic(TypedDict):
+    figure: str
+    description: str  # what the figure measures
+    source_numbers: list[int]  # at least one, each a Source in the Brief
+    verified: bool  # its significant numbers all appear in the text of Sources it cites
+
+
+class ContentAngle(TypedDict):
+    title: str
+    hook: str
 
 
 class ResearchBrief(TypedDict):
-    """Filled by the Content Strategist (#6)."""
+    """The Content Strategist's grounded summary of a Topic's Research Record. See spec #6."""
 
     summary: str
-    key_findings: list[str]
+    key_findings: list[KeyFinding]
+    statistics: list[Statistic]
+    angles: list[ContentAngle]
+    target_keyword: str
+    secondary_keywords: list[str]
     sources: list[Source]
+    created_at: str  # ISO 8601, UTC
+    model: str  # the model that wrote the draft, as LiteLLM names it (a fallback, if one answered)
+    research_gathered_at: str  # the Research Record's gathered_at
 
 
 class ResearchSource(TypedDict):
-    """A Source as gathered by research, before the Content Strategist cites it in a Brief."""
+    """A Source as gathered by research, with its text; a Brief cites it as a `Source`."""
 
     title: str
     url: str
