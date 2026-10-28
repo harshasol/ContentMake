@@ -41,6 +41,13 @@ class PlanStep(TypedDict):
     instructions: NotRequired[str | None]
 
 
+class PendingTopicQuestion(TypedDict):
+    """Asked when a content request seems to be about a different subject from the active Topic."""
+
+    name: str  # the proposed Topic's name
+    plan: list[PlanStep]  # the held plan, built against the active Topic
+
+
 class ContentBlitzState(TypedDict, total=False):
     messages: Annotated[list[AnyMessage], add_messages]
     topics: dict[str, Topic]
@@ -48,3 +55,4 @@ class ContentBlitzState(TypedDict, total=False):
     intent: Intent
     plan: list[PlanStep]
     completed_steps: list[PlanStep]  # a prefix of `plan`, in the order the steps ran
+    pending_topic_question: PendingTopicQuestion | None
