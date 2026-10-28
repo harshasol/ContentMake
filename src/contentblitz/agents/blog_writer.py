@@ -6,4 +6,4 @@ from contentblitz.workflow.state import ContentBlitzState
 
 
 def blog_writer(state: ContentBlitzState) -> ContentBlitzState:
-    return {"messages": [AIMessage(content="SEO Blog Writer is not implemented yet.")]}
+    return {"messages": [AIMessage(content="SEO Blog Writer: done (stub).")]}

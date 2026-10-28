@@ -67,10 +67,9 @@ def test_unclear_gets_the_clarifying_question(monkeypatch, with_api_key):
     assert send(build_graph(), "do something with this") == [question]
 
 
-@pytest.mark.parametrize("intent", ["new_content", "refine"])
-def test_content_and_refine_requests_are_not_supported_yet(monkeypatch, with_api_key, intent):
-    fake_router(monkeypatch, lambda _: RoutingDecision(intent=intent, subject="AI in healthcare"))
-    [reply] = send(build_graph(), "write a blog about AI in healthcare")
+def test_refine_requests_are_not_supported_yet(monkeypatch, with_api_key):
+    fake_router(monkeypatch, lambda _: RoutingDecision(intent="refine", instructions="shorter"))
+    [reply] = send(build_graph(), "make it shorter")
     assert "not supported yet" in reply
 
 
@@ -128,3 +127,135 @@ def test_conversation_is_kept_per_thread(monkeypatch, with_api_key):
 
     assert history("a") == ["one", "reply to one", "two", "reply to two"]
     assert history("b") == ["other", "reply to other"]
+
+
+def new_content(*formats, subject="AI in healthcare", fresh_research=False):
+    decision = RoutingDecision(
+        intent="new_content",
+        subject=subject,
+        formats=list(formats),
+        fresh_research=fresh_research,
+    )
+    return lambda _: decision
+
+
+RESEARCH = "Deep Research Agent: done (stub)."
+BRIEF = "Content Strategist: done (stub)."
+BLOG = "SEO Blog Writer: done (stub)."
+LINKEDIN = "LinkedIn Post Writer: done (stub)."
+IMAGE = "Image Generation Agent: done (stub)."
+
+
+def test_content_request_posts_the_plan_then_runs_research_first(monkeypatch, with_api_key):
+    fake_router(monkeypatch, new_content("blog", "linkedin_post"))
+    replies = send(
+        build_graph(), "Research AI in healthcare, then write a blog and a LinkedIn post"
+    )
+    assert replies == [
+        "Plan for *AI in healthcare*: research → brief → blog → LinkedIn post",
+        RESEARCH,
+        BRIEF,
+        BLOG,
+        LINKEDIN,
+    ]
+
+
+def test_first_content_request_creates_the_active_topic_and_records_the_steps(
+    monkeypatch, with_api_key
+):
+    fake_router(monkeypatch, new_content("blog"))
+    graph = build_graph()
+    send(graph, "write a blog about AI in healthcare")
+
+    state = graph.get_state(config()).values
+    assert state["topics"] == {"topic-1": {"name": "AI in healthcare", "brief": None}}
+    assert state["active_topic_id"] == "topic-1"
+    assert state["intent"] == "new_content"
+    steps = [{"agent": "research"}, {"agent": "content_strategist"}]
+    steps.append({"agent": "blog_writer", "instructions": None})
+    assert state["plan"] == steps
+    assert state["completed_steps"] == steps
+
+
+def researched_topic(**brief):
+    brief = {"summary": "AI speeds up diagnosis.", "key_findings": [], "sources": [], **brief}
+    return {
+        "topics": {"topic-1": {"name": "AI in healthcare", "brief": brief}},
+        "active_topic_id": "topic-1",
+    }
+
+
+def send_with(graph, text, start, thread="t1"):
+    result = graph.invoke({"messages": [HumanMessage(content=text)], **start}, config(thread))
+    return [m.content for m in result["messages"][1:]]
+
+
+def test_later_pieces_reuse_the_topics_research_brief(monkeypatch, with_api_key):
+    fake_router(monkeypatch, new_content("linkedin_post", "blog"))
+    replies = send_with(build_graph(), "now a LinkedIn post and a blog", researched_topic())
+    assert replies == ["Plan for *AI in healthcare*: LinkedIn post → blog", LINKEDIN, BLOG]
+
+
+def test_fresh_research_reruns_research_even_with_a_brief(monkeypatch, with_api_key):
+    fake_router(monkeypatch, new_content("blog", fresh_research=True))
+    replies = send_with(build_graph(), "find newer sources, then a blog", researched_topic())
+    assert replies[1:] == [RESEARCH, BRIEF, BLOG]
+
+
+def test_research_only_runs_research_and_the_brief(monkeypatch, with_api_key):
+    fake_router(monkeypatch, new_content("research"))
+    replies = send(build_graph(), "research AI in healthcare")
+    assert replies == ["Plan for *AI in healthcare*: research → brief", RESEARCH, BRIEF]
+
+
+def test_image_only_runs_without_research(monkeypatch, with_api_key):
+    fake_router(monkeypatch, new_content("image", subject="a robot doctor"))
+    replies = send(build_graph(), "make an image of a robot doctor")
+    assert replies == ["Plan for *a robot doctor*: image", IMAGE]
+
+
+def test_duplicate_formats_are_removed_from_the_plan(monkeypatch, with_api_key):
+    fake_router(monkeypatch, new_content(*["blog"] * 3, *["linkedin_post"] * 5, "image"))
+    replies = send(build_graph(), "three blogs and five posts and an image")
+    assert replies[1:] == [RESEARCH, BRIEF, BLOG, LINKEDIN, IMAGE]
+
+
+def test_questions_about_research_are_grounded_in_the_active_brief(monkeypatch, with_api_key):
+    router = fake_router(monkeypatch, chat("It used the WHO report."))
+    start = researched_topic(
+        summary="AI cuts radiology reading times.",
+        key_findings=["Diagnosis is 30% faster", "Adoption is slowest in rural clinics"],
+        sources=[{"title": "WHO report on AI", "url": "https://who.int/ai"}],
+    )
+    replies = send_with(build_graph(), "what sources did you use?", start)
+
+    assert replies == ["It used the WHO report."]
+    context = "\n".join(m["content"] for m in router.calls[-1]["messages"] if m["role"] == "system")
+    for fact in [
+        "AI in healthcare",
+        "AI cuts radiology reading times.",
+        "Diagnosis is 30% faster",
+        "Adoption is slowest in rural clinics",
+        "WHO report on AI",
+        "https://who.int/ai",
+    ]:
+        assert fact in context
+
+
+def test_routing_is_told_when_the_topic_has_no_brief(monkeypatch, with_api_key):
+    router = fake_router(monkeypatch, chat("Not yet."))
+    start = {"topics": {"topic-1": {"name": "AI in healthcare"}}, "active_topic_id": "topic-1"}
+    send_with(build_graph(), "what did the research say?", start)
+    context = "\n".join(m["content"] for m in router.calls[-1]["messages"] if m["role"] == "system")
+    assert "AI in healthcare" in context
+    assert "no Research Brief yet" in context
+
+
+def test_each_run_starts_a_fresh_plan(monkeypatch, with_api_key):
+    decisions = iter([new_content("blog")(None), RoutingDecision(intent="chat", reply="Hi!")])
+    fake_router(monkeypatch, lambda _: next(decisions))
+    graph = build_graph()
+    send(graph, "write a blog about AI in healthcare")
+    assert send(graph, "hello") == ["Hi!"]
+    state = graph.get_state(config()).values
+    assert (state["intent"], state["plan"], state["completed_steps"]) == ("chat", [], [])

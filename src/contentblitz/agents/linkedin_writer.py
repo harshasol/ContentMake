@@ -6,4 +6,4 @@ from contentblitz.workflow.state import ContentBlitzState
 
 
 def linkedin_writer(state: ContentBlitzState) -> ContentBlitzState:
-    return {"messages": [AIMessage(content="LinkedIn Post Writer is not implemented yet.")]}
+    return {"messages": [AIMessage(content="LinkedIn Post Writer: done (stub).")]}
