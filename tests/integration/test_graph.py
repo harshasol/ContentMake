@@ -3,7 +3,10 @@ from langchain_core.messages import HumanMessage
 
 from contentblitz.agents import query_handler as qh
 from contentblitz.core.config import Settings
+from contentblitz.integrations import search
 from contentblitz.integrations.llm import StructuredOutputError
+from contentblitz.integrations.search import SearchResult
+from contentblitz.workflow import graph as workflow
 from contentblitz.workflow.graph import build_graph
 from contentblitz.workflow.routing import RoutingDecision
 from contentblitz.workflow.topics import add_piece
@@ -14,15 +17,41 @@ def config(thread="t1"):
 
 
 class FakeRouter:
-    """Stands in for the model: returns a scripted routing decision per message."""
+    """Stands in for the model: returns a scripted routing decision per message.
+
+    Research query planning gets three fixed queries; only routing calls are recorded.
+    """
 
     def __init__(self, decide):
         self.decide = decide
         self.calls = []
 
     def __call__(self, agent, messages, schema):
+        if agent == "research":
+            return schema(queries=["q1", "q2", "q3"])
         self.calls.append({"agent": agent, "messages": messages, "schema": schema})
         return self.decide(messages[-1]["content"])
+
+
+class OneResultSearch:
+    """A search provider that finds the same page for every query."""
+
+    name = "FakeSearch"
+
+    def __init__(self):
+        self.fresh = []  # the fresh flag each search was called with
+
+    def search(self, query, max_results=10, fresh=False):
+        self.fresh.append(fresh)
+        return [SearchResult(title="AI report", url="https://example.com/ai", snippet="AI.")]
+
+
+@pytest.fixture(autouse=True)
+def fake_web_search(monkeypatch):
+    provider = OneResultSearch()
+    monkeypatch.setattr(search, "configured_providers", lambda: [provider])
+    monkeypatch.setattr(search, "fetch_page", lambda url, timeout, max_chars: "")
+    return provider
 
 
 @pytest.fixture
@@ -158,7 +187,11 @@ def new_content(*formats, topic_name="AI in healthcare", fresh_research=False, s
     return lambda _: decision
 
 
-RESEARCH = "Deep Research Agent: done (stub)."
+def researched(topic="AI in healthcare"):
+    return f"Researched *{topic}*: 3 searches, 1 Source from 1 site via FakeSearch"
+
+
+RESEARCH = researched()
 BRIEF = "Content Strategist: done (stub)."
 BLOG = "SEO Blog Writer: done (stub)."
 LINKEDIN = "LinkedIn Post Writer: done (stub)."
@@ -187,12 +220,13 @@ def test_first_content_request_creates_the_active_topic_and_records_the_steps(
     send(graph, "write a blog about AI in healthcare")
 
     state = graph.get_state(config()).values
-    assert state["topics"] == {
-        "topic-1": {"name": "AI in healthcare", "brief": None, "piece_ids": []}
-    }
+    assert list(state["topics"]) == ["topic-1"]
+    topic = state["topics"]["topic-1"]
+    assert (topic["name"], topic["brief"], topic["piece_ids"]) == ("AI in healthcare", None, [])
+    assert [s["url"] for s in topic["research"]["sources"]] == ["https://example.com/ai"]
     assert state["active_topic_id"] == "topic-1"
     assert state["intent"] == "new_content"
-    steps = [{"agent": "research"}, {"agent": "content_strategist"}]
+    steps = [{"agent": "research", "instructions": None}, {"agent": "content_strategist"}]
     steps.append({"agent": "blog_writer", "instructions": None})
     assert state["plan"] == steps
     assert state["completed_steps"] == steps
@@ -227,6 +261,24 @@ def test_research_only_runs_research_and_the_brief(monkeypatch, with_api_key):
     fake_router(monkeypatch, new_content("research"))
     replies = send(build_graph(), "research AI in healthcare")
     assert replies == ["Plan for *AI in healthcare*: research → brief", RESEARCH, BRIEF]
+
+
+def test_any_agent_can_stop_the_rest_of_the_plan_with_a_reason(monkeypatch, with_api_key):
+    fake_router(monkeypatch, new_content("blog", "linkedin_post"))
+    reason = "The brief couldn't be written, so I stopped the plan."
+    monkeypatch.setitem(
+        workflow.AGENT_NODES, "content_strategist", lambda _: {"abort_reason": reason}
+    )
+    graph = build_graph()
+    replies = send(graph, "write a blog and a LinkedIn post about AI in healthcare")
+
+    assert replies == [
+        "Plan for *AI in healthcare*: research → brief → blog → LinkedIn post",
+        RESEARCH,
+        reason,
+    ]
+    state = graph.get_state(config()).values
+    assert [s["agent"] for s in state["completed_steps"]] == ["research", "content_strategist"]
 
 
 def test_image_only_runs_without_research(monkeypatch, with_api_key):
@@ -474,12 +526,31 @@ def test_answering_new_creates_the_topic_and_runs_the_held_plan_research_first(
     send_with(graph, ASK, researched_topic())
     replies = send(graph, "a new one")
 
-    assert replies == ["Plan for *AI in radiology*: research → brief → blog", RESEARCH, BRIEF, BLOG]
+    research = researched("AI in radiology")
+    assert replies == ["Plan for *AI in radiology*: research → brief → blog", research, BRIEF, BLOG]
     state = graph.get_state(config()).values
     assert state["active_topic_id"] == "topic-2"
-    assert state["topics"]["topic-2"] == {"name": "AI in radiology", "brief": None, "piece_ids": []}
+    new_topic = state["topics"]["topic-2"]
+    assert (new_topic["name"], new_topic["brief"], new_topic["piece_ids"]) == (
+        "AI in radiology",
+        None,
+        [],
+    )
+    assert new_topic["research"]["sources"]
     assert state["topics"]["topic-1"]["name"] == "AI in healthcare"
     assert state["pending_topic_question"] is None
+
+
+def test_a_held_plan_asking_for_fresh_research_stays_fresh_on_the_new_topic(
+    monkeypatch, with_api_key, fake_web_search
+):
+    fresh = RADIOLOGY.model_copy(update={"fresh_research": True})
+    fake_router(monkeypatch, routes(**{ASK: fresh, "a new one": answer("new")}))
+    graph = build_graph()
+    send_with(graph, ASK, researched_topic())
+    send(graph, "a new one")
+
+    assert fake_web_search.fresh == [True, True, True]
 
 
 def test_answering_continue_runs_the_held_plan_on_the_current_topic_and_its_brief(
@@ -577,7 +648,8 @@ def test_with_no_active_topic_a_content_request_creates_a_topic_without_asking(
     graph = build_graph()
     replies = send_with(graph, "a blog on AI in finance", two_topics(None))
 
-    assert replies == ["Plan for *AI in finance*: research → brief → blog", RESEARCH, BRIEF, BLOG]
+    research = researched("AI in finance")
+    assert replies == ["Plan for *AI in finance*: research → brief → blog", research, BRIEF, BLOG]
     state = graph.get_state(config()).values
     assert state["active_topic_id"] == "topic-3"
     names = [t["name"] for t in state["topics"].values()]

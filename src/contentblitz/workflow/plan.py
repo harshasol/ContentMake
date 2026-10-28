@@ -22,7 +22,10 @@ def build_plan(decision: RoutingDecision, topic: Topic | None) -> list[PlanStep]
         or (any(s["agent"] in WRITERS for s in steps) and not has_brief)
     )
     if needs_research:
-        steps = [{"agent": "research"}, {"agent": "content_strategist"}, *steps]
+        research: PlanStep = {"agent": "research", "instructions": decision.instructions}
+        if decision.fresh_research:
+            research["fresh"] = True
+        steps = [research, {"agent": "content_strategist"}, *steps]
     unique: list[PlanStep] = []
     for step in steps:
         if step not in unique:
@@ -31,10 +34,16 @@ def build_plan(decision: RoutingDecision, topic: Topic | None) -> list[PlanStep]
 
 
 def replan(plan: list[PlanStep], topic: Topic | None) -> list[PlanStep]:
-    """Rebuild a held plan for another Topic, applying build_plan's rules afresh."""
+    """Rebuild a held plan for another Topic, applying build_plan's rules afresh.
+
+    Instructions and the fresh research flag carry over to the new plan.
+    """
     formats = [f for s in plan if (f := format_of(s["agent"]))]
     instructions = next((s.get("instructions") for s in plan if s.get("instructions")), None)
-    decision = RoutingDecision(intent="new_content", formats=formats, instructions=instructions)
+    fresh = any(s.get("fresh") for s in plan)
+    decision = RoutingDecision(
+        intent="new_content", formats=formats, instructions=instructions, fresh_research=fresh
+    )
     return build_plan(decision, topic)
 
 

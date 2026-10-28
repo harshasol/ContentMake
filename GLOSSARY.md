@@ -14,6 +14,10 @@ _Avoid_: Subject, theme, campaign
 The structured, source-cited summary of research on a subject, shown to the user as the research report and used as input by every writer.
 _Avoid_: Research report, research results, findings doc
 
+**Research Record**:
+The raw research gathered on a Topic (the queries run, the providers that answered, when it was gathered, and the ranked Sources) before the Content Strategist synthesises it into a Research Brief.
+_Avoid_: Research results, research data
+
 **Source**:
 A web page or document cited in a Research Brief, with title and URL.
 _Avoid_: Reference, citation, link

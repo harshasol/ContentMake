@@ -1,0 +1,81 @@
+{
+  "schema_version": 1,
+  "diagram_type": "architecture",
+  "meta": {
+    "title": "ContentBlitz Architecture",
+    "output": "docs/architecture/contentblitz-architecture.html",
+    "quality_profile": "showcase",
+    "locale": "en",
+    "repository": {
+      "url": "https://github.com/harshasol/ContentMake",
+      "provider": "github",
+      "link_mode": "web",
+      "revision": "8d1207251ec46cef71219ec0e3a212fbb85652bd"
+    }
+  },
+  "components": [
+    { "id": "user", "type": "external", "label": "User", "sublabel": "browser", "pos": [40, 194], "size": [110, 60] },
+    { "id": "ui", "type": "frontend", "label": "Streamlit UI", "sublabel": "chat · thread_id", "pos": [260, 192], "size": [150, 64],
+      "sources": [{ "path": "src/contentblitz/web_app/streamlit_app.py", "line": 13, "end_line": 16 }, { "path": "src/contentblitz/web_app/streamlit_app.py", "line": 43, "end_line": 53 }] },
+    { "id": "query-handler", "type": "backend", "label": "Query Handler", "sublabel": "routes chat/new/refine", "tag": "built", "pos": [480, 192], "size": [150, 64],
+      "sources": [{ "path": "src/contentblitz/agents/query_handler.py", "line": 187, "end_line": 211 }, { "path": "src/contentblitz/workflow/plan.py", "line": 11, "end_line": 30 }] },
+    { "id": "dispatcher", "type": "messagebus", "label": "Dispatcher", "sublabel": "runs next plan step", "pos": [690, 174], "size": [130, 100],
+      "sources": [{ "path": "src/contentblitz/workflow/graph.py", "line": 29, "end_line": 60 }, { "path": "src/contentblitz/workflow/plan.py", "line": 45, "end_line": 48 }] },
+    { "id": "strategist", "type": "backend", "label": "Content Strategist", "sublabel": "Research Brief", "tag": "stub", "pos": [675, 40], "size": [160, 56],
+      "sources": [{ "path": "src/contentblitz/agents/content_strategist.py", "line": 1, "end_line": 8 }] },
+    { "id": "blog", "type": "backend", "label": "SEO Blog Writer", "sublabel": "blog post", "tag": "stub", "pos": [900, 118], "size": [160, 56],
+      "sources": [{ "path": "src/contentblitz/agents/blog_writer.py", "line": 1, "end_line": 8 }] },
+    { "id": "linkedin", "type": "backend", "label": "LinkedIn Writer", "sublabel": "LinkedIn post", "tag": "stub", "pos": [900, 196], "size": [160, 56],
+      "sources": [{ "path": "src/contentblitz/agents/linkedin_writer.py", "line": 1, "end_line": 8 }] },
+    { "id": "image", "type": "backend", "label": "Image Generator", "sublabel": "brand-styled image", "tag": "stub", "pos": [900, 274], "size": [160, 56],
+      "sources": [{ "path": "src/contentblitz/agents/image_generator.py", "line": 1, "end_line": 8 }] },
+    { "id": "research", "type": "backend", "label": "Deep Research", "sublabel": "web Sources", "tag": "stub", "pos": [900, 352], "size": [160, 56],
+      "sources": [{ "path": "src/contentblitz/agents/research.py", "line": 1, "end_line": 8 }] },
+    { "id": "state", "type": "database", "label": "Workflow state", "sublabel": "MemorySaver per thread", "pos": [680, 360], "size": [150, 64],
+      "sources": [{ "path": "src/contentblitz/workflow/state.py", "line": 57, "end_line": 65 }, { "path": "src/contentblitz/workflow/graph.py", "line": 60 }] },
+    { "id": "llm", "type": "backend", "label": "llm.py", "sublabel": "LiteLLM gateway", "pos": [480, 360], "size": [150, 64],
+      "sources": [{ "path": "src/contentblitz/integrations/llm.py", "line": 22, "end_line": 62 }] },
+    { "id": "models-config", "type": "database", "label": "models.yaml", "sublabel": "model per agent", "pos": [200, 360], "size": [150, 64],
+      "sources": [{ "path": "config/models.yaml", "line": 6, "end_line": 31 }, { "path": "src/contentblitz/core/config.py", "line": 74, "end_line": 89 }] },
+    { "id": "search", "type": "backend", "label": "search.py", "sublabel": "provider fallback", "pos": [905, 480], "size": [150, 56],
+      "sources": [{ "path": "src/contentblitz/integrations/search.py", "line": 24, "end_line": 33 }] },
+    { "id": "providers", "type": "external", "label": "LLM providers", "sublabel": "OpenAI / Anthropic / Gemini", "pos": [465, 610], "size": [180, 60] },
+    { "id": "search-apis", "type": "external", "label": "Search APIs", "sublabel": "SerpAPI → Tavily", "pos": [905, 610], "size": [150, 60] }
+  ],
+  "boundaries": [
+    { "kind": "region", "label": "Azure Container App · single replica (ADR 0003)", "wraps": ["ui", "query-handler", "dispatcher", "strategist", "blog", "linkedin", "image", "research", "state", "llm", "models-config", "search"] }
+  ],
+  "connections": [
+    { "id": "user-chat", "from": "user", "to": "ui", "label": "chat", "variant": "emphasis" },
+    { "id": "ui-invoke", "from": "ui", "to": "query-handler", "label": "invoke", "variant": "emphasis" },
+    { "id": "qh-plan", "from": "query-handler", "to": "dispatcher", "label": "plan", "variant": "emphasis" },
+    { "id": "to-strategist", "from": "dispatcher", "to": "strategist" },
+    { "id": "to-blog", "from": "dispatcher", "to": "blog" },
+    { "id": "to-linkedin", "from": "dispatcher", "to": "linkedin", "label": "next step" },
+    { "id": "to-image", "from": "dispatcher", "to": "image" },
+    { "id": "to-research", "from": "dispatcher", "to": "research" },
+    { "id": "qh-llm", "from": "query-handler", "to": "llm", "label": "routing decision" },
+    { "id": "config-llm", "from": "models-config", "to": "llm", "label": "model list" },
+    { "id": "dispatcher-state", "from": "dispatcher", "to": "state", "label": "checkpoint" },
+    { "id": "llm-providers", "from": "llm", "to": "providers", "label": "completion + fallbacks" },
+    { "id": "research-search", "from": "research", "to": "search", "label": "planned", "variant": "dashed" },
+    { "id": "search-apis-call", "from": "search", "to": "search-apis", "label": "HTTPS" }
+  ],
+  "cards": [
+    { "dot": "cyan", "title": "One message, end to end", "items": [
+      "Query Handler asks the model for a routing decision: chat, unclear, new_content or refine",
+      "New content becomes a plan; research + strategist go first when no Research Brief exists (ADR 0001)",
+      "Dispatcher sends each plan step to its agent; the agent reports back and the dispatcher picks the next step until the plan is done"
+    ] },
+    { "dot": "amber", "title": "Built vs. stub", "items": [
+      "Built: UI, Query Handler, routing, planning, Topics, refine targeting, LiteLLM gateway",
+      "Stubs: the five specialist agents only post a progress message for now",
+      "search.py exists but no agent calls it yet; writers will call llm.py too"
+    ] },
+    { "dot": "emerald", "title": "Ops", "items": [
+      "GitHub Actions: CI (lint, tests, Docker build), then deploy to Azure Container Apps on main",
+      "State lives in memory, so the app runs as one replica",
+      "LangSmith tracing is opt-in through LiteLLM callbacks"
+    ] }
+  ]
+}

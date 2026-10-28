@@ -1,4 +1,9 @@
-"""The LangGraph workflow: Query Handler → dispatcher → agent → dispatcher → … → end."""
+"""The LangGraph workflow: Query Handler → dispatcher → agent → dispatcher → … → end.
+
+An agent stops the plan by returning `{"abort_reason": reason}`: the reason is posted in the
+chat and the remaining steps don't run. ADR 0001: research comes before writing, so a failed
+research step stops the plan.
+"""
 
 from collections.abc import Callable
 
@@ -13,6 +18,7 @@ from contentblitz.agents.linkedin_writer import linkedin_writer
 from contentblitz.agents.query_handler import query_handler
 from contentblitz.agents.research import research
 from contentblitz.workflow.plan import current_step
+from contentblitz.workflow.progress import progress_message
 from contentblitz.workflow.state import ContentBlitzState
 
 AgentNode = Callable[[ContentBlitzState], ContentBlitzState]
@@ -32,16 +38,23 @@ def dispatcher(state: ContentBlitzState) -> ContentBlitzState:
 
 
 def _next_step(state: ContentBlitzState) -> str:
+    if state.get("abort_reason"):
+        return END
     step = current_step(state)
     return step["agent"] if step else END
 
 
 def _as_step(agent: AgentNode) -> AgentNode:
-    """Run `agent` for the current step, then record that step as completed."""
+    """Run `agent` for the current step, then record that step as completed.
+
+    If the agent aborts the plan, its reason is posted as a chat message.
+    """
 
     def run(state: ContentBlitzState) -> ContentBlitzState:
         step = current_step(state)
         update = agent(state)
+        if reason := update.get("abort_reason"):
+            update = {**update, "messages": [*update.get("messages", []), progress_message(reason)]}
         return {**update, "completed_steps": [*state.get("completed_steps", []), step]}
 
     return run

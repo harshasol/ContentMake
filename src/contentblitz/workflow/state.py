@@ -22,9 +22,32 @@ class ResearchBrief(TypedDict):
     sources: list[Source]
 
 
+class ResearchSource(TypedDict):
+    """A Source as gathered by research, before the Content Strategist cites it in a Brief."""
+
+    title: str
+    url: str
+    site: str
+    snippet: str
+    page_text: str
+    query: str
+    provider: str
+    retrieved_at: str  # ISO 8601, UTC
+
+
+class ResearchRecord(TypedDict):
+    """The Research Record: what the Deep Research Agent gathered, not yet a Research Brief."""
+
+    queries: list[str]
+    providers: list[str]
+    gathered_at: str  # ISO 8601, UTC
+    sources: list[ResearchSource]  # in rank order
+
+
 class Topic(TypedDict):
     name: str
     brief: NotRequired[ResearchBrief | None]
+    research: NotRequired[ResearchRecord | None]
     piece_ids: NotRequired[list[str]]
 
 
@@ -45,6 +68,8 @@ class PlanStep(TypedDict):
     agent: AgentName
     target: NotRequired[str | None]
     instructions: NotRequired[str | None]
+    # On a research step: re-research from scratch, skipping any cached search results.
+    fresh: NotRequired[bool]
 
 
 class PendingTopicQuestion(TypedDict):
@@ -62,4 +87,6 @@ class ContentBlitzState(TypedDict, total=False):
     intent: Intent
     plan: list[PlanStep]
     completed_steps: list[PlanStep]
+    # Set by an agent to stop the plan: the dispatcher posts it and runs no more steps.
+    abort_reason: str | None
     pending_topic_question: PendingTopicQuestion | None

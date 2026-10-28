@@ -21,7 +21,12 @@ image:
   models: [openai/gpt-image-1, openai/dall-e-3]
 
 search:
-  providers: [serpapi, tavily]
+  providers: [serpapi, tavily]   # tried in order; one without an API key is skipped
+  queries_per_run: 4             # search queries per research run
+  max_sources: 10                # Sources kept per research run
+  pages_to_read: 6               # top Sources whose page text is read
+  page_timeout_seconds: 8        # per page read
+  text_cap_chars: 2000           # page text kept per Source
 
 llm:
   num_retries: 2

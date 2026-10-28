@@ -1,0 +1,87 @@
+"""Merging search results from several queries into ranked, de-duplicated Sources."""
+
+from dataclasses import dataclass, field
+from urllib.parse import parse_qsl, urlencode, urlsplit, urlunsplit
+
+from contentblitz.integrations.search import SearchResponse
+from contentblitz.workflow.state import ResearchSource
+
+MAX_PER_SITE = 2
+_TRACKING_PARAMS = {"gclid", "fbclid"}
+# Labels that country codes register sites under (bbc.co.uk, abc.net.au): the site keeps three.
+_COUNTRY_SECOND_LEVEL = {"ac", "co", "com", "edu", "gov", "net", "org"}
+
+
+@dataclass
+class QuerySearch:
+    """One query's search: what the fallback chain returned, and when."""
+
+    query: str
+    response: SearchResponse
+    retrieved_at: str
+
+
+@dataclass
+class _Candidate:
+    source: ResearchSource
+    first_seen: int
+    positions: list[int] = field(default_factory=list)
+
+    def rank_key(self) -> tuple[int, int, int]:
+        """Found by more searches first, then higher up the results, then found earlier."""
+        return (-len(self.positions), min(self.positions), self.first_seen)
+
+
+def normalise_url(url: str) -> str:
+    """Lower-cased host, no fragment, no utm_*/gclid/fbclid parameters, no trailing slash."""
+    parts = urlsplit(url.strip())
+    params = [
+        (key, value)
+        for key, value in parse_qsl(parts.query, keep_blank_values=True)
+        if not (key.lower().startswith("utm_") or key.lower() in _TRACKING_PARAMS)
+    ]
+    path = parts.path.rstrip("/")
+    return urlunsplit((parts.scheme.lower(), parts.netloc.lower(), path, urlencode(params), ""))
+
+
+def site_of(url: str) -> str:
+    """The domain a URL's site is registered under, so news.bbc.co.uk and bbc.co.uk are one site."""
+    host = urlsplit(url).hostname or ""
+    if host.replace(".", "").isdigit():
+        return host
+    labels = host.split(".")
+    under_country = len(labels[-1]) == 2 and labels[-2] in _COUNTRY_SECOND_LEVEL
+    return ".".join(labels[-3:] if len(labels) > 2 and under_country else labels[-2:])
+
+
+def merge_sources(searches: list[QuerySearch], max_sources: int) -> list[ResearchSource]:
+    """De-duplicate by normalised URL, rank, keep at most two per site, and cap the total.
+
+    Each Source keeps the URL it was first found at; the normalised URL is only the key.
+    """
+    candidates: dict[str, _Candidate] = {}
+    for search in searches:
+        for position, result in enumerate(search.response.results):
+            key = normalise_url(result.url)
+            if key not in candidates:
+                source: ResearchSource = {
+                    "title": result.title,
+                    "url": result.url,
+                    "site": site_of(result.url),
+                    "snippet": result.snippet,
+                    "page_text": "",
+                    "query": search.query,
+                    "provider": search.response.provider,
+                    "retrieved_at": search.retrieved_at,
+                }
+                candidates[key] = _Candidate(source, first_seen=len(candidates))
+            candidates[key].positions.append(position)
+
+    kept: list[ResearchSource] = []
+    per_site: dict[str, int] = {}
+    for candidate in sorted(candidates.values(), key=_Candidate.rank_key):
+        site = candidate.source["site"]
+        if per_site.get(site, 0) < MAX_PER_SITE:
+            per_site[site] = per_site.get(site, 0) + 1
+            kept.append(candidate.source)
+    return kept[:max_sources]
