@@ -3,6 +3,10 @@
 It makes one structured call to the `content_strategist` model for a draft Brief, then grounds
 the draft in code: the Source list is copied from the Research Record, citations to Sources
 that don't exist are removed, and findings or statistics left uncited are dropped.
+
+If fewer than 2 findings survive, it retries once, telling the model what was dropped. If the
+retry is still too thin, or the model fails, it stops the plan (ADR 0001) and leaves the Topic's
+Research Record as it was, so the next request rebuilds only the Brief.
 """
 
 from datetime import UTC, datetime

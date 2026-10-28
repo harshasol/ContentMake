@@ -294,6 +294,73 @@ def test_fresh_research_reruns_research_even_with_a_brief(monkeypatch, with_api_
     assert replies[1:] == [RESEARCH, BRIEF, BLOG]
 
 
+def topic_without_brief(research):
+    """A Topic whose Research Brief was never built, as a failed Strategist leaves it."""
+    return {
+        "topics": {
+            "topic-1": {"name": "AI in healthcare", "research": research, "brief": None},
+        },
+        "active_topic_id": "topic-1",
+    }
+
+
+GATHERED = {
+    "queries": ["q1"],
+    "providers": ["FakeSearch"],
+    "gathered_at": "2026-10-20T09:30:00+00:00",
+    "sources": [
+        {
+            "title": "AI report",
+            "url": "https://example.com/ai",
+            "site": "example.com",
+            "snippet": "AI.",
+            "page_text": "",
+            "query": "q1",
+            "provider": "FakeSearch",
+            "retrieved_at": "2026-10-20T09:25:00+00:00",
+        }
+    ],
+}
+
+
+def test_research_without_a_brief_rebuilds_only_the_brief_before_writers(
+    monkeypatch, with_api_key, fake_web_search
+):
+    fake_router(monkeypatch, new_content("blog", "linkedin_post", same_topic=True))
+    graph = build_graph()
+    replies = send_with(graph, "write a blog and a LinkedIn post", topic_without_brief(GATHERED))
+
+    assert replies == [
+        "Plan for *AI in healthcare*: brief → blog → LinkedIn post",
+        BRIEF,
+        BLOG,
+        LINKEDIN,
+    ]
+    assert fake_web_search.fresh == []
+    topic = graph.get_state(config()).values["topics"]["topic-1"]
+    assert topic["research"] == GATHERED
+    assert topic["brief"]["sources"][0]["url"] == "https://example.com/ai"
+
+
+def test_a_topic_with_no_research_still_plans_research_then_the_brief(monkeypatch, with_api_key):
+    fake_router(monkeypatch, new_content("blog", same_topic=True))
+    replies = send_with(build_graph(), "write a blog", topic_without_brief(None))
+    assert replies == [
+        "Plan for *AI in healthcare*: research → brief → blog",
+        RESEARCH,
+        BRIEF,
+        BLOG,
+    ]
+
+
+def test_fresh_research_on_a_topic_without_a_brief_plans_research_again(monkeypatch, with_api_key):
+    fake_router(monkeypatch, new_content("blog", fresh_research=True, same_topic=True))
+    replies = send_with(
+        build_graph(), "find newer sources, then a blog", topic_without_brief(GATHERED)
+    )
+    assert replies[1:] == [RESEARCH, BRIEF, BLOG]
+
+
 def test_research_only_runs_research_and_shows_the_research_report(monkeypatch, with_api_key):
     fake_router(monkeypatch, new_content("research"))
     replies = send(build_graph(), "research AI in healthcare")
