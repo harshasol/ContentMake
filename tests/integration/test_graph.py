@@ -372,6 +372,19 @@ def test_refine_with_no_pieces_says_there_is_nothing_to_refine_yet(monkeypatch, 
     assert (state["plan"], state["completed_steps"]) == ([], [])
 
 
+def test_refine_ignores_pieces_on_other_topics_unless_named(monkeypatch, with_api_key):
+    start = with_pieces(**{"piece-1": piece("blog", "Old blog", topic_id="topic-2")})
+    fake_router(monkeypatch, refine("shorter", formats=["blog"]))
+    assert send_with(build_graph(), "shorten the blog", start) == [qh.NOTHING_TO_REFINE]
+
+    fake_router(monkeypatch, refine("shorter", target="piece-1"))
+    replies = send_with(build_graph(), "shorten the old blog", start)
+    assert replies == [
+        "Refining *Old blog* (blog)",
+        'SEO Blog Writer: refining piece-1 with "shorter" (stub).',
+    ]
+
+
 def routes(**decisions):
     """A fake router that picks a scripted decision by the message text."""
     return lambda text: decisions[text]

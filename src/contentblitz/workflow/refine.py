@@ -24,16 +24,15 @@ def pieces_context(state: ContentBlitzState) -> str:
 def resolve_target(state: ContentBlitzState, decision: RoutingDecision) -> list[str]:
     """Ids of the pieces the request could mean: one is the target, several need a question.
 
-    A named piece wins. Otherwise: pieces of the implied kind (any kind if none is implied)
-    on the active Topic, or on any Topic if the active one has none.
+    A named piece wins, on any Topic. Otherwise: pieces of the implied kind (any kind if none
+    is implied) on the active Topic.
     """
     pieces = state.get("content_pieces") or {}
     if decision.refine_target in pieces:
         return [decision.refine_target]
     kinds = [f for f in decision.formats if f in KIND_LABELS] or list(KIND_LABELS)
-    matching = [pid for pid, p in pieces.items() if p["kind"] in kinds]
-    on_topic = [pid for pid in matching if pieces[pid]["topic_id"] == state.get("active_topic_id")]
-    return on_topic or matching
+    topic_id = state.get("active_topic_id")
+    return [pid for pid, p in pieces.items() if p["kind"] in kinds and p["topic_id"] == topic_id]
 
 
 def refine_step(state: ContentBlitzState, piece_id: str, instructions: str | None) -> PlanStep:
