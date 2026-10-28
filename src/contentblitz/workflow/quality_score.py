@@ -8,7 +8,7 @@ When the reviewer is unavailable, the check points alone are scaled to 0-100, an
 passes on its checks alone.
 """
 
-from typing import TypedDict
+from typing import NotRequired, TypedDict
 
 from contentblitz.workflow.content_checks import CheckResult
 from contentblitz.workflow.reviewer import Review
@@ -22,6 +22,8 @@ class QualityScore(TypedDict):
     passed: bool
     checks: list[CheckResult]  # in the order the chat lists them
     review: Review | None  # None when the reviewer was unavailable
+    # How many automatic revisions the quality loop made, set on the attempt it keeps.
+    revisions_used: NotRequired[int]
 
 
 def review_average(review: Review) -> float:

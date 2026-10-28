@@ -98,7 +98,9 @@ def _finalise_node(fmt: QualityFormat):
         attempts = state.get("attempts") or []
         if not attempts:
             return {"result": {"messages": [progress_message(fmt.failure(state))]}}
-        return {"result": fmt.finalise(state, attempts[-1])}
+        kept = attempts[-1]
+        quality = {**kept["quality_score"], "revisions_used": len(attempts) - 1}
+        return {"result": fmt.finalise(state, {**kept, "quality_score": quality})}
 
     return finalise
 

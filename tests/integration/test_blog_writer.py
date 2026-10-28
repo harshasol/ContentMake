@@ -418,3 +418,13 @@ def test_a_failed_draft_posts_an_error_saves_nothing_and_the_plan_carries_on(mod
     assert not state.get("content_pieces")
     assert not state["abort_reason"]
     assert [s["agent"] for s in state["completed_steps"]] == ["blog_writer", "linkedin_writer"]
+
+
+def test_a_first_draft_that_passes_is_finalised_with_no_revisions_used(model):
+    model.reply = blog_draft(body=PASSING_BODY, meta_description=META_155)
+    [reply], state = run_plan(BLOG, {"topic-1": topic()})
+
+    assert len(model.calls_to("blog_writer")) == 1
+    assert "Automatic revisions: 0 of 3" in reply.replace("*", "")
+    quality = revision_of(state)["quality_score"]
+    assert (quality["passed"], quality["revisions_used"]) == (True, 0)

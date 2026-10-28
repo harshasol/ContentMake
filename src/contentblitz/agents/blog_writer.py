@@ -151,8 +151,10 @@ def _quality_text(quality: QualityScore) -> str:
     checks = "\n".join(
         f"- {c['name']} {c['measured']} {'✓' if c['passed'] else '✗'}" for c in quality["checks"]
     )
+    max_revisions = get_model_config().quality.max_revisions
     return (
         f"**Quality Score:** {quality['score']}/100\n\n{checks}\n\n"
+        f"**Automatic revisions:** {quality['revisions_used']} of {max_revisions}\n\n"
         f"{_review_text(quality['review'])}"
     )
 
