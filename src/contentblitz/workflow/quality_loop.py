@@ -1,11 +1,12 @@
 """The quality loop: the subgraph a writer step runs in, one per format. See spec #19.
 
-For now it is draft → check → finalise. The reviewer (#31) and the revise loop (#32) join it
-as nodes between them, so the plan dispatcher never needs rewiring: it runs the writer's step,
-and the step runs its format's loop.
+For now it is draft → check → judge → finalise. The revise loop (#32) joins it between judge
+and finalise, so the plan dispatcher never needs rewiring: it runs the writer's step, and the
+step runs its format's loop.
 
-Each draft the loop makes is an attempt, and check scores it with the format's content checks.
-Attempts are not Revisions: finalise saves only the one it keeps.
+Each draft the loop makes is an attempt. Check runs the format's content checks on it, and
+judge asks the AI reviewer for its verdict and gives the attempt its Quality Score. Attempts
+are not Revisions: finalise saves only the one it keeps.
 """
 
 from collections.abc import Callable
@@ -14,9 +15,11 @@ from typing import NotRequired, TypedDict
 
 from langgraph.graph import END, START, StateGraph
 
+from contentblitz.core.config import get_model_config
 from contentblitz.workflow.content_checks import CheckResult
 from contentblitz.workflow.progress import progress_message
 from contentblitz.workflow.quality_score import QualityScore, quality_score
+from contentblitz.workflow.reviewer import Review
 from contentblitz.workflow.state import ContentBlitzState
 
 
@@ -24,7 +27,8 @@ class Attempt(TypedDict):
     """One draft inside the loop, as the format shapes it, and how it measured up."""
 
     draft: dict
-    quality_score: NotRequired[QualityScore]  # set by check
+    checks: NotRequired[list[CheckResult]]  # set by check
+    quality_score: NotRequired[QualityScore]  # set by judge
 
 
 class LoopState(ContentBlitzState, total=False):
@@ -45,6 +49,9 @@ class QualityFormat:
     draft: Callable[[ContentBlitzState], dict | None]
     # The content checks' results for a draft, in the order the chat lists them.
     checks: Callable[[ContentBlitzState, dict], list[CheckResult]]
+    # The AI reviewer's verdict on a draft, with the format's judging criteria, or None when
+    # the reviewer is unavailable.
+    judge: Callable[[ContentBlitzState, dict], Review | None]
     # The step's update for the kept attempt: the saved Content Piece and the chat message.
     finalise: Callable[[ContentBlitzState, Attempt], ContentBlitzState]
     # The chat message when no draft could be made. The plan carries on.
@@ -61,15 +68,29 @@ def _draft_node(fmt: QualityFormat):
 
 def _check_node(fmt: QualityFormat):
     def check(state: LoopState) -> LoopState:
-        """Scores the latest attempt with the format's content checks."""
+        """Runs the format's content checks on the latest attempt."""
         attempts = state.get("attempts") or []
         if not attempts:
             return {}
         *earlier, latest = attempts
-        checks = fmt.checks(state, latest["draft"])
-        return {"attempts": [*earlier, {**latest, "quality_score": quality_score(checks)}]}
+        return {"attempts": [*earlier, {**latest, "checks": fmt.checks(state, latest["draft"])}]}
 
     return check
+
+
+def _judge_node(fmt: QualityFormat):
+    def judge(state: LoopState) -> LoopState:
+        """Asks the reviewer for its verdict on the latest attempt, and gives it its score."""
+        attempts = state.get("attempts") or []
+        if not attempts:
+            return {}
+        *earlier, latest = attempts
+        review = fmt.judge(state, latest["draft"])
+        pass_mark = get_model_config().quality.pass_mark
+        scored = quality_score(latest["checks"], review, pass_mark)
+        return {"attempts": [*earlier, {**latest, "quality_score": scored}]}
+
+    return judge
 
 
 def _finalise_node(fmt: QualityFormat):
@@ -87,10 +108,12 @@ def quality_loop(fmt: QualityFormat) -> Callable[[ContentBlitzState], ContentBli
     builder = StateGraph(LoopState, input_schema=ContentBlitzState, output_schema=LoopResult)
     builder.add_node("draft", _draft_node(fmt))
     builder.add_node("check", _check_node(fmt))
+    builder.add_node("judge", _judge_node(fmt))
     builder.add_node("finalise", _finalise_node(fmt))
     builder.add_edge(START, "draft")
     builder.add_edge("draft", "check")
-    builder.add_edge("check", "finalise")
+    builder.add_edge("check", "judge")
+    builder.add_edge("judge", "finalise")
     builder.add_edge("finalise", END)
     loop = builder.compile(name=f"{fmt.name} quality loop")
 

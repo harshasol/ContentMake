@@ -15,6 +15,7 @@ AGENT_NAMES = (
     "blog_writer",
     "linkedin_writer",
     "image_generator",
+    "quality_judge",
 )
 
 DEFAULT_CONFIG_PATH = Path(__file__).resolve().parents[3] / "config" / "models.yaml"
@@ -63,6 +64,7 @@ class BlogQuality(BaseModel):
 
 class QualityOptions(BaseModel):
     max_revisions: int = 3
+    pass_mark: float = 7  # the reviewer's average score (1-10) a draft needs to pass
     blog: BlogQuality = BlogQuality()
 
 

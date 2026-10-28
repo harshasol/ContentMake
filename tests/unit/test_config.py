@@ -96,3 +96,19 @@ def test_an_unknown_search_provider_is_rejected(tmp_path):
     )
     with pytest.raises(ValueError, match="serpapi"):
         load_model_config(path)
+
+
+def test_the_quality_judge_has_its_own_model_entry_and_is_required():
+    assert "quality_judge" in AGENT_NAMES
+    assert load_model_config(DEFAULT_CONFIG_PATH).for_agent("quality_judge").primary
+
+
+def test_the_pass_mark_defaults_to_7_and_is_read_from_config(tmp_path):
+    assert load_model_config(DEFAULT_CONFIG_PATH).quality.pass_mark == 7
+    path = tmp_path / "models.yaml"
+    agents = "".join(f"  {a}:\n    models: [{MODELS}]\n" for a in AGENT_NAMES)
+    image_and_search = "image:\n  models: [openai/gpt-image-1]\nsearch:\n  providers: [tavily]\n"
+    path.write_text(f"agents:\n{agents}{image_and_search}")
+    assert load_model_config(path).quality.pass_mark == 7
+    path.write_text(f"agents:\n{agents}{image_and_search}quality:\n  pass_mark: 8\n")
+    assert load_model_config(path).quality.pass_mark == 8

@@ -91,29 +91,46 @@ def blog_draft(**overrides):
     }
 
 
-class FakeModel:
-    """Stands in for every model: the blog writer gets scripted drafts, one per call.
+SUGGESTIONS = [
+    "Open with the 30% statistic to hook the reader.",
+    "Add a call to action for hospital CIOs.",
+    "Split the regulation section into shorter paragraphs.",
+    "Name one cleared device as an example.",
+    "End with what readers should do next.",
+]
 
-    Replies queued in `replies` are used first; an exception is raised. Other agents (the
-    LinkedIn Writer is still a stub) aren't expected to call.
+
+def verdict(**overrides):
+    """A reviewer verdict as the `quality_judge` model would return it."""
+    return {"engagement": 8, "suggestions": SUGGESTIONS, **overrides}
+
+
+class FakeModel:
+    """Stands in for every model: scripted blog drafts and reviewer verdicts, one per call.
+
+    The blog writer gets `reply` and the reviewer gets `verdict`; an exception is raised.
+    Other agents (the LinkedIn Writer is still a stub) aren't expected to call.
     """
 
-    def __init__(self, reply):
+    def __init__(self, reply, verdict):
         self.reply = reply
-        self.replies = []
+        self.verdict = verdict
         self.calls = []
 
     def __call__(self, agent, messages, schema):
         self.calls.append({"agent": agent, "messages": messages, "schema": schema})
-        reply = self.replies.pop(0) if self.replies else self.reply
+        reply = self.verdict if agent == "quality_judge" else self.reply
         if isinstance(reply, Exception):
             raise reply
         return llm.Reply(schema.model_validate(reply), "openai/gpt-4o")
 
+    def calls_to(self, agent):
+        return [call for call in self.calls if call["agent"] == agent]
+
 
 @pytest.fixture
 def model(monkeypatch):
-    fake = FakeModel(blog_draft())
+    fake = FakeModel(blog_draft(), verdict())
     monkeypatch.setattr(llm, "complete_structured_reply", fake)
     return fake
 
@@ -188,16 +205,24 @@ META_155 = (
 )
 
 
+def revision_of(state):
+    """The only Revision of the only blog on the Topic."""
+    [piece_id] = state["topics"]["topic-1"]["piece_ids"]
+    [revision] = state["content_pieces"][piece_id]["revisions"]
+    return revision
+
+
 def test_the_blog_is_checked_and_its_quality_score_is_posted_and_saved_on_the_revision(model):
     # BODY, leaving out its Sources section and Markdown: 35 words, "AI in healthcare" twice
     # (2 x 3 / 35 = 17.1%); one H1 with the keyword but only 2 H2s, neither with it. The
     # meta description and readability pass, but it is too short. It cites and lists Sources
-    # 1-3, so citations pass: 3 of 6 checks, 70 x 3/6 check points, scaled to 100.
+    # 1-3, so citations pass: 3 of 6 checks, 70 x 3/6 = 35 check points. The reviewer's
+    # engagement 8 is worth 8/10 x 30 = 24 points: 59 in all.
     model.reply = blog_draft(meta_description=META_155)
     [reply], state = run_plan(BLOG, {"topic-1": topic()})
 
     after_body = reply.removeprefix(BODY)
-    assert "Quality Score: 50/100" in after_body.replace("*", "")
+    assert "Quality Score: 59/100" in after_body.replace("*", "")
     for line in [
         "keyword density 17.1% ✗",
         "meta description 155 chars ✓",
@@ -208,10 +233,8 @@ def test_the_blog_is_checked_and_its_quality_score_is_posted_and_saved_on_the_re
     ]:
         assert line in after_body, line
 
-    [piece_id] = state["topics"]["topic-1"]["piece_ids"]
-    [revision] = state["content_pieces"][piece_id]["revisions"]
-    quality = revision["quality_score"]
-    assert quality["score"] == 50
+    quality = revision_of(state)["quality_score"]
+    assert quality["score"] == 59
     assert [(c["name"], c["passed"], c["measured"]) for c in quality["checks"]] == [
         ("keyword density", False, "17.1%"),
         ("meta description", True, "155 chars"),
@@ -223,33 +246,109 @@ def test_the_blog_is_checked_and_its_quality_score_is_posted_and_saved_on_the_re
     assert all(c["reason"] for c in quality["checks"])
 
 
-def test_a_blog_that_passes_every_check_scores_100(model):
-    # Each section has a lead sentence with "AI in healthcare" and 34 short sentences of 7
-    # words: 3 + 4 + 1 + 1 heading words and 5 + 5 + 6 + 5 + 4 x 238 sentence words = 982
-    # words, with the keyword 6 times: 6 x 3 / 982 = 1.8%. One H1 and three H2s with the
-    # keyword in the H1 and an H2. Sources 1-3 are each cited, and listed.
-    filler = " ".join(["Doctors use this tool to read scans."] * 34)
-    body = (
-        "# AI in healthcare\n\n"
-        f"AI in healthcare is here [1]. {filler}\n\n"
-        "## AI in healthcare today\n\n"
-        f"AI in healthcare reads scans [2]. {filler}\n\n"
-        "## Diagnosis\n\n"
-        f"AI in healthcare finds disease early. {filler}\n\n"
-        "## Regulation\n\n"
-        f"AI in healthcare needs rules [3]. {filler}\n\n"
-        "## Sources\n\n"
-        "1. [Report 1 from who.int](https://who.int/report-1)\n"
-        "2. [Report 2 from nature.com](https://nature.com/report-2)\n"
-        "3. [Report 3 from fda.gov](https://fda.gov/report-3)"
-    )
-    model.reply = blog_draft(body=body, meta_description=META_155)
+# Each section has a lead sentence with "AI in healthcare" and 34 short sentences of 7 words:
+# 3 + 4 + 1 + 1 heading words and 5 + 5 + 6 + 5 + 4 x 238 sentence words = 982 words, with
+# the keyword 6 times: 6 x 3 / 982 = 1.8%. One H1 and three H2s with the keyword in the H1 and
+# an H2. Sources 1-3 are each cited, and listed.
+FILLER = " ".join(["Doctors use this tool to read scans."] * 34)
+PASSING_BODY = (
+    "# AI in healthcare\n\n"
+    f"AI in healthcare is here [1]. {FILLER}\n\n"
+    "## AI in healthcare today\n\n"
+    f"AI in healthcare reads scans [2]. {FILLER}\n\n"
+    "## Diagnosis\n\n"
+    f"AI in healthcare finds disease early. {FILLER}\n\n"
+    "## Regulation\n\n"
+    f"AI in healthcare needs rules [3]. {FILLER}\n\n"
+    "## Sources\n\n"
+    "1. [Report 1 from who.int](https://who.int/report-1)\n"
+    "2. [Report 2 from nature.com](https://nature.com/report-2)\n"
+    "3. [Report 3 from fda.gov](https://fda.gov/report-3)"
+)
+
+
+def test_a_blog_that_passes_every_check_with_full_marks_from_the_reviewer_scores_100(model):
+    model.reply = blog_draft(body=PASSING_BODY, meta_description=META_155)
+    model.verdict = verdict(engagement=10)
     [reply], state = run_plan(BLOG, {"topic-1": topic()})
 
     assert "Quality Score: 100/100" in reply.replace("*", "")
-    [piece_id] = state["topics"]["topic-1"]["piece_ids"]
-    [revision] = state["content_pieces"][piece_id]["revisions"]
-    assert revision["quality_score"]["score"] == 100
+    quality = revision_of(state)["quality_score"]
+    assert (quality["score"], quality["passed"]) == (100, True)
+
+
+@pytest.mark.parametrize(
+    ("engagement", "score", "passed"),
+    [(7, 91, True), (6, 88, False)],  # 70 check points + engagement / 10 x 30
+)
+def test_a_blog_passes_when_every_check_passes_and_the_reviewer_reaches_the_pass_mark(
+    model, engagement, score, passed
+):
+    model.reply = blog_draft(body=PASSING_BODY, meta_description=META_155)
+    model.verdict = verdict(engagement=engagement)
+    _, state = run_plan(BLOG, {"topic-1": topic()})
+
+    quality = revision_of(state)["quality_score"]
+    assert (quality["score"], quality["passed"]) == (score, passed)
+
+
+def test_a_blog_that_fails_a_check_does_not_pass_even_with_full_marks_from_the_reviewer(model):
+    model.reply = blog_draft(meta_description=META_155)
+    model.verdict = verdict(engagement=10)
+    _, state = run_plan(BLOG, {"topic-1": topic()})
+
+    assert revision_of(state)["quality_score"]["passed"] is False
+
+
+def test_the_reviewer_rating_and_top_3_suggestions_are_posted_and_all_are_saved(model):
+    [reply], state = run_plan(BLOG, {"topic-1": topic()})
+
+    after_body = reply.removeprefix(BODY)
+    assert "Engagement: 8/10" in after_body.replace("*", "")
+    for suggestion in SUGGESTIONS[:3]:
+        assert suggestion in after_body, suggestion
+    for suggestion in SUGGESTIONS[3:]:
+        assert suggestion not in after_body, suggestion
+    assert revision_of(state)["quality_score"]["review"] == {
+        "engagement": 8,
+        "suggestions": SUGGESTIONS,
+    }
+
+
+def test_the_reviewer_is_given_the_blog_and_its_judging_criteria(model):
+    run_plan(BLOG, {"topic-1": topic()})
+
+    [call] = model.calls_to("quality_judge")
+    prompt = "\n".join(m["content"] for m in call["messages"])
+    for fact in [BODY, META, "hook", "flow", "clarity", "call to action"]:
+        assert fact.lower() in prompt.lower(), fact
+
+
+@pytest.mark.parametrize(
+    "failure",
+    [RuntimeError("every provider is down"), llm.StructuredOutputError("not a verdict")],
+)
+def test_when_the_reviewer_fails_the_score_comes_from_the_checks_alone(model, failure):
+    # 3 of 6 checks pass: 70 x 3/6 check points, scaled to 100.
+    model.reply = blog_draft(meta_description=META_155)
+    model.verdict = failure
+    [reply], state = run_plan(BLOG, {"topic-1": topic()})
+
+    assert reply.startswith(BODY)
+    after_body = reply.replace("*", "").removeprefix(BODY)
+    assert "Quality Score: 50/100" in after_body
+    assert "reviewer unavailable" in after_body
+    quality = revision_of(state)["quality_score"]
+    assert (quality["score"], quality["passed"], quality["review"]) == (50, False, None)
+
+
+def test_when_the_reviewer_fails_a_blog_passing_every_check_still_passes(model):
+    model.reply = blog_draft(body=PASSING_BODY, meta_description=META_155)
+    model.verdict = RuntimeError("every provider is down")
+    _, state = run_plan(BLOG, {"topic-1": topic()})
+
+    quality = revision_of(state)["quality_score"]
+    assert (quality["score"], quality["passed"]) == (100, True)
 
 
 def test_a_second_blog_on_the_same_topic_is_a_separate_content_piece(model):
@@ -274,8 +373,7 @@ def test_the_writer_model_is_given_the_whole_brief_keywords_templates_length_and
     plan = [{"agent": "blog_writer", "instructions": "aimed at hospital CIOs"}]
     run_plan(plan, {"topic-1": topic()})
 
-    [call] = model.calls
-    assert call["agent"] == "blog_writer"
+    [call] = model.calls_to("blog_writer")
     prompt = "\n".join(m["content"] for m in call["messages"])
     for fact in [
         "aimed at hospital CIOs",
