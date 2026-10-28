@@ -1,0 +1,184 @@
+"""The content checks measure a blog draft against its format's rules, deterministically.
+
+Each sample is hand-written Markdown, so every measured value below was counted by hand.
+"""
+
+import pytest
+
+from contentblitz.core.config import BlogQuality
+from contentblitz.workflow.content_checks import Draft, check_blog
+
+KEYWORD = "AI tools"
+
+
+def filler(n):
+    """`n` words that are not the keyword."""
+    return " ".join(["word"] * n)
+
+
+def check(name, body, meta="", keyword=KEYWORD, rules=None):
+    """The result of the check called `name` on a blog draft."""
+    draft = Draft(body=body, meta_description=meta, keyword=keyword, source_numbers=[1, 2, 3])
+    results = {r["name"]: r for r in check_blog(draft, rules or BlogQuality())}
+    return results[name]
+
+
+# Keyword density
+
+
+def test_keyword_density_counts_the_phrase_in_any_case_times_its_words_over_all_words():
+    # 2 occurrences x 2 words / 200 words = 2.0%
+    body = f"AI tools {filler(98)} ai TOOLS {filler(98)}"
+    result = check("keyword density", body)
+    assert result["passed"]
+    assert result["measured"] == "2.0%"
+    assert "1-2%" in result["reason"]
+
+
+def test_keyword_density_only_matches_the_phrase_on_word_boundaries():
+    # "AI toolset" and "maI tools" are not the phrase: 1 match x 2 words / 200 words = 1.0%
+    body = f"AI tools {filler(96)} AI toolset maI tools {filler(98)}"
+    result = check("keyword density", body)
+    assert result["measured"] == "1.0%"
+    assert result["passed"]
+
+
+def test_keyword_density_outside_the_range_fails_and_says_the_target():
+    # 1 x 2 / 400 words = 0.5%
+    result = check("keyword density", f"AI tools {filler(398)}")
+    assert not result["passed"]
+    assert result["measured"] == "0.5%"
+    assert "1-2%" in result["reason"]
+
+    # 3 x 2 / 100 words = 6.0%
+    stuffed = check("keyword density", f"AI tools AI tools AI tools {filler(94)}")
+    assert not stuffed["passed"]
+    assert stuffed["measured"] == "6.0%"
+
+
+def test_keyword_density_range_comes_from_the_rules():
+    # 1 x 2 / 400 words = 0.5%
+    rules = BlogQuality(density_range=(0.5, 1.0))
+    assert check("keyword density", f"AI tools {filler(398)}", rules=rules)["passed"]
+
+
+def test_markdown_syntax_and_the_sources_section_are_left_out_of_the_counts():
+    # Counted words: "AI tools" (2) in the H1, "AI tools here" (3), "Lead" (1), then 194 filler
+    # words in a list, a link's text and emphasis = 200 words, 2 matches = 2.0%. Citations,
+    # URLs, heading and list markers, and the whole Sources section aren't words.
+    body = (
+        "# AI tools\n\n"
+        "**AI** _tools_ here [1, 2].\n\n"
+        "## Lead\n\n"
+        f"- {filler(90)}\n"
+        f"- [{filler(4)}](https://example.com/a-b-c) {filler(100)} [3]\n\n"
+        "## Sources\n\n"
+        "1. [AI tools report](https://example.com/ai-tools)\n"
+        "2. [AI tools survey](https://example.com/ai-tools-survey)\n"
+    )
+    result = check("keyword density", body)
+    assert result["measured"] == "2.0%"
+
+
+# Meta description
+
+
+def meta_of(length, keyword=KEYWORD):
+    """A meta description of exactly `length` characters that starts with `keyword`."""
+    text = f"{keyword} help marketers write faster"
+    return (text + " " + "x" * length)[:length]
+
+
+@pytest.mark.parametrize(
+    ("length", "passed"), [(149, False), (150, True), (160, True), (161, False)]
+)
+def test_meta_description_length_must_be_within_the_range(length, passed):
+    meta = meta_of(length)
+    assert len(meta) == length
+    result = check("meta description", "", meta=meta)
+    assert result["passed"] is passed
+    assert result["measured"] == f"{length} chars"
+    assert "150-160" in result["reason"]
+
+
+def test_meta_description_must_contain_the_keyword_in_any_case():
+    assert check("meta description", "", meta=meta_of(155, "ai TOOLS"))["passed"]
+
+    result = check("meta description", "", meta=meta_of(155, "AI toolset"))
+    assert not result["passed"]
+    assert result["measured"] == "155 chars"
+    assert "AI tools" in result["reason"]
+
+
+def test_meta_length_range_comes_from_the_rules():
+    rules = BlogQuality(meta_length_range=(100, 120))
+    assert check("meta description", "", meta=meta_of(110), rules=rules)["passed"]
+
+
+# Headings
+
+GOOD_HEADINGS = """\
+# Choosing AI tools
+
+Intro.
+
+## Why AI tools matter
+
+### For small teams
+
+Text.
+
+## How to pick one
+
+## What it costs
+
+### Licences
+
+## Sources
+
+1. [Report](https://example.com)
+"""
+
+
+def test_one_h1_and_three_h2s_with_the_keyword_in_order_pass():
+    result = check("headings", GOOD_HEADINGS)
+    assert result["passed"], result["reason"]
+    # The Sources heading is left out of the count
+    assert result["measured"] == "1 H1, 3 H2s"
+
+
+@pytest.mark.parametrize(
+    ("body", "measured", "problem"),
+    [
+        ("## Why AI tools matter\n## B\n## C\n", "0 H1s, 3 H2s", "exactly one H1"),
+        (
+            "# AI tools\n# Also AI tools\n## AI tools now\n## B\n## C\n",
+            "2 H1s, 3 H2s",
+            "exactly one H1",
+        ),
+        ("# Choosing a stack\n## AI tools now\n## B\n## C\n", "1 H1, 3 H2s", "H1 doesn't contain"),
+        ("# AI tools\n## AI tools now\n## B\n", "1 H1, 2 H2s", "at least 3 H2s"),
+        ("# AI tools\n## A\n## B\n## C\n", "1 H1, 3 H2s", "no H2 contains"),
+        ("# AI tools\n### Early\n## AI tools now\n## B\n## C\n", "1 H1, 3 H2s", "H3 before"),
+        ("# AI tools\n## AI tools now\n#### Deep\n## B\n## C\n", "1 H1, 3 H2s", "skips"),
+    ],
+    ids=[
+        "no H1",
+        "two H1s",
+        "no keyword in H1",
+        "two H2s",
+        "no keyword in H2s",
+        "early H3",
+        "skipped level",
+    ],
+)
+def test_heading_structure_violations_fail_and_say_why(body, measured, problem):
+    result = check("headings", body)
+    assert not result["passed"]
+    assert result["measured"] == measured
+    assert problem.lower() in result["reason"].lower()
+
+
+def test_headings_inside_code_blocks_are_not_headings():
+    body = GOOD_HEADINGS.replace("Text.", "```\n# not a heading\n```")
+    assert check("headings", body)["passed"]
