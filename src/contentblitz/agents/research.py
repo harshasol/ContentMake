@@ -29,10 +29,13 @@ marketer's instructions (a focus, a market or a time frame). Keep each query sho
 a person types into a search box."""
 
 NO_PROVIDERS = (
-    "I couldn't research *{topic}*: no search provider is configured. "
+    "I couldn't research *{topic}*: no search provider is configured, so I stopped the plan. "
     "Set {keys} in the environment."
 )
-NO_SOURCES = "I couldn't find any Sources for *{topic}*."
+NO_SOURCES = (
+    "I couldn't find any Sources for *{topic}*, so I stopped the plan. "
+    "Try rephrasing the Topic or your instructions."
+)
 NO_TOPIC = "Deep Research Agent: there's no active Topic to research."
 
 
@@ -129,8 +132,7 @@ def research(state: ContentBlitzState) -> ContentBlitzState:
     name = topic["name"]
     providers = search.configured_providers()
     if not providers:
-        text = NO_PROVIDERS.format(topic=name, keys=_missing_keys())
-        return {"messages": [progress_message(text)]}
+        return {"abort_reason": NO_PROVIDERS.format(topic=name, keys=_missing_keys())}
 
     options = get_model_config().search
     step = current_step(state) or {}
@@ -139,7 +141,7 @@ def research(state: ContentBlitzState) -> ContentBlitzState:
     sources = merge_sources(searches, options.max_sources)
     _trace(name, queries, outcomes, len(sources))
     if not sources:
-        return {"messages": [progress_message(NO_SOURCES.format(topic=name))]}
+        return {"abort_reason": NO_SOURCES.format(topic=name)}
 
     record: ResearchRecord = {
         "queries": queries,

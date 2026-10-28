@@ -6,6 +6,7 @@ from contentblitz.core.config import Settings
 from contentblitz.integrations import search
 from contentblitz.integrations.llm import StructuredOutputError
 from contentblitz.integrations.search import SearchResult
+from contentblitz.workflow import graph as workflow
 from contentblitz.workflow.graph import build_graph
 from contentblitz.workflow.routing import RoutingDecision
 from contentblitz.workflow.topics import add_piece
@@ -253,6 +254,24 @@ def test_research_only_runs_research_and_the_brief(monkeypatch, with_api_key):
     fake_router(monkeypatch, new_content("research"))
     replies = send(build_graph(), "research AI in healthcare")
     assert replies == ["Plan for *AI in healthcare*: research → brief", RESEARCH, BRIEF]
+
+
+def test_any_agent_can_stop_the_rest_of_the_plan_with_a_reason(monkeypatch, with_api_key):
+    fake_router(monkeypatch, new_content("blog", "linkedin_post"))
+    reason = "The brief couldn't be written, so I stopped the plan."
+    monkeypatch.setitem(
+        workflow.AGENT_NODES, "content_strategist", lambda _: {"abort_reason": reason}
+    )
+    graph = build_graph()
+    replies = send(graph, "write a blog and a LinkedIn post about AI in healthcare")
+
+    assert replies == [
+        "Plan for *AI in healthcare*: research → brief → blog → LinkedIn post",
+        RESEARCH,
+        reason,
+    ]
+    state = graph.get_state(config()).values
+    assert [s["agent"] for s in state["completed_steps"]] == ["research", "content_strategist"]
 
 
 def test_image_only_runs_without_research(monkeypatch, with_api_key):

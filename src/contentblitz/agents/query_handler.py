@@ -105,6 +105,7 @@ def _reply(text: str | AIMessage, **update) -> ContentBlitzState:
         "messages": [text if isinstance(text, AIMessage) else AIMessage(content=text)],
         "plan": [],
         "completed_steps": [],
+        "abort_reason": None,
         "pending_topic_question": None,
         **update,
     }
