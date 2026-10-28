@@ -48,28 +48,28 @@ class ContentPiece(TypedDict):
     kind: PieceKind
     topic_id: str
     title: str
-    revisions: list[Revision]  # oldest first
+    revisions: list[Revision]
 
 
 class PlanStep(TypedDict):
     agent: AgentName
-    target: NotRequired[str | None]  # Content Piece id, for refinements
+    target: NotRequired[str | None]
     instructions: NotRequired[str | None]
 
 
 class PendingTopicQuestion(TypedDict):
     """Asked when a content request seems to be about a different subject from the active Topic."""
 
-    name: str  # the proposed Topic's name
-    plan: list[PlanStep]  # the held plan, built against the active Topic
+    name: str
+    plan: list[PlanStep]
 
 
 class ContentBlitzState(TypedDict, total=False):
     messages: Annotated[list[AnyMessage], add_messages]
     topics: dict[str, Topic]
     active_topic_id: str | None
-    content_pieces: dict[str, ContentPiece]  # keyed by Content Piece id
+    content_pieces: dict[str, ContentPiece]
     intent: Intent
     plan: list[PlanStep]
-    completed_steps: list[PlanStep]  # a prefix of `plan`, in the order the steps ran
+    completed_steps: list[PlanStep]
     pending_topic_question: PendingTopicQuestion | None
