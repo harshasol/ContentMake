@@ -38,14 +38,20 @@ class OneResultSearch:
 
     name = "FakeSearch"
 
+    def __init__(self):
+        self.fresh = []  # the fresh flag each search was called with
+
     def search(self, query, max_results=10, fresh=False):
+        self.fresh.append(fresh)
         return [SearchResult(title="AI report", url="https://example.com/ai", snippet="AI.")]
 
 
 @pytest.fixture(autouse=True)
 def fake_web_search(monkeypatch):
-    monkeypatch.setattr(search, "configured_providers", lambda: [OneResultSearch()])
+    provider = OneResultSearch()
+    monkeypatch.setattr(search, "configured_providers", lambda: [provider])
     monkeypatch.setattr(search, "fetch_page", lambda url, timeout, max_chars: "")
+    return provider
 
 
 @pytest.fixture
@@ -533,6 +539,18 @@ def test_answering_new_creates_the_topic_and_runs_the_held_plan_research_first(
     assert new_topic["research"]["sources"]
     assert state["topics"]["topic-1"]["name"] == "AI in healthcare"
     assert state["pending_topic_question"] is None
+
+
+def test_a_held_plan_asking_for_fresh_research_stays_fresh_on_the_new_topic(
+    monkeypatch, with_api_key, fake_web_search
+):
+    fresh = RADIOLOGY.model_copy(update={"fresh_research": True})
+    fake_router(monkeypatch, routes(**{ASK: fresh, "a new one": answer("new")}))
+    graph = build_graph()
+    send_with(graph, ASK, researched_topic())
+    send(graph, "a new one")
+
+    assert fake_web_search.fresh == [True, True, True]
 
 
 def test_answering_continue_runs_the_held_plan_on_the_current_topic_and_its_brief(
