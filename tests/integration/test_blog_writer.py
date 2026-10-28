@@ -418,3 +418,84 @@ def test_a_failed_draft_posts_an_error_saves_nothing_and_the_plan_carries_on(mod
     assert not state.get("content_pieces")
     assert not state["abort_reason"]
     assert [s["agent"] for s in state["completed_steps"]] == ["blog_writer", "linkedin_writer"]
+
+
+# Options from the request: target keyword, template and length
+
+
+def prompt_of(call):
+    return "\n".join(m["content"] for m in call["messages"])
+
+
+def test_a_target_keyword_from_the_request_is_drafted_for_checked_and_saved(model):
+    # The H1 becomes "AI diagnostics: How Hospitals Read Scans Faster", so BODY has 34 words
+    # with "AI diagnostics" once: 1 x 2 / 34 = 5.9%.
+    body = BODY.replace("# AI in Healthcare:", "# AI diagnostics:")
+    model.reply = blog_draft(body=body)
+    plan = [{"agent": "blog_writer", "instructions": None, "target_keyword": "AI diagnostics"}]
+    [reply], state = run_plan(plan, {"topic-1": topic()})
+
+    [call] = model.calls_to("blog_writer")
+    assert "Target keyword: AI diagnostics" in prompt_of(call)
+    assert "keyword density 5.9% ✗" in reply
+    assert revision_of(state)["target_keyword"] == "AI diagnostics"
+
+
+def test_without_a_keyword_in_the_request_the_briefs_suggested_keyword_is_used(model):
+    [reply], state = run_plan(BLOG, {"topic-1": topic()})
+
+    [call] = model.calls_to("blog_writer")
+    assert "Target keyword: AI in healthcare" in prompt_of(call)
+    assert "keyword density 17.1% ✗" in reply
+    assert revision_of(state)["target_keyword"] == "AI in healthcare"
+
+
+def test_a_template_named_in_the_request_is_used_and_recorded(model):
+    model.reply = blog_draft(template="listicle")
+    plan = [{"agent": "blog_writer", "instructions": None, "template": "listicle"}]
+    [reply], state = run_plan(plan, {"topic-1": topic()})
+
+    [call] = model.calls_to("blog_writer")
+    assert "Template: listicle" in prompt_of(call)
+    assert "Template: listicle" in reply.replace("*", "")
+    assert revision_of(state)["template"] == "listicle"
+
+
+def test_without_a_template_in_the_request_the_writer_picks_one_and_it_is_recorded(model):
+    model.reply = blog_draft(template="comparison")
+    [reply], state = run_plan(BLOG, {"topic-1": topic()})
+
+    [call] = model.calls_to("blog_writer")
+    assert "pick the template that fits best" in prompt_of(call).lower()
+    assert "Template: comparison" in reply.replace("*", "")
+    assert revision_of(state)["template"] == "comparison"
+
+
+def length_check(state):
+    [result] = [c for c in revision_of(state)["quality_score"]["checks"] if c["name"] == "length"]
+    return result
+
+
+def test_a_length_in_the_request_replaces_the_default_range_with_15_percent_either_side(model):
+    # PASSING_BODY's 982 words are within the default 900-1800, but not 600 ± 15% (510-690).
+    model.reply = blog_draft(body=PASSING_BODY)
+    plan = [{"agent": "blog_writer", "instructions": "cut it to 600 words", "length": 600}]
+    [reply], state = run_plan(plan, {"topic-1": topic()})
+
+    [call] = model.calls_to("blog_writer")
+    prompt = prompt_of(call)
+    assert "Target length: 600 words" in prompt
+    assert "900-1800" not in prompt
+    assert "length 982 words ✗" in reply
+    result = length_check(state)
+    assert not result["passed"]
+    assert "510-690" in result["reason"]
+
+
+def test_without_a_length_in_the_request_the_default_range_applies(model):
+    model.reply = blog_draft(body=PASSING_BODY)
+    _, state = run_plan(BLOG, {"topic-1": topic()})
+
+    result = length_check(state)
+    assert result["passed"]
+    assert "900-1800" in result["reason"]

@@ -279,13 +279,27 @@ def citations(draft: Draft, min_citations: int) -> CheckResult:
     }
 
 
-def check_blog(draft: Draft, rules: BlogQuality) -> list[CheckResult]:
-    """Every blog check's result, in the order the chat lists them."""
+LENGTH_TOLERANCE = 0.15  # either side of a length the request sets
+
+
+def word_range(rules: BlogQuality, words: int | None = None) -> tuple[int, int]:
+    """The word range a blog is written to: `words` ±15% when the request sets a length,
+    otherwise the configured range."""
+    if words is None:
+        return rules.word_range
+    return round(words * (1 - LENGTH_TOLERANCE)), round(words * (1 + LENGTH_TOLERANCE))
+
+
+def check_blog(draft: Draft, rules: BlogQuality, words: int | None = None) -> list[CheckResult]:
+    """Every blog check's result, in the order the chat lists them.
+
+    `words` is the length the request set, if any; it replaces the configured word range.
+    """
     return [
         keyword_density(draft, rules.density_range),
         meta_description(draft, rules.meta_length_range),
         headings(draft),
         readability(draft, rules.max_grade),
-        length(draft, rules.word_range),
+        length(draft, word_range(rules, words)),
         citations(draft, rules.min_citations),
     ]

@@ -16,10 +16,10 @@ def filler(n):
     return " ".join(["word"] * n)
 
 
-def check(name, body, meta="", keyword=KEYWORD, rules=None):
+def check(name, body, meta="", keyword=KEYWORD, rules=None, length=None):
     """The result of the check called `name` on a blog draft."""
     draft = Draft(body=body, meta_description=meta, keyword=keyword, source_numbers=[1, 2, 3])
-    results = {r["name"]: r for r in check_blog(draft, rules or BlogQuality())}
+    results = {r["name"]: r for r in check_blog(draft, rules or BlogQuality(), length)}
     return results[name]
 
 
@@ -253,6 +253,16 @@ def test_length_leaves_out_markdown_and_the_sources_section():
 
 def test_word_range_comes_from_the_rules():
     assert check("length", filler(600), rules=BlogQuality(word_range=(500, 700)))["passed"]
+
+
+@pytest.mark.parametrize(
+    ("words", "passed"), [(509, False), (510, True), (690, True), (691, False)]
+)
+def test_a_requested_length_replaces_the_word_range_with_15_percent_either_side(words, passed):
+    # 600 words: 600 x 0.85 = 510 to 600 x 1.15 = 690; the default 900-1800 no longer applies.
+    result = check("length", filler(words), length=600)
+    assert result["passed"] is passed
+    assert "510-690" in result["reason"]
 
 
 # Citations
