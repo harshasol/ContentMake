@@ -51,7 +51,7 @@ Follow the marketer's instructions."""
 
 REVISE_PROMPT = """\
 Revise your blog post above to fix what follows. Change only what is needed to fix it, and keep
-the rest of the post as it is. If readability failed, use shorter sentences and simpler words.
+the rest of the post as it is.
 
 {feedback}"""
 
@@ -147,13 +147,21 @@ def _draft(state: ContentBlitzState) -> dict | None:
     return _write_draft(state, _prompt(state))
 
 
+def _draft_text(draft: dict) -> str:
+    """A draft as the writer reads it back."""
+    return (
+        f"Template: {draft['template']}\nTitle: {draft['title']}\n"
+        f"Meta description: {draft['meta_description']}\n\n{draft['body']}"
+    )
+
+
 def _revise(state: ContentBlitzState, draft: dict, feedback: str) -> dict | None:
     """The current draft revised to fix what the feedback names, keeping the rest."""
     return _write_draft(
         state,
         [
             *_prompt(state),
-            {"role": "assistant", "content": BlogDraft.model_validate(draft).model_dump_json()},
+            {"role": "assistant", "content": _draft_text(draft)},
             {"role": "user", "content": REVISE_PROMPT.format(feedback=feedback)},
         ]
     )

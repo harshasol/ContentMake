@@ -202,11 +202,13 @@ def test_readability_is_the_flesch_kincaid_grade_at_or_below_the_maximum():
     assert "10" in result["reason"]
 
 
-def test_readability_above_the_maximum_fails_and_says_the_target():
+def test_readability_above_the_maximum_fails_and_says_the_target_and_how_to_reach_it():
     result = check("readability", HARD)
     assert not result["passed"]
     assert result["measured"] == "grade 42.1"
     assert "10" in result["reason"]
+    assert "shorter sentences and simpler words" in result["reason"]
+    assert "simpler words" not in check("readability", EASY)["reason"]
 
 
 def test_readability_maximum_comes_from_the_rules():

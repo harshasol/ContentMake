@@ -454,6 +454,33 @@ def test_a_failing_draft_is_revised_until_one_passes_and_the_loop_stops_there(mo
 NEARLY = blog_draft(body=PASSING_BODY, title="Nearly there")
 
 
+def test_the_revise_call_is_given_the_current_draft_its_failed_checks_and_the_suggestions(model):
+    model.reply = [FAILING, PASSING]
+    run_plan(BLOG, {"topic-1": topic()})
+
+    revise = prompt_of(model.calls_to("blog_writer")[1])
+    assert BODY in revise and META_155 in revise  # the current draft, to change
+    # the failed checks, with their measured values and targets
+    for fact in ["keyword density", "17.1%", "1-2%", "headings", "at least 3 H2s"]:
+        assert fact in revise, fact
+    assert "length" in revise and "35 words" in revise and "900-1800" in revise
+    for passed in ["155 chars", "grade 7.0", "3 Sources cited"]:
+        assert passed not in revise, passed
+    for suggestion in SUGGESTIONS:
+        assert suggestion in revise, suggestion
+    assert "simpler words" not in revise  # readability passed
+
+
+def test_a_failed_readability_check_asks_for_shorter_sentences_and_simpler_words(model):
+    long_words = "Sophisticated computational methodologies revolutionise diagnostic interpretation."
+    model.reply = [blog_draft(body=PASSING_BODY.replace(FILLER, long_words * 20)), PASSING]
+    run_plan(BLOG, {"topic-1": topic()})
+
+    revise = prompt_of(model.calls_to("blog_writer")[1]).lower()
+    assert "readability" in revise
+    assert "shorter sentences and simpler words" in revise
+
+
 def test_the_loop_stops_after_the_maximum_revisions_and_keeps_the_highest_scoring_attempt(model):
     # 3 of 6 checks: 35 + 24 = 59. 5 of 6 checks: 58.3 + 24 = 82.
     model.reply = [FAILING, NEARLY, FAILING, FAILING, PASSING]
