@@ -4,9 +4,10 @@ The blog step runs the blog's quality loop. Its draft is one structured call to 
 `blog_writer` model, given the whole Brief, its target and secondary keywords, the four
 template guides, the target word range and the step's instructions. It returns the template
 it used, the title, the meta description and the Markdown body, citing the Brief's Sources
-as `[n]`. The loop checks the draft against the blog's SEO rules, the AI reviewer rates its
-hook, flow, clarity and call to action, and the kept attempt is posted and saved with its
-Quality Score.
+as `[n]`. The loop checks the draft against the blog's SEO rules, and the AI reviewer rates its
+hook, flow, clarity and call to action. A draft that doesn't pass is revised: the same call,
+given the current draft and what to fix. The kept attempt is posted and saved with its
+Quality Score and how many revisions were used.
 
 If every provider fails, the step posts an error and the plan carries on: other pieces don't
 depend on the blog, unlike research and the Brief.
@@ -55,7 +56,7 @@ the rest of the post as it is.
 
 {feedback}"""
 
-JUDGING_CRITERIA ="its hook, flow, clarity and call to action"
+JUDGING_CRITERIA = "its hook, flow, clarity and call to action"
 SUGGESTIONS_SHOWN = 3
 
 NO_MODEL = (
@@ -163,7 +164,7 @@ def _revise(state: ContentBlitzState, draft: dict, feedback: str) -> dict | None
             *_prompt(state),
             {"role": "assistant", "content": _draft_text(draft)},
             {"role": "user", "content": REVISE_PROMPT.format(feedback=feedback)},
-        ]
+        ],
     )
 
 

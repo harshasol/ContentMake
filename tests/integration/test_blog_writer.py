@@ -473,7 +473,9 @@ def test_the_revise_call_is_given_the_current_draft_its_failed_checks_and_the_su
 
 
 def test_a_failed_readability_check_asks_for_shorter_sentences_and_simpler_words(model):
-    long_words = "Sophisticated computational methodologies revolutionise diagnostic interpretation."
+    long_words = (
+        "Sophisticated computational methodologies revolutionise diagnostic interpretation."
+    )
     model.reply = [blog_draft(body=PASSING_BODY.replace(FILLER, long_words * 20)), PASSING]
     run_plan(BLOG, {"topic-1": topic()})
 
@@ -509,6 +511,17 @@ def test_an_attempt_the_reviewer_missed_counts_no_reviewer_points_when_choosing_
     [piece_id] = state["topics"]["topic-1"]["piece_ids"]
     assert state["content_pieces"][piece_id]["title"] == "Nearly there"
     assert "Quality Score: 76/100" in reply.replace("*", "")
+
+
+def test_when_a_revise_call_fails_the_best_attempt_so_far_is_kept(model):
+    model.reply = [FAILING, NEARLY, RuntimeError("every provider is down")]
+    [reply], state = run_plan(BLOG, {"topic-1": topic()})
+
+    assert len(model.calls_to("blog_writer")) == 3
+    assert reply.startswith(PASSING_BODY)
+    assert "Automatic revisions: 1 of 3" in reply.replace("*", "")
+    [piece_id] = state["topics"]["topic-1"]["piece_ids"]
+    assert state["content_pieces"][piece_id]["title"] == "Nearly there"
 
 
 class RecordingClient:

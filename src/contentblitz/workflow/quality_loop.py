@@ -7,7 +7,8 @@ Each draft the loop makes is an attempt. Check runs the format's content checks 
 judge asks the AI reviewer for its verdict and gives the attempt its Quality Score. An attempt
 that doesn't pass is revised: the writer changes the current draft, given the failed checks and
 the reviewer's suggestions, at most `max_revisions` times. The loop stops at the first attempt
-that passes. Attempts are not Revisions: finalise saves only the one it keeps.
+that passes; if none does, or a revise call fails, it keeps the best one so far. Attempts are
+not Revisions: finalise saves only the one it keeps, with how many revisions were used.
 """
 
 from collections.abc import Callable
