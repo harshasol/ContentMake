@@ -1,9 +1,8 @@
 """LinkedIn Post Writer: writes LinkedIn Content Pieces from a Research Brief."""
 
-from langchain_core.messages import AIMessage
-
+from contentblitz.workflow.progress import stub_progress
 from contentblitz.workflow.state import ContentBlitzState
 
 
 def linkedin_writer(state: ContentBlitzState) -> ContentBlitzState:
-    return {"messages": [AIMessage(content="LinkedIn Post Writer is not implemented yet.")]}
+    return stub_progress("LinkedIn Post Writer", state)

@@ -1,4 +1,6 @@
-"""The LangGraph workflow: Query Handler first, then whichever agent it routes to."""
+"""The LangGraph workflow: Query Handler → dispatcher → agent → dispatcher → … → end."""
+
+from collections.abc import Callable
 
 from langgraph.checkpoint.base import BaseCheckpointSaver
 from langgraph.checkpoint.memory import MemorySaver
@@ -10,9 +12,12 @@ from contentblitz.agents.image_generator import image_generator
 from contentblitz.agents.linkedin_writer import linkedin_writer
 from contentblitz.agents.query_handler import query_handler
 from contentblitz.agents.research import research
+from contentblitz.workflow.plan import current_step
 from contentblitz.workflow.state import ContentBlitzState
 
-AGENT_NODES = {
+AgentNode = Callable[[ContentBlitzState], ContentBlitzState]
+
+AGENT_NODES: dict[str, AgentNode] = {
     "research": research,
     "content_strategist": content_strategist,
     "blog_writer": blog_writer,
@@ -21,17 +26,35 @@ AGENT_NODES = {
 }
 
 
-def _next(state: ContentBlitzState) -> str:
-    route = state.get("route", "respond")
-    return END if route == "respond" else route
+def dispatcher(state: ContentBlitzState) -> ContentBlitzState:
+    """A no-op hub: its conditional edge sends the run to the next plan step's agent, or ends."""
+    return {}
+
+
+def _next_step(state: ContentBlitzState) -> str:
+    step = current_step(state)
+    return step["agent"] if step else END
+
+
+def _as_step(agent: AgentNode) -> AgentNode:
+    """Run `agent` for the current step, then record that step as completed."""
+
+    def run(state: ContentBlitzState) -> ContentBlitzState:
+        step = current_step(state)
+        update = agent(state)
+        return {**update, "completed_steps": [*state.get("completed_steps", []), step]}
+
+    return run
 
 
 def build_graph(checkpointer: BaseCheckpointSaver | None = None):
     builder = StateGraph(ContentBlitzState)
     builder.add_node("query_handler", query_handler)
-    for name, node in AGENT_NODES.items():
-        builder.add_node(name, node)
-        builder.add_edge(name, END)
+    builder.add_node("dispatcher", dispatcher)
+    for name, agent in AGENT_NODES.items():
+        builder.add_node(name, _as_step(agent))
+        builder.add_edge(name, "dispatcher")
     builder.add_edge(START, "query_handler")
-    builder.add_conditional_edges("query_handler", _next, [*AGENT_NODES, END])
+    builder.add_edge("query_handler", "dispatcher")
+    builder.add_conditional_edges("dispatcher", _next_step, [*AGENT_NODES, END])
     return builder.compile(checkpointer=checkpointer or MemorySaver())
