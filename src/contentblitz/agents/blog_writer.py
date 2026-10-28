@@ -4,9 +4,10 @@ The blog step runs the blog's quality loop. Its draft is one structured call to 
 `blog_writer` model, given the whole Brief, its target and secondary keywords, the four
 template guides, the target word range and the step's instructions. It returns the template
 it used, the title, the meta description and the Markdown body, citing the Brief's Sources
-as `[n]`. The loop checks the draft against the blog's SEO rules, the AI reviewer rates its
-hook, flow, clarity and call to action, and the kept attempt is posted and saved with its
-Quality Score.
+as `[n]`. The loop checks the draft against the blog's SEO rules, and the AI reviewer rates its
+hook, flow, clarity and call to action. A draft that doesn't pass is revised: the same call,
+given the current draft and what to fix. The kept attempt is posted and saved with its
+Quality Score and how many revisions were used.
 
 If every provider fails, the step posts an error and the plan carries on: other pieces don't
 depend on the blog, unlike research and the Brief.
@@ -48,6 +49,12 @@ title, then H2 sections with H3s only under them. Optimise for the target keywor
 secondary keywords in naturally. Follow the structure of the template you are given, or pick
 the template that fits best when you aren't given one.
 Follow the marketer's instructions."""
+
+REVISE_PROMPT = """\
+Revise your blog post above to fix what follows. Change only what is needed to fix it, and keep
+the rest of the post as it is.
+
+{feedback}"""
 
 JUDGING_CRITERIA = "its hook, flow, clarity and call to action"
 SUGGESTIONS_SHOWN = 3
@@ -126,15 +133,39 @@ def _prompt(state: ContentBlitzState) -> list[dict]:
     ]
 
 
-def _draft(state: ContentBlitzState) -> dict | None:
+def _write_draft(state: ContentBlitzState, messages: list[dict]) -> dict | None:
     """The model's blog draft, or None if every provider failed or the reply never fit."""
     try:
-        reply = llm.complete_structured_reply(AGENT, _prompt(state), BlogDraft)
+        reply = llm.complete_structured_reply(AGENT, messages, BlogDraft)
     except Exception:  # noqa: BLE001 - a failed blog posts an error; the plan carries on
         return None
     draft = reply.value.model_dump()
     # The template the request named is the one recorded, whatever the model says it used.
     return {**draft, "template": (current_step(state) or {}).get("template") or draft["template"]}
+
+
+def _draft(state: ContentBlitzState) -> dict | None:
+    return _write_draft(state, _prompt(state))
+
+
+def _draft_text(draft: dict) -> str:
+    """A draft as the writer reads it back."""
+    return (
+        f"Template: {draft['template']}\nTitle: {draft['title']}\n"
+        f"Meta description: {draft['meta_description']}\n\n{draft['body']}"
+    )
+
+
+def _revise(state: ContentBlitzState, draft: dict, feedback: str) -> dict | None:
+    """The current draft revised to fix what the feedback names, keeping the rest."""
+    return _write_draft(
+        state,
+        [
+            *_prompt(state),
+            {"role": "assistant", "content": _draft_text(draft)},
+            {"role": "user", "content": REVISE_PROMPT.format(feedback=feedback)},
+        ],
+    )
 
 
 def _checks(state: ContentBlitzState, draft: dict) -> list[CheckResult]:
@@ -166,8 +197,10 @@ def _quality_text(quality: QualityScore) -> str:
     checks = "\n".join(
         f"- {c['name']} {c['measured']} {'✓' if c['passed'] else '✗'}" for c in quality["checks"]
     )
+    max_revisions = get_model_config().quality.max_revisions
     return (
         f"**Quality Score:** {quality['score']}/100\n\n{checks}\n\n"
+        f"**Automatic revisions:** {quality['revisions_used']} of {max_revisions}\n\n"
         f"{_review_text(quality['review'])}"
     )
 
@@ -214,6 +247,7 @@ def _failure(state: ContentBlitzState) -> str:
 BLOG = QualityFormat(
     name="blog",
     draft=_draft,
+    revise=_revise,
     checks=_checks,
     judge=_judge,
     finalise=_finalise,

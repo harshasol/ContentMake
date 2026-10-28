@@ -9,7 +9,9 @@ from datetime import datetime
 
 import pytest
 from langchain_core.messages import HumanMessage
+from langsmith import tracing_context
 
+from contentblitz.core.config import DEFAULT_CONFIG_PATH
 from contentblitz.integrations import llm
 from contentblitz.workflow.graph import build_graph
 
@@ -108,8 +110,9 @@ def verdict(**overrides):
 class FakeModel:
     """Stands in for every model: scripted blog drafts and reviewer verdicts, one per call.
 
-    The blog writer gets `reply` and the reviewer gets `verdict`; an exception is raised.
-    Other agents (the LinkedIn Writer is still a stub) aren't expected to call.
+    The blog writer gets `reply` and the reviewer gets `verdict`; an exception is raised. Either
+    may be a list, one per attempt: the nth call to that agent gets the nth item, and the last
+    item repeats. Other agents (the LinkedIn Writer is still a stub) aren't expected to call.
     """
 
     def __init__(self, reply, verdict):
@@ -120,6 +123,8 @@ class FakeModel:
     def __call__(self, agent, messages, schema):
         self.calls.append({"agent": agent, "messages": messages, "schema": schema})
         reply = self.verdict if agent == "quality_judge" else self.reply
+        if isinstance(reply, list):
+            reply = reply[min(len(self.calls_to(agent)), len(reply)) - 1]
         if isinstance(reply, Exception):
             raise reply
         return llm.Reply(schema.model_validate(reply), "openai/gpt-4o")
@@ -318,7 +323,7 @@ def test_the_reviewer_rating_and_top_3_suggestions_are_posted_and_all_are_saved(
 def test_the_reviewer_is_given_the_blog_and_its_judging_criteria(model):
     run_plan(BLOG, {"topic-1": topic()})
 
-    [call] = model.calls_to("quality_judge")
+    call = model.calls_to("quality_judge")[0]
     prompt = "\n".join(m["content"] for m in call["messages"])
     for fact in [BODY, META, "hook", "flow", "clarity", "call to action"]:
         assert fact.lower() in prompt.lower(), fact
@@ -373,7 +378,7 @@ def test_the_writer_model_is_given_the_whole_brief_keywords_templates_length_and
     plan = [{"agent": "blog_writer", "instructions": "aimed at hospital CIOs"}]
     run_plan(plan, {"topic-1": topic()})
 
-    [call] = model.calls_to("blog_writer")
+    call = model.calls_to("blog_writer")[0]  # the first draft
     prompt = "\n".join(m["content"] for m in call["messages"])
     for fact in [
         "aimed at hospital CIOs",
@@ -420,6 +425,150 @@ def test_a_failed_draft_posts_an_error_saves_nothing_and_the_plan_carries_on(mod
     assert [s["agent"] for s in state["completed_steps"]] == ["blog_writer", "linkedin_writer"]
 
 
+def test_a_first_draft_that_passes_is_finalised_with_no_revisions_used(model):
+    model.reply = blog_draft(body=PASSING_BODY, meta_description=META_155)
+    [reply], state = run_plan(BLOG, {"topic-1": topic()})
+
+    assert len(model.calls_to("blog_writer")) == 1
+    assert "Automatic revisions: 0 of 3" in reply.replace("*", "")
+    quality = revision_of(state)["quality_score"]
+    assert (quality["passed"], quality["revisions_used"]) == (True, 0)
+
+
+PASSING = blog_draft(body=PASSING_BODY, meta_description=META_155)
+FAILING = blog_draft(meta_description=META_155)  # fails 3 checks: see the Quality Score tests
+
+
+def test_a_failing_draft_is_revised_until_one_passes_and_the_loop_stops_there(model):
+    model.reply = [FAILING, FAILING, PASSING, FAILING]
+    [reply], state = run_plan(BLOG, {"topic-1": topic()})
+
+    assert len(model.calls_to("blog_writer")) == 3
+    assert len(model.calls_to("quality_judge")) == 3
+    assert reply.startswith(PASSING_BODY)
+    assert "Automatic revisions: 2 of 3" in reply.replace("*", "")
+    quality = revision_of(state)["quality_score"]
+    assert (quality["passed"], quality["revisions_used"]) == (True, 2)
+
+
+# Passes every check but the meta description, which is too short: 5 of 6 checks.
+NEARLY = blog_draft(body=PASSING_BODY, title="Nearly there")
+
+
+def test_the_revise_call_is_given_the_current_draft_its_failed_checks_and_the_suggestions(model):
+    model.reply = [FAILING, PASSING]
+    run_plan(BLOG, {"topic-1": topic()})
+
+    revise = prompt_of(model.calls_to("blog_writer")[1])
+    assert BODY in revise and META_155 in revise  # the current draft, to change
+    # the failed checks, with their measured values and targets
+    for fact in ["keyword density", "17.1%", "1-2%", "headings", "at least 3 H2s"]:
+        assert fact in revise, fact
+    assert "length" in revise and "35 words" in revise and "900-1800" in revise
+    for passed in ["155 chars", "grade 7.0", "3 Sources cited"]:
+        assert passed not in revise, passed
+    for suggestion in SUGGESTIONS:
+        assert suggestion in revise, suggestion
+    assert "simpler words" not in revise  # readability passed
+
+
+def test_a_failed_readability_check_asks_for_shorter_sentences_and_simpler_words(model):
+    long_words = (
+        "Sophisticated computational methodologies revolutionise diagnostic interpretation."
+    )
+    model.reply = [blog_draft(body=PASSING_BODY.replace(FILLER, long_words * 20)), PASSING]
+    run_plan(BLOG, {"topic-1": topic()})
+
+    revise = prompt_of(model.calls_to("blog_writer")[1]).lower()
+    assert "readability" in revise
+    assert "shorter sentences and simpler words" in revise
+
+
+def test_the_loop_stops_after_the_maximum_revisions_and_keeps_the_highest_scoring_attempt(model):
+    # 3 of 6 checks: 35 + 24 = 59. 5 of 6 checks: 58.3 + 24 = 82.
+    model.reply = [FAILING, NEARLY, FAILING, FAILING, PASSING]
+    [reply], state = run_plan(BLOG, {"topic-1": topic()})
+
+    assert len(model.calls_to("blog_writer")) == 4  # the first draft and 3 revisions
+    assert len(model.calls_to("quality_judge")) == 4
+    assert reply.startswith(PASSING_BODY)
+    assert "Automatic revisions: 3 of 3" in reply.replace("*", "")
+    [piece_id] = state["topics"]["topic-1"]["piece_ids"]
+    piece = state["content_pieces"][piece_id]
+    assert piece["title"] == "Nearly there"
+    [revision] = piece["revisions"]  # the attempts are not Revisions
+    quality = revision["quality_score"]
+    assert (quality["score"], quality["passed"], quality["revisions_used"]) == (82, False, 3)
+
+
+def test_an_attempt_the_reviewer_missed_counts_no_reviewer_points_when_choosing_the_best(model):
+    # Both pass 5 of 6 checks. Reviewed with engagement 6: 58.3 + 18 = 76. Unreviewed, its
+    # score is 83 (its check points scaled to 100), but it is compared on its 58.3 check points.
+    model.reply = [NEARLY, blog_draft(body=PASSING_BODY, title="Unreviewed")]
+    model.verdict = [verdict(engagement=6), RuntimeError("every provider is down")]
+    [reply], state = run_plan(BLOG, {"topic-1": topic()})
+
+    [piece_id] = state["topics"]["topic-1"]["piece_ids"]
+    assert state["content_pieces"][piece_id]["title"] == "Nearly there"
+    assert "Quality Score: 76/100" in reply.replace("*", "")
+
+
+def test_when_a_revise_call_fails_the_best_attempt_so_far_is_kept(model):
+    model.reply = [FAILING, NEARLY, RuntimeError("every provider is down")]
+    [reply], state = run_plan(BLOG, {"topic-1": topic()})
+
+    assert len(model.calls_to("blog_writer")) == 3
+    assert reply.startswith(PASSING_BODY)
+    assert "Automatic revisions: 1 of 3" in reply.replace("*", "")
+    [piece_id] = state["topics"]["topic-1"]["piece_ids"]
+    assert state["content_pieces"][piece_id]["title"] == "Nearly there"
+
+
+class RecordingClient:
+    """A LangSmith client that keeps the runs it is sent instead of uploading them."""
+
+    def __init__(self):
+        self.runs = {}
+
+    def create_run(self, **run):
+        self.runs[run["id"]] = run
+
+    def update_run(self, run_id, **update):
+        self.runs.setdefault(run_id, {}).update(update)
+
+    def __getattr__(self, name):
+        return lambda *args, **kwargs: None
+
+
+def test_each_attempts_checks_reviewer_scores_and_quality_score_are_traced(model):
+    model.reply = [FAILING, PASSING]
+    model.verdict = [verdict(engagement=8), verdict(engagement=9)]
+    client = RecordingClient()
+    with tracing_context(enabled=True, client=client):
+        _, state = run_plan(BLOG, {"topic-1": topic()})
+
+    runs = sorted(client.runs.values(), key=lambda r: r["start_time"])
+    traced = [(r.get("outputs") or {}) for r in runs if r.get("name") == "blog attempt"]
+    assert [t["attempt"] for t in traced] == [1, 2]
+    first, second = (t["quality_score"] for t in traced)
+    assert (first["score"], first["passed"], first["review"]["engagement"]) == (59, False, 8)
+    assert [c["passed"] for c in first["checks"]] == [False, True, False, True, False, True]
+    assert (second["score"], second["passed"], second["review"]["engagement"]) == (97, True, 9)
+    assert all(c["passed"] for c in second["checks"])
+
+
+def test_the_maximum_revisions_comes_from_config(model, tmp_path, monkeypatch):
+    models = tmp_path / "models.yaml"
+    defaults = DEFAULT_CONFIG_PATH.read_text()
+    models.write_text(defaults.replace("max_revisions: 3", "max_revisions: 1"))
+    monkeypatch.setenv("CONTENTBLITZ_CONFIG", str(models))
+    model.reply = FAILING
+    [reply], _ = run_plan(BLOG, {"topic-1": topic()})
+
+    assert len(model.calls_to("blog_writer")) == 2
+    assert "Automatic revisions: 1 of 1" in reply.replace("*", "")
+
+
 # Options from the request: target keyword, template and length
 
 
@@ -435,7 +584,7 @@ def test_a_target_keyword_from_the_request_is_drafted_for_checked_and_saved(mode
     plan = [{"agent": "blog_writer", "instructions": None, "target_keyword": "AI diagnostics"}]
     [reply], state = run_plan(plan, {"topic-1": topic()})
 
-    [call] = model.calls_to("blog_writer")
+    call = model.calls_to("blog_writer")[0]  # the first draft
     assert "Target keyword: AI diagnostics" in prompt_of(call)
     assert "keyword density 5.9% ✗" in reply
     assert revision_of(state)["target_keyword"] == "AI diagnostics"
@@ -444,7 +593,7 @@ def test_a_target_keyword_from_the_request_is_drafted_for_checked_and_saved(mode
 def test_without_a_keyword_in_the_request_the_briefs_suggested_keyword_is_used(model):
     [reply], state = run_plan(BLOG, {"topic-1": topic()})
 
-    [call] = model.calls_to("blog_writer")
+    call = model.calls_to("blog_writer")[0]  # the first draft
     assert "Target keyword: AI in healthcare" in prompt_of(call)
     assert "keyword density 17.1% ✗" in reply
     assert revision_of(state)["target_keyword"] == "AI in healthcare"
@@ -455,17 +604,26 @@ def test_a_template_named_in_the_request_is_used_and_recorded(model):
     plan = [{"agent": "blog_writer", "instructions": None, "template": "listicle"}]
     [reply], state = run_plan(plan, {"topic-1": topic()})
 
-    [call] = model.calls_to("blog_writer")
+    call = model.calls_to("blog_writer")[0]  # the first draft
     assert "Template: listicle" in prompt_of(call)
     assert "Template: listicle" in reply.replace("*", "")
     assert revision_of(state)["template"] == "listicle"
+
+
+def test_a_revised_attempt_keeps_the_template_named_in_the_request(model):
+    model.reply = [FAILING, {**PASSING, "template": "comparison"}]
+    plan = [{"agent": "blog_writer", "instructions": None, "template": "listicle"}]
+    _, state = run_plan(plan, {"topic-1": topic()})
+
+    revision = revision_of(state)
+    assert (revision["quality_score"]["revisions_used"], revision["template"]) == (1, "listicle")
 
 
 def test_without_a_template_in_the_request_the_writer_picks_one_and_it_is_recorded(model):
     model.reply = blog_draft(template="comparison")
     [reply], state = run_plan(BLOG, {"topic-1": topic()})
 
-    [call] = model.calls_to("blog_writer")
+    call = model.calls_to("blog_writer")[0]  # the first draft
     assert "pick the template that fits best" in prompt_of(call).lower()
     assert "Template: comparison" in reply.replace("*", "")
     assert revision_of(state)["template"] == "comparison"
@@ -482,7 +640,7 @@ def test_a_length_in_the_request_replaces_the_default_range_with_15_percent_eith
     plan = [{"agent": "blog_writer", "instructions": "cut it to 600 words", "length": 600}]
     [reply], state = run_plan(plan, {"topic-1": topic()})
 
-    [call] = model.calls_to("blog_writer")
+    call = model.calls_to("blog_writer")[0]  # the first draft
     prompt = prompt_of(call)
     assert "Target length: 600 words" in prompt
     assert "900-1800" not in prompt

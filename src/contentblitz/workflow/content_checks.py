@@ -211,11 +211,13 @@ def readability(draft: Draft, max_grade: float) -> CheckResult:
     text = " ".join(line if line[-1] in ".!?" else f"{line}." for line in lines)
     grade = textstat.flesch_kincaid_grade(text)
     measured = f"grade {grade:.1f}"
+    passed = grade <= max_grade
+    reason = f"it reads at {measured}; the target is at most grade {max_grade:g}"
     return {
         "name": "readability",
-        "passed": grade <= max_grade,
+        "passed": passed,
         "measured": measured,
-        "reason": f"Flesch-Kincaid {measured}; the target is at most grade {max_grade:g}",
+        "reason": reason if passed else f"{reason}: use shorter sentences and simpler words",
     }
 
 
