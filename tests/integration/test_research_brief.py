@@ -80,15 +80,22 @@ def draft(**overrides):
 
 
 class FakeStrategist:
-    """Stands in for the `content_strategist` model: returns the scripted draft Brief."""
+    """Stands in for the `content_strategist` model: returns the scripted draft Brief.
+
+    Replies queued in `replies` are used first, one per call; an exception is raised.
+    """
 
     def __init__(self, reply):
         self.reply = reply
+        self.replies = []
         self.calls = []
 
     def __call__(self, agent, messages, schema):
         self.calls.append({"agent": agent, "messages": messages, "schema": schema})
-        return schema.model_validate(self.reply)
+        reply = self.replies.pop(0) if self.replies else self.reply
+        if isinstance(reply, Exception):
+            raise reply
+        return schema.model_validate(reply)
 
 
 @pytest.fixture
@@ -475,3 +482,65 @@ def test_a_number_in_a_cited_sources_snippet_verifies_it(model):
     _, state = run_plan(RESEARCH_ONLY, {"topic-1": topic(record=record)})
 
     assert state["topics"]["topic-1"]["brief"]["statistics"][0]["verified"] is True
+
+
+THIN = draft(
+    key_findings=[
+        {"statement": "AI reads scans faster.", "source_numbers": [2]},
+        {"statement": "Made up.", "source_numbers": [7]},
+        {"statement": "Never cited.", "source_numbers": []},
+    ]
+)
+
+
+def test_too_few_grounded_findings_retries_once_saying_what_was_dropped(model):
+    model.replies = [THIN, draft()]
+    _, state = run_plan(RESEARCH_ONLY, {"topic-1": topic()})
+
+    first, retry = model.calls
+    assert retry["messages"][: len(first["messages"])] == first["messages"]
+    feedback = retry["messages"][-1]["content"]
+    for fact in ["Made up.", "Never cited.", "1 to 3"]:
+        assert fact in feedback
+    assert len(state["topics"]["topic-1"]["brief"]["key_findings"]) == 4
+
+
+THIN_BRIEF = (
+    "I couldn't build a Research Brief on *AI in healthcare*: too few findings could be traced "
+    "to the Sources, so I stopped the plan. The research is kept, so ask again to retry the "
+    "Brief without searching the web again."
+)
+
+
+def test_a_second_thin_draft_stops_the_plan_before_any_writer_runs(model):
+    model.reply = THIN
+    plan = [*RESEARCH_ONLY, {"agent": "blog_writer", "instructions": None}]
+    replies, state = run_plan(plan, {"topic-1": topic()})
+
+    assert replies == [THIN_BRIEF]
+    assert len(model.calls) == 2
+    assert state["topics"]["topic-1"] == topic()
+
+
+NO_MODEL = (
+    "I couldn't build a Research Brief on *AI in healthcare*: the model didn't give a usable "
+    "reply, so I stopped the plan. The research is kept, so ask again to retry the Brief "
+    "without searching the web again."
+)
+
+
+@pytest.mark.parametrize(
+    "failure",
+    [ConnectionError("every provider failed"), llm.StructuredOutputError("not a Brief")],
+    ids=["every provider fails", "output never fits the schema"],
+)
+@pytest.mark.parametrize("first_replies", [[], [THIN]], ids=["first call", "retry"])
+def test_a_model_failure_stops_the_plan_with_a_reason_instead_of_raising(
+    model, failure, first_replies
+):
+    model.replies = [*first_replies, failure]
+    plan = [*RESEARCH_ONLY, {"agent": "blog_writer", "instructions": None}]
+    replies, state = run_plan(plan, {"topic-1": topic()})
+
+    assert replies == [NO_MODEL]
+    assert state["topics"]["topic-1"] == topic()

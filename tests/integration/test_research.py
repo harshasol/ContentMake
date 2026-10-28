@@ -25,7 +25,10 @@ QUERIES = ["AI in healthcare 2026", "AI diagnosis statistics", "AI healthcare re
 
 BRIEF_DRAFT = {
     "summary": "AI is speeding up diagnosis.",
-    "key_findings": [{"statement": "AI reads scans faster.", "source_numbers": [1]}],
+    "key_findings": [
+        {"statement": "AI reads scans faster.", "source_numbers": [1]},
+        {"statement": "Regulators are catching up.", "source_numbers": [1]},
+    ],
     "statistics": [],
     "angles": [{"title": "The new colleague", "hook": "Your scan may be read twice."}],
     "target_keyword": "AI in healthcare",
@@ -582,7 +585,7 @@ def test_after_a_stopped_plan_the_next_request_runs_its_whole_plan(monkeypatch):
 
     assert replies[1:] == [
         "Researched *AI in healthcare*: 3 searches, 1 Source from 1 site via SerpAPI",
-        "Research Brief ready: 1 finding, 0 statistics, 1 Source. "
+        "Research Brief ready: 2 findings, 0 statistics, 1 Source. "
         "Ask 'show me the research' to read it.",
         "SEO Blog Writer: done (stub).",
         "LinkedIn Post Writer: done (stub).",

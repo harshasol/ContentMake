@@ -294,6 +294,73 @@ def test_fresh_research_reruns_research_even_with_a_brief(monkeypatch, with_api_
     assert replies[1:] == [RESEARCH, BRIEF, BLOG]
 
 
+def topic_without_brief(research):
+    """A Topic whose Research Brief was never built, as a failed Strategist leaves it."""
+    return {
+        "topics": {
+            "topic-1": {"name": "AI in healthcare", "research": research, "brief": None},
+        },
+        "active_topic_id": "topic-1",
+    }
+
+
+GATHERED = {
+    "queries": ["q1"],
+    "providers": ["FakeSearch"],
+    "gathered_at": "2026-10-20T09:30:00+00:00",
+    "sources": [
+        {
+            "title": "AI report",
+            "url": "https://example.com/ai",
+            "site": "example.com",
+            "snippet": "AI.",
+            "page_text": "",
+            "query": "q1",
+            "provider": "FakeSearch",
+            "retrieved_at": "2026-10-20T09:25:00+00:00",
+        }
+    ],
+}
+
+
+def test_research_without_a_brief_rebuilds_only_the_brief_before_writers(
+    monkeypatch, with_api_key, fake_web_search
+):
+    fake_router(monkeypatch, new_content("blog", "linkedin_post", same_topic=True))
+    graph = build_graph()
+    replies = send_with(graph, "write a blog and a LinkedIn post", topic_without_brief(GATHERED))
+
+    assert replies == [
+        "Plan for *AI in healthcare*: brief → blog → LinkedIn post",
+        BRIEF,
+        BLOG,
+        LINKEDIN,
+    ]
+    assert fake_web_search.fresh == []
+    topic = graph.get_state(config()).values["topics"]["topic-1"]
+    assert topic["research"] == GATHERED
+    assert topic["brief"]["sources"][0]["url"] == "https://example.com/ai"
+
+
+def test_a_topic_with_no_research_still_plans_research_then_the_brief(monkeypatch, with_api_key):
+    fake_router(monkeypatch, new_content("blog", same_topic=True))
+    replies = send_with(build_graph(), "write a blog", topic_without_brief(None))
+    assert replies == [
+        "Plan for *AI in healthcare*: research → brief → blog",
+        RESEARCH,
+        BRIEF,
+        BLOG,
+    ]
+
+
+def test_fresh_research_on_a_topic_without_a_brief_plans_research_again(monkeypatch, with_api_key):
+    fake_router(monkeypatch, new_content("blog", fresh_research=True, same_topic=True))
+    replies = send_with(
+        build_graph(), "find newer sources, then a blog", topic_without_brief(GATHERED)
+    )
+    assert replies[1:] == [RESEARCH, BRIEF, BLOG]
+
+
 def test_research_only_runs_research_and_shows_the_research_report(monkeypatch, with_api_key):
     fake_router(monkeypatch, new_content("research"))
     replies = send(build_graph(), "research AI in healthcare")
@@ -400,6 +467,81 @@ def test_routing_is_told_when_the_topic_has_no_brief(monkeypatch, with_api_key):
     context = "\n".join(m["content"] for m in router.calls[-1]["messages"] if m["role"] == "system")
     assert "AI in healthcare" in context
     assert "no Research Brief yet" in context
+
+
+def show_research(text):
+    return RoutingDecision(intent="chat", show_research_report=True)
+
+
+WHO_SOURCE = {
+    "number": 1,
+    "title": "WHO report on AI",
+    "url": "https://who.int/ai",
+    "site": "who.int",
+    "retrieved_at": "2026-10-20T09:21:00+00:00",
+}
+
+
+def test_show_me_the_research_replies_with_the_active_topics_full_report(monkeypatch, with_api_key):
+    fake_router(monkeypatch, show_research)
+    start = researched_topic(
+        summary="AI cuts radiology reading times.",
+        key_findings=[{"statement": "Diagnosis is 30% faster.", "source_numbers": [1]}],
+        sources=[WHO_SOURCE],
+    )
+    graph = build_graph()
+    replies = send_with(graph, "show me the research", start)
+
+    [report] = replies
+    assert report.startswith("# AI in healthcare\n")
+    assert "*Research gathered on 20 October 2026.*" in report
+    assert "AI cuts radiology reading times." in report
+    assert "- Diagnosis is 30% faster. [[1]](https://who.int/ai)" in report
+    assert "1. [WHO report on AI](https://who.int/ai), who.int, retrieved 20 October 2026" in report
+    state = graph.get_state(config()).values
+    assert state["plan"] == []
+    assert state["completed_steps"] == []
+
+
+NO_RESEARCH_YET = (
+    "There's no research yet. Ask me to research a Topic first, "
+    'for example "research AI in healthcare".'
+)
+
+
+@pytest.mark.parametrize(
+    "start",
+    [
+        {"topics": {"topic-1": {"name": "AI in healthcare", "brief": None}}},
+        {"topics": {}, "active_topic_id": None},
+    ],
+    ids=["no Research Brief", "no active Topic"],
+)
+def test_show_me_the_research_before_any_exists_suggests_a_research_request(
+    monkeypatch, with_api_key, start
+):
+    fake_router(monkeypatch, show_research)
+    graph = build_graph()
+    start = {"active_topic_id": "topic-1", **start}
+    assert send_with(graph, "what did you find?", start) == [NO_RESEARCH_YET]
+    assert graph.get_state(config()).values["completed_steps"] == []
+
+
+def test_show_me_the_research_shows_only_the_active_topics_report(monkeypatch, with_api_key):
+    fake_router(monkeypatch, show_research)
+    healthcare = researched_topic(summary="AI cuts radiology reading times.")["topics"]["topic-1"]
+    radiology = researched_topic(
+        summary="Radiologists read twice as many scans.", target_keyword="AI radiology"
+    )
+    radiology = {**radiology["topics"]["topic-1"], "name": "AI in radiology"}
+    start = {"topics": {"topic-1": healthcare, "topic-2": radiology}, "active_topic_id": "topic-2"}
+
+    [report] = send_with(build_graph(), "show me the research", start)
+
+    assert report.startswith("# AI in radiology\n")
+    assert "Radiologists read twice as many scans." in report
+    assert "AI in healthcare" not in report
+    assert "AI cuts radiology reading times." not in report
 
 
 def test_each_run_starts_a_fresh_plan(monkeypatch, with_api_key):

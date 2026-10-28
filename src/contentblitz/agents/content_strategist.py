@@ -4,6 +4,10 @@ It makes one structured call to the `content_strategist` model for a draft Brief
 the draft in code: the Source list is copied from the Research Record, citations to Sources
 that don't exist are removed, findings or statistics left uncited are dropped, and each
 statistic is marked verified or not against the text of the Sources it cites.
+
+If fewer than 2 findings survive, it retries once, telling the model what was dropped. If the
+retry is still too thin, or the model fails, it stops the plan (ADR 0001) and leaves the Topic's
+Research Record as it was, so the next request rebuilds only the Brief.
 """
 
 from datetime import UTC, datetime
@@ -41,6 +45,21 @@ NO_RESEARCH = (
     "There's no research on *{topic}* to build a Research Brief from, so I stopped the plan. "
     "Ask me to research it first."
 )
+
+RETRY_LATER = (
+    "so I stopped the plan. The research is kept, so ask again to retry the Brief without "
+    "searching the web again."
+)
+THIN_BRIEF = (
+    "I couldn't build a Research Brief on *{topic}*: too few findings could be traced to the "
+    "Sources, " + RETRY_LATER
+)
+NO_MODEL = (
+    "I couldn't build a Research Brief on *{topic}*: the model didn't give a usable reply, "
+    + RETRY_LATER
+)
+
+MIN_FINDINGS = 2
 
 CITE = "The numbers of the Sources it comes from, as listed, e.g. [1, 3]."
 
@@ -98,9 +117,9 @@ def _source_text(number: int, source: ResearchSource) -> str:
     )
 
 
-def _draft(name: str, instructions: str | None, record: ResearchRecord) -> DraftBrief:
+def _prompt(name: str, instructions: str | None, record: ResearchRecord) -> list[dict]:
     sources = "\n\n".join(_source_text(n, s) for n, s in enumerate(record["sources"], start=1))
-    messages = [
+    return [
         {"role": "system", "content": SYSTEM_PROMPT},
         {
             "role": "user",
@@ -108,7 +127,32 @@ def _draft(name: str, instructions: str | None, record: ResearchRecord) -> Draft
             f"Sources:\n\n{sources}",
         },
     ]
-    return llm.complete_structured(AGENT, messages, DraftBrief)
+
+
+def _draft(messages: list[dict]) -> DraftBrief | None:
+    """The model's draft Brief, or None if every provider failed or the reply never fit."""
+    try:
+        return llm.complete_structured(AGENT, messages, DraftBrief)
+    except Exception:  # noqa: BLE001 - any model failure stops the plan with a reason (ADR 0001)
+        return None
+
+
+def _feedback(draft: DraftBrief, source_count: int) -> str:
+    """Tells the model which findings grounding dropped, and why."""
+    dropped = []
+    for finding in draft.key_findings:
+        if not finding.source_numbers:
+            dropped.append(f"- {finding.statement} (it cites no Source)")
+        elif not any(1 <= n <= source_count for n in finding.source_numbers):
+            cited = ", ".join(str(n) for n in finding.source_numbers)
+            dropped.append(f"- {finding.statement} (it cites [{cited}], which don't exist)")
+    return (
+        f"The Sources are numbered 1 to {source_count}. These findings were dropped because "
+        "they cite no Source that exists:\n"
+        + "\n".join(dropped)
+        + f"\nWrite the Brief again with at least {MIN_FINDINGS} key findings, each citing the "
+        "Sources it comes from."
+    )
 
 
 def _grounded[T: DraftFinding | DraftStatistic](claims: list[T], source_count: int) -> list[dict]:
@@ -178,9 +222,25 @@ def content_strategist(state: ContentBlitzState) -> ContentBlitzState:
     if not record:
         return {"abort_reason": NO_RESEARCH.format(topic=topic["name"])}
     step = current_step(state) or {}
-    draft = _draft(topic["name"], step.get("instructions"), record)
+    messages = _prompt(topic["name"], step.get("instructions"), record)
+    draft = _draft(messages)
+    if draft is None:
+        return {"abort_reason": NO_MODEL.format(topic=topic["name"])}
     brief = _brief(draft, record)
     _trace(draft, brief)
+    if len(brief["key_findings"]) < MIN_FINDINGS:
+        retry = [
+            *messages,
+            {"role": "assistant", "content": draft.model_dump_json()},
+            {"role": "user", "content": _feedback(draft, len(record["sources"]))},
+        ]
+        draft = _draft(retry)
+        if draft is None:
+            return {"abort_reason": NO_MODEL.format(topic=topic["name"])}
+        brief = _brief(draft, record)
+        _trace(draft, brief)
+        if len(brief["key_findings"]) < MIN_FINDINGS:
+            return {"abort_reason": THIN_BRIEF.format(topic=topic["name"])}
     topics = dict(state["topics"])
     topics[state["active_topic_id"]] = {**topic, "brief": brief}
     if _writers_follow(state):
