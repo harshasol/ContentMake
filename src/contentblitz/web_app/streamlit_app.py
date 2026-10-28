@@ -3,7 +3,7 @@
 import uuid
 
 import streamlit as st
-from langchain_core.messages import HumanMessage
+from langchain_core.messages import AnyMessage, HumanMessage
 
 from contentblitz.workflow.graph import build_graph
 
@@ -14,6 +14,12 @@ st.set_page_config(page_title="ContentBlitz", page_icon="⚡", layout="wide")
 def get_graph():
     # One graph (and one in-memory checkpointer) per process. See docs/adr/0003.
     return build_graph()
+
+
+def new_replies(messages: list[AnyMessage]) -> list[str]:
+    """The assistant messages a run added after the user's latest message, in order."""
+    last_user = max(i for i, m in enumerate(messages) if m.type == "human")
+    return [m.content for m in messages[last_user + 1 :] if m.type == "ai"]
 
 
 if "thread_id" not in st.session_state:
@@ -42,9 +48,9 @@ with chat_tab:
                 {"messages": [HumanMessage(content=prompt)]},
                 config={"configurable": {"thread_id": st.session_state.thread_id}},
             )
-        reply = result["messages"][-1].content
-        st.session_state.chat.append(("assistant", reply))
-        st.chat_message("assistant").markdown(reply)
+        for reply in new_replies(result["messages"]):
+            st.session_state.chat.append(("assistant", reply))
+            st.chat_message("assistant").markdown(reply)
 
 with dashboard_tab:
     st.info("Content Pieces will appear here, grouped by Topic.")
