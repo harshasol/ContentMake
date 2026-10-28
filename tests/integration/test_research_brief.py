@@ -446,3 +446,27 @@ def test_a_second_thin_draft_stops_the_plan_before_any_writer_runs(model):
     assert replies == [THIN_BRIEF]
     assert len(model.calls) == 2
     assert state["topics"]["topic-1"] == topic()
+
+
+NO_MODEL = (
+    "I couldn't build a Research Brief on *AI in healthcare*: the model didn't give a usable "
+    "reply, so I stopped the plan. The research is kept, so ask again to retry the Brief "
+    "without searching the web again."
+)
+
+
+@pytest.mark.parametrize(
+    "failure",
+    [ConnectionError("every provider failed"), llm.StructuredOutputError("not a Brief")],
+    ids=["every provider fails", "output never fits the schema"],
+)
+@pytest.mark.parametrize("first_replies", [[], [THIN]], ids=["first call", "retry"])
+def test_a_model_failure_stops_the_plan_with_a_reason_instead_of_raising(
+    model, failure, first_replies
+):
+    model.replies = [*first_replies, failure]
+    plan = [*RESEARCH_ONLY, {"agent": "blog_writer", "instructions": None}]
+    replies, state = run_plan(plan, {"topic-1": topic()})
+
+    assert replies == [NO_MODEL]
+    assert state["topics"]["topic-1"] == topic()

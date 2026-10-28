@@ -47,6 +47,10 @@ THIN_BRIEF = (
     "I couldn't build a Research Brief on *{topic}*: too few findings could be traced to the "
     "Sources, " + RETRY_LATER
 )
+NO_MODEL = (
+    "I couldn't build a Research Brief on *{topic}*: the model didn't give a usable reply, "
+    + RETRY_LATER
+)
 
 MIN_FINDINGS = 2
 
@@ -116,6 +120,14 @@ def _prompt(name: str, instructions: str | None, record: ResearchRecord) -> list
             f"Sources:\n\n{sources}",
         },
     ]
+
+
+def _draft(messages: list[dict]) -> DraftBrief | None:
+    """The model's draft Brief, or None if every provider failed or the reply never fit."""
+    try:
+        return llm.complete_structured(AGENT, messages, DraftBrief)
+    except Exception:  # noqa: BLE001 - any model failure stops the plan with a reason (ADR 0001)
+        return None
 
 
 def _feedback(draft: DraftBrief, source_count: int) -> str:
@@ -190,7 +202,9 @@ def content_strategist(state: ContentBlitzState) -> ContentBlitzState:
         return {"abort_reason": NO_RESEARCH.format(topic=topic["name"])}
     step = current_step(state) or {}
     messages = _prompt(topic["name"], step.get("instructions"), record)
-    draft = llm.complete_structured(AGENT, messages, DraftBrief)
+    draft = _draft(messages)
+    if draft is None:
+        return {"abort_reason": NO_MODEL.format(topic=topic["name"])}
     brief = _brief(draft, record)
     _trace(draft, brief)
     if len(brief["key_findings"]) < MIN_FINDINGS:
@@ -199,7 +213,9 @@ def content_strategist(state: ContentBlitzState) -> ContentBlitzState:
             {"role": "assistant", "content": draft.model_dump_json()},
             {"role": "user", "content": _feedback(draft, len(record["sources"]))},
         ]
-        draft = llm.complete_structured(AGENT, retry, DraftBrief)
+        draft = _draft(retry)
+        if draft is None:
+            return {"abort_reason": NO_MODEL.format(topic=topic["name"])}
         brief = _brief(draft, record)
         _trace(draft, brief)
         if len(brief["key_findings"]) < MIN_FINDINGS:
