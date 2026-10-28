@@ -283,6 +283,7 @@ def test_a_blog_that_passes_every_check_with_full_marks_from_the_reviewer_scores
     assert "Quality Score: 100/100" in reply.replace("*", "")
     quality = revision_of(state)["quality_score"]
     assert (quality["score"], quality["passed"]) == (100, True)
+    assert quality["reviewer_unavailable"] is False
 
 
 @pytest.mark.parametrize(
@@ -348,6 +349,7 @@ def test_when_the_reviewer_fails_the_score_comes_from_the_checks_alone(model, fa
     assert "reviewer unavailable" in after_body
     quality = revision_of(state)["quality_score"]
     assert (quality["score"], quality["passed"], quality["review"]) == (50, False, None)
+    assert quality["reviewer_unavailable"] is True
 
 
 def test_when_the_reviewer_fails_a_blog_passing_every_check_does_not_pass_and_is_revised(model):

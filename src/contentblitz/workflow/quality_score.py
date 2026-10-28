@@ -22,6 +22,7 @@ class QualityScore(TypedDict):
     passed: bool
     checks: list[CheckResult]  # in the order the chat lists them
     review: Review | None  # None when the reviewer was unavailable
+    reviewer_unavailable: bool  # the reviewer gave no verdict, so the draft couldn't pass
     # How many automatic revisions the quality loop made, set on the attempt it keeps.
     revisions_used: NotRequired[int]
 
@@ -49,7 +50,13 @@ def quality_score(
         average = review_average(review)
         score = check_points + average / 10 * REVIEWER_POINTS
         passed = all(c["passed"] for c in checks) and average >= pass_mark
-    return {"score": round(score), "passed": passed, "checks": checks, "review": review}
+    return {
+        "score": round(score),
+        "passed": passed,
+        "checks": checks,
+        "review": review,
+        "reviewer_unavailable": review is None,
+    }
 
 
 def comparable_points(quality: QualityScore) -> float:
