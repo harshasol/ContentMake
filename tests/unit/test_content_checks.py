@@ -4,6 +4,7 @@ Each sample is hand-written Markdown, so every measured value below was counted 
 """
 
 import pytest
+import textstat
 
 from contentblitz.core.config import BlogQuality
 from contentblitz.workflow.content_checks import Draft, check_blog
@@ -223,6 +224,20 @@ def test_readability_reads_headings_as_sentences_and_leaves_out_the_sources_sect
         f"## Sources\n\n1. [{HARD}](https://example.com)\n"
     )
     assert check("readability", body)["measured"] == "grade -1.6"
+
+
+@pytest.mark.parametrize(
+    "error", [LookupError("Resource cmudict not found."), RuntimeError("textstat broke")]
+)
+def test_readability_fails_with_a_reason_when_it_cannot_be_measured(monkeypatch, error):
+    def broken(text):
+        raise error
+
+    monkeypatch.setattr(textstat, "flesch_kincaid_grade", broken)
+    result = check("readability", EASY)
+    assert not result["passed"]
+    assert result["measured"] == "unavailable"
+    assert "couldn't be measured" in result["reason"]
 
 
 # Length
