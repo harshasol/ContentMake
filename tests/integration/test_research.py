@@ -39,16 +39,19 @@ class FakeModel:
 class FakeProvider:
     """A search provider with scripted results per query, or one that always fails."""
 
-    def __init__(self, name, results=None, fail=False):
+    def __init__(self, name, results=None, fail=False, barrier=None):
         self.name = name
         self.results = results or {}
         self.fail = fail
+        self.barrier = barrier
         self.queries = []
         self.fresh = []  # the fresh flag each search was called with
 
     def search(self, query, max_results=10, fresh=False):
         self.queries.append(query)
         self.fresh.append(fresh)
+        if self.barrier:
+            self.barrier.wait()  # breaks, and so raises, unless every search runs at once
         if self.fail:
             raise SearchProviderError("quota exceeded")
         outcome = self.results.get(query, [])
@@ -185,7 +188,7 @@ def test_query_planning_uses_the_research_model_with_the_topic_and_instructions(
     prompt = "\n".join(m["content"] for m in planning["messages"])
     assert "AI in healthcare" in prompt
     assert "focus on 2026 regulation" in prompt
-    assert provider.queries == ["q1", "q2", "q3", "q4"]
+    assert sorted(provider.queries) == ["q1", "q2", "q3", "q4"]
 
 
 def test_the_same_page_found_twice_or_with_tracking_parameters_is_one_source(monkeypatch):
@@ -195,8 +198,11 @@ def test_the_same_page_found_twice_or_with_tracking_parameters_is_one_source(mon
         FakeProvider(
             "SerpAPI",
             {
-                QUERIES[0]: [hit("https://example.com/guide"), hit("https://other.org/x")],
-                QUERIES[1]: [hit("https://EXAMPLE.com/guide/?utm_source=news&utm_medium=x#top")],
+                QUERIES[0]: [
+                    hit("https://EXAMPLE.com/guide/?utm_source=news&utm_medium=x#top"),
+                    hit("https://other.org/x"),
+                ],
+                QUERIES[1]: [hit("https://example.com/guide")],
                 QUERIES[2]: [
                     hit("https://example.com/guide?gclid=abc&fbclid=def"),
                     hit("https://example.com/guide?page=2&utm_campaign=y"),
@@ -206,11 +212,13 @@ def test_the_same_page_found_twice_or_with_tracking_parameters_is_one_source(mon
     )
     replies, state = run(build_graph())
 
-    assert urls(research_record(state)) == [
-        "https://example.com/guide",
+    record = research_record(state)
+    assert urls(record) == [  # each Source keeps the URL it was first found at
+        "https://EXAMPLE.com/guide/?utm_source=news&utm_medium=x#top",
         "https://other.org/x",
-        "https://example.com/guide?page=2",
+        "https://example.com/guide?page=2&utm_campaign=y",
     ]
+    assert [s["site"] for s in record["sources"]] == ["example.com", "other.org", "example.com"]
     assert "3 searches, 3 Sources from 2 sites" in replies[1]
 
 
@@ -291,7 +299,7 @@ def test_limits_come_from_the_config(monkeypatch, tmp_path):
     fake_search(monkeypatch, provider)
     _, state = run(build_graph())
 
-    assert provider.queries == ["q1", "q2", "q3"]
+    assert sorted(provider.queries) == ["q1", "q2", "q3"]
     assert len(research_record(state)["sources"]) == 2
 
 
@@ -322,9 +330,20 @@ def test_a_search_that_fails_on_every_provider_is_skipped(monkeypatch):
 
     assert (
         replies[1]
-        == "Researched *AI in healthcare*: 2 searches, 2 Sources from 2 sites via SerpAPI"
+        == "Researched *AI in healthcare*: 3 searches, 2 Sources from 2 sites via SerpAPI"
     )
     assert research_record(state)["queries"] == QUERIES
+
+
+def test_queries_are_searched_in_parallel(monkeypatch):
+    fake_model(monkeypatch)
+    results = {q: [hit(f"https://site{i}.com/a")] for i, q in enumerate(QUERIES)}
+    barrier = threading.Barrier(len(QUERIES), timeout=5)
+    fake_search(monkeypatch, FakeProvider("SerpAPI", results, barrier=barrier))
+    replies, state = run(build_graph())
+
+    assert "3 searches, 3 Sources from 3 sites" in replies[1]
+    assert urls(research_record(state)) == [f"https://site{i}.com/a" for i in range(3)]
 
 
 def test_with_no_search_provider_configured_the_marketer_is_told_which_keys_to_set(monkeypatch):
@@ -410,7 +429,7 @@ def test_failed_fresh_research_leaves_the_topics_research_record_and_brief_as_th
 
 
 def researched_topics():
-    """Two Topics seeded with an old research record and a Research Brief; the first is active."""
+    """Two Topics seeded with an old Research Record and a Research Brief; the first is active."""
 
     def topic(name, url):
         record = {
@@ -525,8 +544,8 @@ def test_each_topics_research_is_kept_separately(monkeypatch):
     provider.results = {QUERIES[0]: [hit("https://finance.org/")]}
     _, state = run(graph, "research AI in finance", start={"active_topic_id": None})
 
-    assert urls(research_record(state, "topic-1")) == ["https://healthcare.org"]
-    assert urls(research_record(state, "topic-2")) == ["https://finance.org"]
+    assert urls(research_record(state, "topic-1")) == ["https://healthcare.org/"]
+    assert urls(research_record(state, "topic-2")) == ["https://finance.org/"]
 
 
 class RecordingClient:
@@ -566,6 +585,18 @@ def test_queries_provider_outcomes_and_source_count_are_traced(monkeypatch):
         "results": 2,
         "failures": {"SerpAPI": "quota exceeded"},
     }
+
+
+def test_research_with_no_search_provider_is_still_traced(monkeypatch):
+    fake_model(monkeypatch)
+    fake_search(monkeypatch)
+    client = RecordingClient()
+    with tracing_context(enabled=True, client=client):
+        run(build_graph())
+
+    outputs = [r.get("outputs") or {} for r in client.runs.values()]
+    [traced] = [o for o in outputs if "source_count" in o]
+    assert traced == {"queries": [], "provider_outcomes": [], "source_count": 0}
 
 
 def eight_sources():

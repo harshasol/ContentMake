@@ -1,7 +1,8 @@
 """The LangGraph workflow: Query Handler → dispatcher → agent → dispatcher → … → end.
 
 An agent stops the plan by returning `{"abort_reason": reason}`: the reason is posted in the
-chat and the remaining steps don't run (ADR 0001: nothing is written when research fails).
+chat and the remaining steps don't run. ADR 0001: research comes before writing, so a failed
+research step stops the plan.
 """
 
 from collections.abc import Callable

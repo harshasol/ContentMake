@@ -48,24 +48,27 @@ def site_of(url: str) -> str:
 
 
 def merge_sources(searches: list[QuerySearch], max_sources: int) -> list[ResearchSource]:
-    """De-duplicate by normalised URL, rank, keep at most two per site, and cap the total."""
+    """De-duplicate by normalised URL, rank, keep at most two per site, and cap the total.
+
+    Each Source keeps the URL it was first found at; the normalised URL is only the key.
+    """
     candidates: dict[str, _Candidate] = {}
     for search in searches:
         for position, result in enumerate(search.response.results):
-            url = normalise_url(result.url)
-            if url not in candidates:
+            key = normalise_url(result.url)
+            if key not in candidates:
                 source: ResearchSource = {
                     "title": result.title,
-                    "url": url,
-                    "site": site_of(url),
+                    "url": result.url,
+                    "site": site_of(result.url),
                     "snippet": result.snippet,
                     "page_text": "",
                     "query": search.query,
                     "provider": search.response.provider,
                     "retrieved_at": search.retrieved_at,
                 }
-                candidates[url] = _Candidate(source, first_seen=len(candidates))
-            candidates[url].positions.append(position)
+                candidates[key] = _Candidate(source, first_seen=len(candidates))
+            candidates[key].positions.append(position)
 
     kept: list[ResearchSource] = []
     per_site: dict[str, int] = {}

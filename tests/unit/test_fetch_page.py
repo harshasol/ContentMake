@@ -1,5 +1,9 @@
 """The page fetcher against httpx's mock transport: article text, or no text and no error."""
 
+import socket
+import threading
+import time
+
 import httpx
 
 from contentblitz.integrations import search
@@ -101,3 +105,45 @@ def test_a_page_over_the_size_limit_is_read_only_up_to_the_limit(monkeypatch):
 
     assert PARAGRAPHS[0] in text
     assert "filler" not in text
+
+
+def test_a_page_still_arriving_at_the_deadline_gives_no_text():
+    def slow_rest_of_page():
+        yield ARTICLE.encode()  # readable on its own, but the page isn't finished
+        time.sleep(0.3)
+        yield b"<!-- the rest -->"
+
+    def handler(request):
+        headers = {"Content-Type": "text/html; charset=utf-8"}
+        return httpx.Response(200, content=slow_rest_of_page(), headers=headers)
+
+    assert search.fetch_page(URL, timeout=0.1, max_chars=2000, client=client(handler)) == ""
+
+
+def stalling_server(headers_after):
+    """A local server that sends its headers after a delay, then never sends the body."""
+    listener = socket.create_server(("127.0.0.1", 0))
+
+    def serve():
+        connection, _ = listener.accept()
+        connection.recv(65536)
+        time.sleep(headers_after)
+        connection.sendall(
+            b"HTTP/1.1 200 OK\r\nContent-Type: text/html\r\nContent-Length: 999\r\n\r\n"
+        )
+        time.sleep(5)
+        connection.close()
+
+    threading.Thread(target=serve, daemon=True).start()
+    return f"http://127.0.0.1:{listener.getsockname()[1]}/"
+
+
+def test_the_timeout_bounds_the_whole_fetch_not_each_read():
+    url = stalling_server(headers_after=0.8)
+    with httpx.Client() as http_client:
+        started = time.monotonic()
+        text = search.fetch_page(url, timeout=1.0, max_chars=2000, client=http_client)
+        elapsed = time.monotonic() - started
+
+    assert text == ""
+    assert elapsed < 1.4  # a fresh read timeout after the headers would take 1.8 s

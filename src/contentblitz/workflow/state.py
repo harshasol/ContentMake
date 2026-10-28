@@ -36,7 +36,7 @@ class ResearchSource(TypedDict):
 
 
 class ResearchRecord(TypedDict):
-    """The research record: what the Research agent gathered on a Topic, not yet synthesised."""
+    """The Research Record: what the Deep Research Agent gathered, not yet a Research Brief."""
 
     queries: list[str]
     providers: list[str]
