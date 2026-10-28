@@ -13,7 +13,7 @@ from pydantic import BaseModel
 
 from contentblitz.core.config import ModelConfig, Settings, get_model_config, get_settings
 
-REQUEST_TIMEOUT_SECONDS = 15
+REQUEST_TIMEOUT_SECONDS = 10  # per search request; queries run in parallel, providers in turn
 MAX_PAGE_BYTES = 2_000_000  # HTML read per page; anything past this is ignored
 USER_AGENT = (
     "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 "

@@ -39,16 +39,19 @@ class FakeModel:
 class FakeProvider:
     """A search provider with scripted results per query, or one that always fails."""
 
-    def __init__(self, name, results=None, fail=False):
+    def __init__(self, name, results=None, fail=False, barrier=None):
         self.name = name
         self.results = results or {}
         self.fail = fail
+        self.barrier = barrier
         self.queries = []
         self.fresh = []  # the fresh flag each search was called with
 
     def search(self, query, max_results=10, fresh=False):
         self.queries.append(query)
         self.fresh.append(fresh)
+        if self.barrier:
+            self.barrier.wait()  # breaks, and so raises, unless every search runs at once
         if self.fail:
             raise SearchProviderError("quota exceeded")
         outcome = self.results.get(query, [])
@@ -185,7 +188,7 @@ def test_query_planning_uses_the_research_model_with_the_topic_and_instructions(
     prompt = "\n".join(m["content"] for m in planning["messages"])
     assert "AI in healthcare" in prompt
     assert "focus on 2026 regulation" in prompt
-    assert provider.queries == ["q1", "q2", "q3", "q4"]
+    assert sorted(provider.queries) == ["q1", "q2", "q3", "q4"]
 
 
 def test_the_same_page_found_twice_or_with_tracking_parameters_is_one_source(monkeypatch):
@@ -291,7 +294,7 @@ def test_limits_come_from_the_config(monkeypatch, tmp_path):
     fake_search(monkeypatch, provider)
     _, state = run(build_graph())
 
-    assert provider.queries == ["q1", "q2", "q3"]
+    assert sorted(provider.queries) == ["q1", "q2", "q3"]
     assert len(research_record(state)["sources"]) == 2
 
 
@@ -325,6 +328,17 @@ def test_a_search_that_fails_on_every_provider_is_skipped(monkeypatch):
         == "Researched *AI in healthcare*: 2 searches, 2 Sources from 2 sites via SerpAPI"
     )
     assert research_record(state)["queries"] == QUERIES
+
+
+def test_queries_are_searched_in_parallel(monkeypatch):
+    fake_model(monkeypatch)
+    results = {q: [hit(f"https://site{i}.com/a")] for i, q in enumerate(QUERIES)}
+    barrier = threading.Barrier(len(QUERIES), timeout=5)
+    fake_search(monkeypatch, FakeProvider("SerpAPI", results, barrier=barrier))
+    replies, state = run(build_graph())
+
+    assert "3 searches, 3 Sources from 3 sites" in replies[1]
+    assert urls(research_record(state)) == [f"https://site{i}.com/a" for i in range(3)]
 
 
 def test_with_no_search_provider_configured_the_marketer_is_told_which_keys_to_set(monkeypatch):

@@ -72,24 +72,24 @@ def _now() -> str:
 def _search_all(
     providers: list[search.SearchProvider], queries: list[str], fresh: bool
 ) -> tuple[list[QuerySearch], list[dict]]:
-    """Each query through the fallback chain. A query no provider answers is skipped."""
-    searches, outcomes = [], []
-    for query in queries:
+    """Every query through the fallback chain at once. A query no provider answers is skipped."""
+
+    def run(query: str) -> tuple[QuerySearch | None, dict]:
         try:
             response = search.search_with_fallback(providers, query, fresh=fresh)
         except SearchUnavailableError as error:
-            outcomes.append({"query": query, "provider": None, "results": 0, "error": str(error)})
-            continue
-        searches.append(QuerySearch(query, response, retrieved_at=_now()))
-        outcomes.append(
-            {
-                "query": query,
-                "provider": response.provider,
-                "results": len(response.results),
-                "failures": response.failures,
-            }
-        )
-    return searches, outcomes
+            return None, {"query": query, "provider": None, "results": 0, "error": str(error)}
+        outcome = {
+            "query": query,
+            "provider": response.provider,
+            "results": len(response.results),
+            "failures": response.failures,
+        }
+        return QuerySearch(query, response, retrieved_at=_now()), outcome
+
+    with ThreadPoolExecutor(max_workers=len(queries)) as pool:
+        runs = list(pool.map(run, queries))
+    return [s for s, _ in runs if s], [outcome for _, outcome in runs]
 
 
 def _read_pages(sources: list[ResearchSource], options: SearchOptions) -> list[ResearchSource]:
