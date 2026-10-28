@@ -101,6 +101,15 @@ def test_serpapi_sends_a_google_search_with_the_api_key():
     }
 
 
+def test_a_fresh_serpapi_search_skips_serpapis_cache():
+    requests = []
+    provider = SerpApiProvider("serp-key", client_returning(httpx.Response(200, json={}), requests))
+    provider.search("AI in healthcare 2026", fresh=True)
+
+    [request] = requests
+    assert request.url.params["no_cache"] == "true"
+
+
 def test_serpapi_organic_results_become_search_results():
     provider = SerpApiProvider("k", client_returning(httpx.Response(200, json=SERPAPI_RESPONSE)))
     assert provider.search("AI in healthcare 2026") == [

@@ -86,6 +86,8 @@ class SerpApiProvider(_HttpProvider):
 
     def search(self, query: str, max_results: int = 10, fresh: bool = False) -> list[SearchResult]:
         params = {"engine": "google", "q": query, "api_key": self._api_key, "num": max_results}
+        if fresh:
+            params["no_cache"] = "true"  # SerpAPI otherwise may answer from its 1-hour cache
         body = self._send("GET", self.URL, params=params)
         error = self._error(body)
         if error and self.NO_RESULTS not in error:
@@ -108,6 +110,7 @@ class TavilyProvider(_HttpProvider):
     URL = "https://api.tavily.com/search"
 
     def search(self, query: str, max_results: int = 10, fresh: bool = False) -> list[SearchResult]:
+        # Tavily has no cache parameter, so `fresh` needs nothing here.
         payload = {"query": query, "search_depth": "basic", "max_results": max_results}
         headers = {"Authorization": f"Bearer {self._api_key}"}
         body = self._send("POST", self.URL, json=payload, headers=headers)
