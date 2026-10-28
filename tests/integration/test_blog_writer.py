@@ -111,7 +111,7 @@ class FakeModel:
     """Stands in for every model: scripted blog drafts and reviewer verdicts, one per call.
 
     The blog writer gets `reply` and the reviewer gets `verdict`; an exception is raised. Either
-    may be a list, one per attempt: the nth call to that agent gets the nth item, and the last
+    may be a list, one per Attempt: the nth call to that agent gets the nth item, and the last
     item repeats. Other agents (the LinkedIn Writer is still a stub) aren't expected to call.
     """
 
@@ -354,7 +354,7 @@ def test_when_the_reviewer_fails_the_score_comes_from_the_checks_alone(model, fa
 
 def test_when_the_reviewer_fails_a_blog_passing_every_check_does_not_pass_and_is_revised(model):
     # A pass needs the reviewer's average, so the loop revises up to the maximum (3) and keeps
-    # the best attempt.
+    # the best Attempt.
     model.reply = blog_draft(body=PASSING_BODY, meta_description=META_155)
     model.verdict = RuntimeError("every provider is down")
     _, state = run_plan(BLOG, {"topic-1": topic()})
@@ -504,7 +504,7 @@ def test_the_loop_stops_after_the_maximum_revisions_and_keeps_the_highest_scorin
     [piece_id] = state["topics"]["topic-1"]["piece_ids"]
     piece = state["content_pieces"][piece_id]
     assert piece["title"] == "Nearly there"
-    [revision] = piece["revisions"]  # the attempts are not Revisions
+    [revision] = piece["revisions"]  # the Attempts are not Revisions
     quality = revision["quality_score"]
     assert (quality["score"], quality["passed"], quality["revisions_used"]) == (82, False, 3)
 

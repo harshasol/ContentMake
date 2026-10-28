@@ -23,7 +23,7 @@ class QualityScore(TypedDict):
     checks: list[CheckResult]  # in the order the chat lists them
     review: Review | None  # None when the reviewer was unavailable
     reviewer_unavailable: bool  # the reviewer gave no verdict, so the draft couldn't pass
-    # How many automatic revisions the quality loop made, set on the attempt it keeps.
+    # How many automatic revisions the quality loop made, set on the Attempt it keeps.
     revisions_used: NotRequired[int]
 
 
@@ -60,11 +60,11 @@ def quality_score(
 
 
 def comparable_points(quality: QualityScore) -> float:
-    """The points that rank one attempt against another, from 0 to 100.
+    """The points that rank one Attempt against another, from 0 to 100.
 
-    The score itself, except that an unreviewed attempt gets no reviewer points rather than
-    its check points scaled to 100, so it doesn't outrank a reviewed attempt on the reviewer
-    failing alone. When every attempt is unreviewed, they rank as their scores do.
+    The score itself, except that an unreviewed Attempt gets no reviewer points rather than
+    its check points scaled to 100, so it doesn't outrank a reviewed Attempt on the reviewer
+    failing alone. When every Attempt is unreviewed, they rank as their scores do.
     """
     points = _check_points(quality["checks"])
     if quality["review"] is not None:

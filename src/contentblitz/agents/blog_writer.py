@@ -6,13 +6,13 @@ template guides, the target word range and the step's instructions. It returns t
 it used, the title, the meta description and the Markdown body, citing the Brief's Sources
 as `[n]`. The loop checks the draft against the blog's SEO rules, and the AI reviewer rates its
 hook, flow, clarity and call to action. A draft that doesn't pass is revised: the same call,
-given the current draft and what to fix. The kept attempt is posted and saved with its
+given the current draft and what to fix. The kept Attempt is posted and saved with its
 Quality Score and how many revisions were used.
 
-A refine step that targets a blog runs the same loop, but its first attempt changes the blog's
+A refine step that targets a blog runs the same loop, but its first Attempt changes the blog's
 latest Revision (which may be a hand edit) as the marketer asks, instead of drafting from
 scratch. Its keyword and template carry over unless the request sets new ones, and the kept
-attempt is added to the blog as a new Revision. The refinement call is the loop's first attempt,
+Attempt is added to the blog as a new Revision. The refinement call is the loop's first Attempt,
 so it doesn't count as one of the automatic revisions.
 
 If every provider fails, the step posts an error and the plan carries on: other pieces don't
@@ -246,7 +246,7 @@ def _latest_revision(state: ContentBlitzState) -> dict:
 
 
 def _refine(state: ContentBlitzState) -> dict | None:
-    """The first attempt of a refinement: the latest Revision changed as the marketer asks."""
+    """The first Attempt of a refinement: the latest Revision changed as the marketer asks."""
     instructions = (current_step(state) or {}).get("instructions") or ""
     return _change(state, _latest_revision(state), REFINE_PROMPT.format(instructions=instructions))
 
@@ -319,7 +319,7 @@ def _posted(attempt: Attempt) -> ContentBlitzState:
 
 
 def _finalise(state: ContentBlitzState, attempt: Attempt) -> ContentBlitzState:
-    """Saves the kept attempt as a new blog Content Piece with its first Revision, and posts it."""
+    """Saves the kept Attempt as a new blog Content Piece with its first Revision, and posts it."""
     piece: ContentPiece = {
         "kind": "blog",
         "topic_id": state["active_topic_id"],
@@ -330,7 +330,7 @@ def _finalise(state: ContentBlitzState, attempt: Attempt) -> ContentBlitzState:
 
 
 def _finalise_refinement(state: ContentBlitzState, attempt: Attempt) -> ContentBlitzState:
-    """Adds the kept attempt to the refined blog as a new Revision, and posts it.
+    """Adds the kept Attempt to the refined blog as a new Revision, and posts it.
 
     The blog keeps its title, so the marketer can still refer to it by the name they know.
     """
