@@ -51,8 +51,15 @@ class LLMOptions(BaseModel):
     timeout_seconds: int = 60
 
 
+class BlogQuality(BaseModel):
+    """The rules a blog is written and checked against."""
+
+    word_range: tuple[int, int] = (900, 1800)
+
+
 class QualityOptions(BaseModel):
     max_revisions: int = 3
+    blog: BlogQuality = BlogQuality()
 
 
 class SearchOptions(BaseModel):

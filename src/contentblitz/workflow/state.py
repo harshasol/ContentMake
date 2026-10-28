@@ -1,6 +1,6 @@
 """Shared LangGraph state, saved per conversation (thread) by the checkpointer. See spec #4."""
 
-from typing import Annotated, NotRequired, TypedDict
+from typing import Annotated, Literal, NotRequired, TypedDict
 
 from langchain_core.messages import AnyMessage
 from langgraph.graph.message import add_messages
@@ -84,10 +84,22 @@ class Topic(TypedDict):
     piece_ids: NotRequired[list[str]]
 
 
-class Revision(TypedDict):
-    """One saved version of a Content Piece's text; refinements start from the latest."""
+RevisionOrigin = Literal["draft", "refinement", "hand_edit"]
 
-    text: str
+
+class Revision(TypedDict):
+    """One saved version of a Content Piece's text; refinements start from the latest.
+
+    Only the result a writer's quality loop keeps becomes a Revision, never its attempts.
+    """
+
+    text: str  # Markdown for a blog
+    origin: RevisionOrigin
+    created_at: str  # ISO 8601, UTC
+    # A blog's SEO fields; the keyword and template carry over to its refinements.
+    meta_description: NotRequired[str]
+    target_keyword: NotRequired[str]
+    template: NotRequired[str]
 
 
 class ContentPiece(TypedDict):

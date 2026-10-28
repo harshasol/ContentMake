@@ -53,6 +53,12 @@ def test_research_limits_default_when_not_configured(tmp_path):
     limits = (search.queries_per_run, search.max_sources, search.pages_to_read)
     assert limits == (4, 10, 6)
     assert (search.page_timeout_seconds, search.text_cap_chars) == (8, 2000)
+    assert load_model_config(path).quality.blog.word_range == (900, 1800)
+
+
+def test_shipped_config_sets_the_blog_word_range():
+    blog = load_model_config(DEFAULT_CONFIG_PATH).quality.blog
+    assert blog.word_range == (900, 1800)
 
 
 def test_an_unknown_search_provider_is_rejected(tmp_path):
