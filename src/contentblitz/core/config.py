@@ -15,6 +15,7 @@ AGENT_NAMES = (
     "blog_writer",
     "linkedin_writer",
     "image_generator",
+    "quality_judge",
 )
 
 DEFAULT_CONFIG_PATH = Path(__file__).resolve().parents[3] / "config" / "models.yaml"
@@ -51,8 +52,20 @@ class LLMOptions(BaseModel):
     timeout_seconds: int = 60
 
 
+class BlogQuality(BaseModel):
+    """The rules a blog is written and checked against."""
+
+    word_range: tuple[int, int] = (900, 1800)
+    density_range: tuple[float, float] = (1.0, 2.0)  # target keyword share of words, in %
+    meta_length_range: tuple[int, int] = (150, 160)  # meta description length, in characters
+    max_grade: float = 10  # highest Flesch-Kincaid grade level
+    min_citations: int = 3  # fewest distinct Sources cited
+
+
 class QualityOptions(BaseModel):
     max_revisions: int = 3
+    pass_mark: float = 7  # the reviewer's average score (1-10) a draft needs to pass
+    blog: BlogQuality = BlogQuality()
 
 
 class SearchOptions(BaseModel):

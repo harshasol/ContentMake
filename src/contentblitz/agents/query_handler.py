@@ -31,7 +31,9 @@ You are the Query Handler of ContentBlitz, a content marketing assistant that re
 and writes SEO blogs, LinkedIn posts and images. Read the latest message in the context of the
 conversation and return a routing decision:
 - new_content: the user wants research, a blog, a LinkedIn post or an image. Set topic_name
-  and formats in the order asked (["research"] for research only).
+  and formats in the order asked (["research"] for research only). For a blog, set
+  target_keyword ("target keyword: AI diagnostics"), template and length in words only when
+  the user asks for them.
 - refine: the user wants an existing piece changed. Set instructions, set refine_target to the
   id of the Content Piece below that they mean (null if unsure), and set formats to its kind
   when they name one ("the LinkedIn post" → ["linkedin_post"]).
@@ -170,7 +172,7 @@ def _refine(state: ContentBlitzState, decision: RoutingDecision) -> ContentBlitz
     if len(candidates) > 1:
         return _reply(which_piece_question(state, candidates), intent="refine")
     [piece_id] = candidates
-    plan = [refine_step(state, piece_id, decision.instructions)]
+    plan = [refine_step(state, piece_id, decision)]
     return _reply(progress_message(describe_refine(state, piece_id)), intent="refine", plan=plan)
 
 

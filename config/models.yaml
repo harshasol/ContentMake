@@ -16,6 +16,8 @@ agents:
     models: [openai/gpt-4o]
   image_generator:
     models: [openai/gpt-4o-mini]   # used for prompt optimisation
+  quality_judge:
+    models: [openai/gpt-4o-mini]   # the AI reviewer: scores each draft and suggests fixes
 
 image:
   models: [openai/gpt-image-1, openai/dall-e-3]
@@ -34,3 +36,10 @@ llm:
 
 quality:
   max_revisions: 3
+  pass_mark: 7                     # the reviewer's average (1-10) a draft needs to pass
+  blog:
+    word_range: [900, 1800]        # target word count, when the instructions don't set a length
+    density_range: [1.0, 2.0]      # target keyword share of the words, in %
+    meta_length_range: [150, 160]  # meta description length, in characters
+    max_grade: 10                  # highest Flesch-Kincaid grade level
+    min_citations: 3               # fewest distinct Sources cited

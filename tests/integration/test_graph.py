@@ -32,12 +32,21 @@ BRIEF_DRAFT = {
     "secondary_keywords": ["AI diagnosis", "medical AI regulation", "AI radiology"],
 }
 
+BLOG_DRAFT = {
+    "template": "how-to",
+    "title": "AI in healthcare",
+    "meta_description": "How AI in healthcare speeds up diagnosis.",
+    "body": "# AI in healthcare\n\nAI reads scans faster [1].",
+}
+VERDICT = {"engagement": 8, "suggestions": []}
+
 
 class FakeRouter:
     """Stands in for the model: returns a scripted routing decision per message.
 
-    Research query planning gets three fixed queries and the Content Strategist a scripted
-    draft Brief; only routing and Content Strategist calls are recorded.
+    Research query planning gets three fixed queries, the Content Strategist a scripted draft
+    Brief, the blog writer a scripted blog and the reviewer a scripted verdict; only routing
+    and Content Strategist calls are recorded.
     """
 
     def __init__(self, decide):
@@ -51,6 +60,10 @@ class FakeRouter:
         if agent == "content_strategist":
             self.strategist_calls.append(messages)
             return schema.model_validate(BRIEF_DRAFT)
+        if agent == "blog_writer":
+            return schema.model_validate(BLOG_DRAFT)
+        if agent == "quality_judge":
+            return schema.model_validate(VERDICT)
         self.calls.append({"agent": agent, "messages": messages, "schema": schema})
         return self.decide(messages[-1]["content"])
 
@@ -229,7 +242,20 @@ BRIEF = (
     "Research Brief ready: 2 findings, 0 statistics, 1 Source. "
     "Ask 'show me the research' to read it."
 )
-BLOG = "SEO Blog Writer: done (stub)."
+BLOG = (
+    "# AI in healthcare\n\nAI reads scans faster [1].\n\n---\n\n"
+    "**Meta description:** How AI in healthcare speeds up diagnosis.\n\n"
+    "**Template:** how-to\n\n"
+    "**Quality Score:** 36/100\n\n"
+    "- keyword density 42.9% ✗\n"
+    "- meta description 41 chars ✗\n"
+    "- headings 1 H1, 0 H2s ✗\n"
+    "- readability grade 0.9 ✓\n"
+    "- length 7 words ✗\n"
+    "- citations 1 Source cited ✗\n\n"
+    "**Automatic revisions:** 3 of 3\n\n"
+    "**Engagement:** 8/10"
+)
 LINKEDIN = "LinkedIn Post Writer: done (stub)."
 IMAGE = "Image Generation Agent: done (stub)."
 
@@ -258,7 +284,7 @@ def test_first_content_request_creates_the_active_topic_and_records_the_steps(
     state = graph.get_state(config()).values
     assert list(state["topics"]) == ["topic-1"]
     topic = state["topics"]["topic-1"]
-    assert (topic["name"], topic["piece_ids"]) == ("AI in healthcare", [])
+    assert (topic["name"], topic["piece_ids"]) == ("AI in healthcare", ["piece-1"])
     assert [s["url"] for s in topic["research"]["sources"]] == ["https://example.com/ai"]
     assert [s["url"] for s in topic["brief"]["sources"]] == ["https://example.com/ai"]
     assert state["active_topic_id"] == "topic-1"
@@ -280,7 +306,15 @@ def researched_topic(**brief):
         "angles": [],
         "target_keyword": "AI in healthcare",
         "secondary_keywords": [],
-        "sources": [],
+        "sources": [
+            {
+                "number": 1,
+                "title": "AI report",
+                "url": "https://example.com/ai",
+                "site": "example.com",
+                "retrieved_at": "2026-10-20T09:25:00+00:00",
+            }
+        ],
         "created_at": "2026-10-20T10:00:00+00:00",
         "model": "openai/gpt-4o",
         "research_gathered_at": "2026-10-20T09:30:00+00:00",
@@ -710,16 +744,39 @@ def test_refine_of_a_missing_kind_lists_the_pieces_the_topic_has(monkeypatch, wi
 
 
 def test_refine_ignores_pieces_on_other_topics_unless_named(monkeypatch, with_api_key):
-    start = with_pieces(**{"piece-1": piece("blog", "Old blog", topic_id="topic-2")})
-    fake_router(monkeypatch, refine("shorter", formats=["blog"]))
-    assert send_with(build_graph(), "shorten the blog", start) == [qh.NOTHING_TO_REFINE]
+    start = with_pieces(**{"piece-1": piece("linkedin_post", "Old post", topic_id="topic-2")})
+    fake_router(monkeypatch, refine("shorter", formats=["linkedin_post"]))
+    assert send_with(build_graph(), "shorten the post", start) == [qh.NOTHING_TO_REFINE]
 
     fake_router(monkeypatch, refine("shorter", target="piece-1"))
-    replies = send_with(build_graph(), "shorten the old blog", start)
+    replies = send_with(build_graph(), "shorten the old post", start)
     assert replies == [
-        "Refining *Old blog* (blog)",
-        'SEO Blog Writer: refining piece-1 with "shorter" (stub).',
+        "Refining *Old post* (LinkedIn post)",
+        'LinkedIn Post Writer: refining piece-1 with "shorter" (stub).',
     ]
+
+
+def test_the_requests_keyword_template_and_length_reach_a_blog_refine_step(
+    monkeypatch, with_api_key
+):
+    decision = refine("as a 600-word listicle on AI diagnostics", formats=["blog"])(None)
+    fake_router(monkeypatch, lambda _: decision.model_copy(update=BLOG_OPTIONS))
+    start = with_pieces(**{"piece-1": piece("blog", "AI in the clinic")})
+    graph = build_graph()
+    send_with(graph, "make it a 600-word listicle, target keyword: AI diagnostics", start)
+
+    state = graph.get_state(config()).values
+    instructions = "as a 600-word listicle on AI diagnostics"
+    assert state["plan"] == [
+        {"agent": "blog_writer", "target": "piece-1", "instructions": instructions, **BLOG_OPTIONS}
+    ]
+    draft, refined = state["content_pieces"]["piece-1"]["revisions"]
+    assert draft == {"text": "draft"}
+    assert (refined["origin"], refined["target_keyword"], refined["template"]) == (
+        "refinement",
+        "AI diagnostics",
+        "listicle",
+    )
 
 
 def routes(**decisions):
@@ -766,7 +823,7 @@ def test_answering_new_creates_the_topic_and_runs_the_held_plan_research_first(
     state = graph.get_state(config()).values
     assert state["active_topic_id"] == "topic-2"
     new_topic = state["topics"]["topic-2"]
-    assert (new_topic["name"], new_topic["piece_ids"]) == ("AI in radiology", [])
+    assert (new_topic["name"], new_topic["piece_ids"]) == ("AI in radiology", ["piece-1"])
     assert new_topic["research"]["sources"]
     assert new_topic["brief"]["sources"]
     assert state["topics"]["topic-1"] == researched_topic()["topics"]["topic-1"]
@@ -905,3 +962,46 @@ def test_new_topic_ids_follow_the_highest_topic_number_and_never_overwrite(
         "notes": notes,
         "topic-4": {"name": "AI in finance", "brief": None, "piece_ids": []},
     }
+
+
+BLOG_OPTIONS = {"target_keyword": "AI diagnostics", "template": "listicle", "length": 600}
+
+
+def blog_revision(state):
+    [piece_id] = state["topics"][state["active_topic_id"]]["piece_ids"]
+    [revision] = state["content_pieces"][piece_id]["revisions"]
+    return revision
+
+
+def test_the_requests_keyword_template_and_length_reach_the_blog_step(monkeypatch, with_api_key):
+    decision = new_content("blog", "linkedin_post", same_topic=True)(None)
+    fake_router(monkeypatch, lambda _: decision.model_copy(update=BLOG_OPTIONS))
+    graph = build_graph()
+    send_with(graph, "a 600-word listicle, target keyword: AI diagnostics", researched_topic())
+
+    state = graph.get_state(config()).values
+    assert state["plan"] == [
+        {"agent": "blog_writer", "instructions": None, **BLOG_OPTIONS},
+        {"agent": "linkedin_writer", "instructions": None},
+    ]
+    revision = blog_revision(state)
+    assert (revision["target_keyword"], revision["template"]) == ("AI diagnostics", "listicle")
+
+
+def test_the_requests_blog_options_carry_over_when_a_held_plan_is_rebuilt_for_a_new_topic(
+    monkeypatch, with_api_key
+):
+    asked = RADIOLOGY.model_copy(update=BLOG_OPTIONS)
+    fake_router(monkeypatch, routes(**{ASK: asked, "a new one": answer("new")}))
+    graph = build_graph()
+    send_with(graph, ASK, researched_topic())
+    send(graph, "a new one")
+
+    state = graph.get_state(config()).values
+    assert state["plan"] == [
+        {"agent": "research", "instructions": None},
+        {"agent": "content_strategist", "instructions": None},
+        {"agent": "blog_writer", "instructions": None, **BLOG_OPTIONS},
+    ]
+    revision = blog_revision(state)
+    assert (revision["target_keyword"], revision["template"]) == ("AI diagnostics", "listicle")

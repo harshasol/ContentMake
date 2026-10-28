@@ -1,12 +1,13 @@
 """Shared LangGraph state, saved per conversation (thread) by the checkpointer. See spec #4."""
 
-from typing import Annotated, NotRequired, TypedDict
+from typing import Annotated, Literal, NotRequired, TypedDict
 
 from langchain_core.messages import AnyMessage
 from langgraph.graph.message import add_messages
 
 from contentblitz.workflow.formats import AgentName, PieceKind
-from contentblitz.workflow.routing import Intent
+from contentblitz.workflow.quality_score import QualityScore
+from contentblitz.workflow.routing import Intent, Template
 
 
 class Source(TypedDict):
@@ -84,10 +85,24 @@ class Topic(TypedDict):
     piece_ids: NotRequired[list[str]]
 
 
-class Revision(TypedDict):
-    """One saved version of a Content Piece's text; refinements start from the latest."""
+RevisionOrigin = Literal["draft", "refinement", "hand_edit"]
 
-    text: str
+
+class Revision(TypedDict):
+    """One saved version of a Content Piece's text; refinements start from the latest.
+
+    Only the result a writer's quality loop keeps becomes a Revision, never its Attempts.
+    """
+
+    text: str  # Markdown for a blog
+    origin: RevisionOrigin
+    created_at: str  # ISO 8601, UTC
+    # A blog's SEO fields; the keyword and template carry over to its refinements.
+    meta_description: NotRequired[str]
+    target_keyword: NotRequired[str]
+    template: NotRequired[Template]
+    # How it measured up when it was made: the score and each check's result.
+    quality_score: NotRequired[QualityScore]
 
 
 class ContentPiece(TypedDict):
@@ -103,6 +118,10 @@ class PlanStep(TypedDict):
     instructions: NotRequired[str | None]
     # On a research step: re-research from scratch, skipping any cached search results.
     fresh: NotRequired[bool]
+    # On a writer step, when the request sets them: they win over the Brief and the config.
+    target_keyword: NotRequired[str]
+    template: NotRequired[Template]
+    length: NotRequired[int]  # in words, checked with a tolerance instead of the word range
 
 
 class PendingTopicQuestion(TypedDict):

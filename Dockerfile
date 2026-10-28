@@ -5,12 +5,18 @@ ENV PYTHONDONTWRITEBYTECODE=1 \
     PIP_NO_CACHE_DIR=1 \
     PYTHONPATH=/app/src \
     CONTENTBLITZ_CONFIG=/app/config/models.yaml \
-    CONTENTBLITZ_DATA_DIR=/data
+    CONTENTBLITZ_DATA_DIR=/data \
+    NLTK_DATA=/usr/local/share/nltk_data
 
 WORKDIR /app
 
 COPY requirements.txt .
 RUN pip install -r requirements.txt
+
+# textstat needs nltk's cmudict for syllable counts and downloads it on first use if missing.
+# Fetch it now, so the container never downloads at runtime.
+RUN python -m nltk.downloader -d "$NLTK_DATA" cmudict \
+    && python -c "import nltk; nltk.data.find('corpora/cmudict')"
 
 COPY config ./config
 COPY src ./src
