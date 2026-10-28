@@ -11,6 +11,7 @@ Topic's Research Record as it was, so the next request rebuilds only the Brief.
 """
 
 from datetime import UTC, datetime
+from typing import NamedTuple
 
 from langsmith import traceable
 from pydantic import BaseModel, Field
@@ -99,6 +100,16 @@ def _now() -> str:
     return datetime.now(UTC).isoformat(timespec="seconds")
 
 
+def _numbered(record: ResearchRecord) -> list[tuple[int, ResearchSource]]:
+    """The Research Record's Sources with their numbers: their rank, counted from 1."""
+    return list(enumerate(record["sources"], start=1))
+
+
+def _real_citations(numbers: list[int], source_count: int) -> list[int]:
+    """The cited numbers that name a Source, each once, in the order cited."""
+    return [n for n in dict.fromkeys(numbers) if 1 <= n <= source_count]
+
+
 def _sources(record: ResearchRecord) -> list[Source]:
     """The Research Record's Sources in rank order, numbered from 1."""
     return [
@@ -109,7 +120,7 @@ def _sources(record: ResearchRecord) -> list[Source]:
             "site": s["site"],
             "retrieved_at": s["retrieved_at"],
         }
-        for n, s in enumerate(record["sources"], start=1)
+        for n, s in _numbered(record)
     ]
 
 
@@ -122,7 +133,7 @@ def _source_text(number: int, source: ResearchSource) -> str:
 
 
 def _prompt(name: str, instructions: str | None, record: ResearchRecord) -> list[dict]:
-    sources = "\n\n".join(_source_text(n, s) for n, s in enumerate(record["sources"], start=1))
+    sources = "\n\n".join(_source_text(n, s) for n, s in _numbered(record))
     return [
         {"role": "system", "content": SYSTEM_PROMPT},
         {
@@ -147,7 +158,7 @@ def _feedback(draft: DraftBrief, source_count: int) -> str:
     for finding in draft.key_findings:
         if not finding.source_numbers:
             dropped.append(f"- {finding.statement} (it cites no Source)")
-        elif not any(1 <= n <= source_count for n in finding.source_numbers):
+        elif not _real_citations(finding.source_numbers, source_count):
             cited = ", ".join(str(n) for n in finding.source_numbers)
             dropped.append(f"- {finding.statement} (it cites [{cited}], which don't exist)")
     needed = (
@@ -166,14 +177,13 @@ def _grounded[T: DraftFinding | DraftStatistic](claims: list[T], source_count: i
     """The claims with citations only to real Sources; a claim left with none is dropped."""
     grounded = []
     for claim in claims:
-        numbers = [n for n in dict.fromkeys(claim.source_numbers) if 1 <= n <= source_count]
-        if numbers:
+        if numbers := _real_citations(claim.source_numbers, source_count):
             grounded.append({**claim.model_dump(), "source_numbers": numbers})
     return grounded
 
 
 def _verified(statistics: list[dict], record: ResearchRecord) -> list[Statistic]:
-    """Marks each statistic verified when its number is in the text of a Source it cites."""
+    """Marks each statistic verified when its numbers are in the text of Sources it cites."""
     return [
         {
             **s,
@@ -202,19 +212,53 @@ def _brief(draft: DraftBrief, record: ResearchRecord, model: str) -> ResearchBri
 
 
 @traceable(name="research brief")
-def _trace(draft: DraftBrief, brief: ResearchBrief) -> dict:
-    """Puts the Brief's counts, and how many claims grounding dropped, in the step's trace."""
-    findings, statistics = len(brief["key_findings"]), len(brief["statistics"])
+def _traced_counts(draft: DraftBrief, brief: ResearchBrief) -> dict:
+    """The Brief's counts, and how many claims grounding dropped, put in the step's trace."""
+    source_count = len(brief["sources"])
+
+    def dropped(claims: list[DraftFinding] | list[DraftStatistic]) -> int:
+        return sum(not _real_citations(c.source_numbers, source_count) for c in claims)
+
+    statistics = len(brief["statistics"])
     verified = sum(s["verified"] for s in brief["statistics"])
     return {
-        "findings": findings,
+        "findings": len(brief["key_findings"]),
         "statistics": statistics,
         "verified_statistics": verified,
         "unverified_statistics": statistics - verified,
-        "sources": len(brief["sources"]),
-        "dropped_findings": len(draft.key_findings) - findings,
-        "dropped_statistics": len(draft.statistics) - statistics,
+        "sources": source_count,
+        "dropped_findings": dropped(draft.key_findings),
+        "dropped_statistics": dropped(draft.statistics),
     }
+
+
+class _Attempt(NamedTuple):
+    """One try at the Brief: the draft (None if the model failed), and a Brief or a failure."""
+
+    draft: DraftBrief | None
+    brief: ResearchBrief | None
+    failure: str | None  # NO_MODEL or THIN_BRIEF, still to be given the Topic's name
+
+
+def _attempt(messages: list[dict], record: ResearchRecord) -> _Attempt:
+    """Drafts a Brief, grounds it, and traces its counts."""
+    reply = _draft(messages)
+    if reply is None:
+        return _Attempt(None, None, NO_MODEL)
+    brief = _brief(reply.value, record, reply.model)
+    _traced_counts(reply.value, brief)
+    if len(brief["key_findings"]) < MIN_FINDINGS:
+        return _Attempt(reply.value, None, THIN_BRIEF)
+    return _Attempt(reply.value, brief, None)
+
+
+def _retry(messages: list[dict], thin_draft: DraftBrief, record: ResearchRecord) -> list[dict]:
+    """The first request, the thin draft, and feedback on what it lacked."""
+    return [
+        *messages,
+        {"role": "assistant", "content": thin_draft.model_dump_json()},
+        {"role": "user", "content": _feedback(thin_draft, len(record["sources"]))},
+    ]
 
 
 def _writers_follow(state: ContentBlitzState) -> bool:
@@ -232,30 +276,16 @@ def content_strategist(state: ContentBlitzState) -> ContentBlitzState:
         return {"abort_reason": NO_RESEARCH.format(topic=topic["name"])}
     step = current_step(state) or {}
     messages = _prompt(topic["name"], step.get("instructions"), record)
-    reply = _draft(messages)
-    if reply is None:
-        return {"abort_reason": NO_MODEL.format(topic=topic["name"])}
-    draft = reply.value
-    brief = _brief(draft, record, reply.model)
-    _trace(draft, brief)
-    if len(brief["key_findings"]) < MIN_FINDINGS:
-        retry = [
-            *messages,
-            {"role": "assistant", "content": draft.model_dump_json()},
-            {"role": "user", "content": _feedback(draft, len(record["sources"]))},
-        ]
-        reply = _draft(retry)
-        if reply is None:
-            return {"abort_reason": NO_MODEL.format(topic=topic["name"])}
-        draft = reply.value
-        brief = _brief(draft, record, reply.model)
-        _trace(draft, brief)
-        if len(brief["key_findings"]) < MIN_FINDINGS:
-            return {"abort_reason": THIN_BRIEF.format(topic=topic["name"])}
+    attempt = _attempt(messages, record)
+    if attempt.failure == THIN_BRIEF:
+        attempt = _attempt(_retry(messages, attempt.draft, record), record)
+    if attempt.brief is None:
+        return {"abort_reason": attempt.failure.format(topic=topic["name"])}
+    brief = attempt.brief
     topics = dict(state["topics"])
     topics[state["active_topic_id"]] = {**topic, "brief": brief}
     if _writers_follow(state):
-        shown = summary_line(brief)
+        chat_text = summary_line(brief)
     else:
-        shown = render_report(topic["name"], brief)
-    return {"messages": [progress_message(shown)], "topics": topics}
+        chat_text = render_report(topic["name"], brief)
+    return {"messages": [progress_message(chat_text)], "topics": topics}

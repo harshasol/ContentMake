@@ -426,6 +426,18 @@ def test_the_briefs_counts_are_traced(model):
     }
 
 
+def test_findings_cut_to_the_most_kept_are_not_traced_as_dropped(model):
+    findings = [{"statement": f"Finding {n}.", "source_numbers": [1]} for n in range(1, 11)]
+    model.reply = draft(key_findings=[{"statement": "Made up.", "source_numbers": [9]}, *findings])
+    client = RecordingClient()
+    with tracing_context(enabled=True, client=client):
+        run_plan(RESEARCH_ONLY, {"topic-1": topic()})
+
+    outputs = [r.get("outputs") or {} for r in client.runs.values()]
+    [traced] = [o for o in outputs if "findings" in o]
+    assert (traced["findings"], traced["dropped_findings"]) == (8, 1)
+
+
 def statistic(figure, *source_numbers):
     return {"figure": figure, "description": "a figure", "source_numbers": list(source_numbers)}
 
