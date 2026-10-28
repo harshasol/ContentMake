@@ -419,6 +419,7 @@ def test_the_briefs_counts_are_traced(model):
         "findings": 4,
         "statistics": 2,
         "verified_statistics": 1,
+        "unverified_statistics": 1,
         "sources": 3,
         "dropped_findings": 1,
         "dropped_statistics": 0,

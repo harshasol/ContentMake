@@ -203,10 +203,12 @@ def _brief(draft: DraftBrief, record: ResearchRecord) -> ResearchBrief:
 def _trace(draft: DraftBrief, brief: ResearchBrief) -> dict:
     """Puts the Brief's counts, and how many claims grounding dropped, in the step's trace."""
     findings, statistics = len(brief["key_findings"]), len(brief["statistics"])
+    verified = sum(s["verified"] for s in brief["statistics"])
     return {
         "findings": findings,
         "statistics": statistics,
-        "verified_statistics": sum(s["verified"] for s in brief["statistics"]),
+        "verified_statistics": verified,
+        "unverified_statistics": statistics - verified,
         "sources": len(brief["sources"]),
         "dropped_findings": len(draft.key_findings) - findings,
         "dropped_statistics": len(draft.statistics) - statistics,
