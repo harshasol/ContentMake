@@ -1,7 +1,7 @@
 """Query Handler: makes a routing decision for each message and acts on it.
 
 Chat and unclear messages get a reply. New content becomes a plan the dispatcher runs.
-Refine requests get a placeholder until #10.
+Refine requests become a one-step plan to the writer of the target Content Piece.
 """
 
 from langchain_core.messages import AIMessage, AnyMessage
@@ -9,6 +9,13 @@ from langchain_core.messages import AIMessage, AnyMessage
 from contentblitz.core.config import get_settings
 from contentblitz.integrations import llm
 from contentblitz.workflow.plan import WRITERS, build_plan, describe
+from contentblitz.workflow.refine import (
+    describe_refine,
+    pieces_context,
+    refine_step,
+    resolve_target,
+    which_piece,
+)
 from contentblitz.workflow.routing import RoutingDecision
 from contentblitz.workflow.state import ContentBlitzState
 
@@ -20,7 +27,9 @@ and writes SEO blogs, LinkedIn posts and images. Read the latest message in the 
 conversation and return a routing decision:
 - new_content: the user wants research, a blog, a LinkedIn post or an image. Set subject and
   formats in the order asked (["research"] for research only).
-- refine: the user wants an existing piece changed. Set instructions.
+- refine: the user wants an existing piece changed. Set instructions, set refine_target to the
+  id of the Content Piece below that they mean (null if unsure), and set formats to its kind
+  when they name one ("the LinkedIn post" → ["linkedin_post"]).
 - chat: a question or small talk. Answer it concisely in reply.
 - unclear: too vague to act on. Ask one short clarifying_question that suggests two or three
   concrete requests the user could make.
@@ -70,9 +79,8 @@ GENERIC_CLARIFYING_QUESTION = (
     '"research AI in healthcare", "write a blog about it" or "turn that into a LinkedIn post".'
 )
 APOLOGY = "Sorry, I couldn't reach the language model just now. Please try again in a moment."
-NOT_SUPPORTED_YET = (
-    "Refining content is not supported yet. For now I can research a subject, plan content "
-    "and answer questions."
+NOTHING_TO_REFINE = (
+    "There's nothing to refine yet. Ask me for a blog, a LinkedIn post or an image first."
 )
 
 _ROLES = {"human": "user", "ai": "assistant"}
@@ -99,8 +107,6 @@ def _respond(decision: RoutingDecision) -> str:
         return decision.reply
     if decision.intent == "unclear":
         return decision.clarifying_question or GENERIC_CLARIFYING_QUESTION
-    if decision.intent == "refine":
-        return NOT_SUPPORTED_YET
     return GENERIC_CLARIFYING_QUESTION
 
 
@@ -118,6 +124,17 @@ def _new_content(state: ContentBlitzState, decision: RoutingDecision) -> Content
         "topics": topics,
         "active_topic_id": topic_id,
     }
+
+
+def _refine(state: ContentBlitzState, decision: RoutingDecision) -> ContentBlitzState:
+    candidates = resolve_target(state, decision)
+    if not candidates:
+        return _reply(NOTHING_TO_REFINE, intent="refine")
+    if len(candidates) > 1:
+        return _reply(which_piece(state, candidates), intent="refine")
+    [piece_id] = candidates
+    plan = [refine_step(state, piece_id, decision.instructions)]
+    return _reply(describe_refine(state, piece_id), intent="refine", plan=plan)
 
 
 def _ask_topic_question(
@@ -167,6 +184,7 @@ def query_handler(state: ContentBlitzState) -> ContentBlitzState:
     messages = [
         {"role": "system", "content": SYSTEM_PROMPT},
         {"role": "system", "content": _topic_context(state)},
+        {"role": "system", "content": pieces_context(state)},
         *_topic_question_context(state),
         *_conversation(state["messages"]),
     ]
@@ -181,4 +199,6 @@ def query_handler(state: ContentBlitzState) -> ContentBlitzState:
         return answered
     if decision.intent == "new_content":
         return _ask_topic_question(state, decision) or _new_content(state, decision)
+    if decision.intent == "refine":
+        return _refine(state, decision)
     return _reply(_respond(decision), intent=decision.intent)
