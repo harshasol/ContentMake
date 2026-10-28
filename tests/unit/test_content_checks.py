@@ -253,3 +253,73 @@ def test_length_leaves_out_markdown_and_the_sources_section():
 
 def test_word_range_comes_from_the_rules():
     assert check("length", filler(600), rules=BlogQuality(word_range=(500, 700)))["passed"]
+
+
+# Citations
+
+
+def sources(*numbers):
+    """A Sources section listing `numbers`."""
+    entries = "".join(f"{n}. [Report {n}](https://example.com/{n})\n" for n in numbers)
+    return f"\n## Sources\n\n{entries}"
+
+
+def test_citations_of_three_brief_sources_all_listed_pass():
+    body = "AI tools help [1]. Teams agree [2, 3]. Again [1].\n" + sources(1, 2, 3)
+    result = check("citations", body)
+    assert result["passed"], result["reason"]
+    assert result["measured"] == "3 Sources cited"
+
+
+def test_a_citation_that_is_not_a_brief_source_fails():
+    body = "AI tools help [1]. Teams agree [2, 3]. Also [7].\n" + sources(1, 2, 3)
+    result = check("citations", body)
+    assert not result["passed"]
+    assert result["measured"] == "3 Sources cited"
+    assert "[7]" in result["reason"]
+
+
+def test_too_few_distinct_sources_fail_and_say_the_minimum():
+    body = "AI tools help [1]. Teams agree [2]. Again [1, 2].\n" + sources(1, 2)
+    result = check("citations", body)
+    assert not result["passed"]
+    assert result["measured"] == "2 Sources cited"
+    assert "at least 3" in result["reason"]
+
+
+def test_minimum_distinct_citations_comes_from_the_rules():
+    body = "AI tools help [1]. Teams agree [2].\n" + sources(1, 2)
+    assert check("citations", body, rules=BlogQuality(min_citations=2))["passed"]
+
+
+def test_a_sources_section_listing_an_uncited_source_fails():
+    body = "AI tools help [1]. Teams agree [2, 3].\n" + sources(1, 2, 3, 4)
+    result = check("citations", body, rules=BlogQuality(min_citations=3))
+    assert not result["passed"]
+    assert "[4]" in result["reason"]
+    assert "uncited" in result["reason"]
+
+
+def test_a_sources_section_missing_a_cited_source_fails():
+    body = "AI tools help [1]. Teams agree [2, 3].\n" + sources(1, 3)
+    result = check("citations", body)
+    assert not result["passed"]
+    assert "[2]" in result["reason"]
+    assert "doesn't list" in result["reason"]
+
+
+def test_a_blog_without_a_sources_section_fails():
+    result = check("citations", "AI tools help [1]. Teams agree [2, 3].\n")
+    assert not result["passed"]
+    assert "doesn't list [1], [2], [3]" in result["reason"]
+
+
+def test_citation_ranges_and_bracketed_source_lists_are_read():
+    # [1-3] cites 1, 2 and 3; the Sources section may number its entries as "[n]".
+    body = "AI tools help [1-3].\n\n## Sources\n\n[1] Report 1\n[2] Report 2\n[3] Report 3\n"
+    assert check("citations", body)["passed"]
+
+
+def test_brackets_in_code_and_link_text_are_not_citations():
+    body = "AI tools help [1, 2, 3]. See [2](https://example.com).\n```\nx = a[9]\n```\n"
+    assert check("citations", body + sources(1, 2, 3))["passed"]

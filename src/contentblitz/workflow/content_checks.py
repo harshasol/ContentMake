@@ -37,6 +37,9 @@ class CheckResult(TypedDict):
 _WORD = re.compile(r"\w+(?:['’]\w+)*")
 _HEADING = re.compile(r"^(#{1,6})\s+(.*?)\s*#*\s*$")
 _SOURCES_HEADING = re.compile(r"sources", re.IGNORECASE)
+_CITATION = re.compile(r"\[(\d+(?:\s*[,–-]\s*\d+)*)\](?!\()")  # [n], [n, m], [n-m]; not links
+_INLINE_CODE = re.compile(r"`[^`]*`")
+_ENTRY = re.compile(r"^\s*(?:[-*+]\s+)?\[?(\d+)[.)\]:]")  # "1. ...", "[1] ...", "- [1] ..."
 
 
 def _lines(body: str) -> list[tuple[str, bool]]:
@@ -51,9 +54,13 @@ def _lines(body: str) -> list[tuple[str, bool]]:
     return lines
 
 
-def _without_sources(body: str) -> list[tuple[str, bool]]:
-    """`_lines`, leaving out the Sources section up to the next heading at its level."""
+def _split_sources(body: str) -> tuple[list[tuple[str, bool]], list[str]]:
+    """`_lines` outside the Sources section, and the section's lines after its heading.
+
+    The Sources section runs up to the next heading at its level.
+    """
     kept: list[tuple[str, bool]] = []
+    sources: list[str] = []
     sources_level = 0
     for line, in_code in _lines(body):
         heading = None if in_code else _HEADING.match(line)
@@ -63,9 +70,17 @@ def _without_sources(body: str) -> list[tuple[str, bool]]:
                 sources_level = 0
             if not sources_level and _SOURCES_HEADING.fullmatch(heading[2].strip(" *_:")):
                 sources_level = level
-        if not sources_level:
+                continue
+        if sources_level:
+            sources.append(line)
+        else:
             kept.append((line, in_code))
-    return kept
+    return kept, sources
+
+
+def _without_sources(body: str) -> list[tuple[str, bool]]:
+    """`_lines`, leaving out the Sources section."""
+    return _split_sources(body)[0]
 
 
 def _headings(body: str) -> list[tuple[int, str]]:
@@ -216,6 +231,54 @@ def length(draft: Draft, word_range: tuple[int, int]) -> CheckResult:
     }
 
 
+def _cited(body: str) -> set[int]:
+    """The Source numbers the body cites as `[n]`, `[n, m]` or `[n-m]`, outside the Sources
+    section, code and link text."""
+    numbers: set[int] = set()
+    for line, in_code in _without_sources(body):
+        if in_code:
+            continue
+        for group in _CITATION.findall(_INLINE_CODE.sub("", line)):
+            for part in group.split(","):
+                first, _, last = re.sub(r"\s", "", part).replace("–", "-").partition("-")
+                numbers.update(range(int(first), int(last or first) + 1))
+    return numbers
+
+
+def _listed(body: str) -> set[int]:
+    """The Source numbers the Sources section lists, as `1. ...` or `[1] ...` entries."""
+    return {int(entry[1]) for line in _split_sources(body)[1] if (entry := _ENTRY.match(line))}
+
+
+def _numbers(numbers: set[int]) -> str:
+    return ", ".join(f"[{n}]" for n in sorted(numbers))
+
+
+def citations(draft: Draft, min_citations: int) -> CheckResult:
+    """Every `[n]` is a Source in the Brief, at least `min_citations` distinct Sources are
+    cited, and the Sources section lists exactly the cited Sources."""
+    cited, listed = _cited(draft.body), _listed(draft.body)
+    invalid = cited - set(draft.source_numbers)
+    valid = cited - invalid
+    count = f"{len(valid)} Source{'' if len(valid) == 1 else 's'}"
+    problems = []
+    if invalid:
+        problems.append(f"it cites {_numbers(invalid)}, not among the Brief's Sources")
+    if len(valid) < min_citations:
+        problems.append(f"it cites {count}; the target is at least {min_citations}")
+    if listed - valid:
+        problems.append(f"the Sources section lists uncited {_numbers(listed - valid)}")
+    if valid - listed:
+        problems.append(f"the Sources section doesn't list {_numbers(valid - listed)}")
+    return {
+        "name": "citations",
+        "passed": not problems,
+        "measured": f"{count} cited",
+        "reason": "; ".join(problems)
+        or f"{count} from the Brief cited, at least {min_citations}, all listed under Sources",
+    }
+
+
 def check_blog(draft: Draft, rules: BlogQuality) -> list[CheckResult]:
     """Every blog check's result, in the order the chat lists them."""
     return [
@@ -224,4 +287,5 @@ def check_blog(draft: Draft, rules: BlogQuality) -> list[CheckResult]:
         headings(draft),
         readability(draft, rules.max_grade),
         length(draft, rules.word_range),
+        citations(draft, rules.min_citations),
     ]
