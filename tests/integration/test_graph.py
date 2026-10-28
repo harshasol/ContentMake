@@ -129,10 +129,11 @@ def test_conversation_is_kept_per_thread(monkeypatch, with_api_key):
     assert history("b") == ["other", "reply to other"]
 
 
-def new_content(*formats, subject="AI in healthcare", fresh_research=False):
+def new_content(*formats, subject="AI in healthcare", fresh_research=False, same_subject=True):
     decision = RoutingDecision(
         intent="new_content",
         subject=subject,
+        same_subject=same_subject,
         formats=list(formats),
         fresh_research=fresh_research,
     )
@@ -259,3 +260,134 @@ def test_each_run_starts_a_fresh_plan(monkeypatch, with_api_key):
     assert send(graph, "hello") == ["Hi!"]
     state = graph.get_state(config()).values
     assert (state["intent"], state["plan"], state["completed_steps"]) == ("chat", [], [])
+
+
+def routes(**decisions):
+    """A fake router that picks a scripted decision by the message text."""
+    return lambda text: decisions[text]
+
+
+ASK = "a blog on AI in radiology"
+RADIOLOGY = RoutingDecision(
+    intent="new_content", subject="AI in radiology", same_subject=False, formats=["blog"]
+)
+
+
+def test_a_different_subject_asks_the_topic_question_and_runs_nothing(monkeypatch, with_api_key):
+    fake_router(monkeypatch, routes(**{ASK: RADIOLOGY}))
+    graph = build_graph()
+    [question] = send_with(graph, ASK, researched_topic())
+
+    assert "Start a new Topic" in question
+    assert "AI in healthcare" in question and "AI in radiology" in question
+    state = graph.get_state(config()).values
+    assert state["completed_steps"] == []
+    assert state["pending_topic_question"] == {
+        "name": "AI in radiology",
+        "plan": [{"agent": "blog_writer", "instructions": None}],
+    }
+    assert state["active_topic_id"] == "topic-1"
+
+
+def answer(topic_answer):
+    return RoutingDecision(intent="chat", topic_answer=topic_answer)
+
+
+def test_answering_new_creates_the_topic_and_runs_the_held_plan_research_first(
+    monkeypatch, with_api_key
+):
+    fake_router(monkeypatch, routes(**{ASK: RADIOLOGY, "a new one": answer("new")}))
+    graph = build_graph()
+    send_with(graph, ASK, researched_topic())
+    replies = send(graph, "a new one")
+
+    assert replies == ["Plan for *AI in radiology*: research → brief → blog", RESEARCH, BRIEF, BLOG]
+    state = graph.get_state(config()).values
+    assert state["active_topic_id"] == "topic-2"
+    assert state["topics"]["topic-2"] == {"name": "AI in radiology", "brief": None}
+    assert state["topics"]["topic-1"]["name"] == "AI in healthcare"
+    assert state["pending_topic_question"] is None
+
+
+def test_answering_continue_runs_the_held_plan_on_the_current_topic_and_its_brief(
+    monkeypatch, with_api_key
+):
+    keep_going = "keep going with healthcare"
+    fake_router(monkeypatch, routes(**{ASK: RADIOLOGY, keep_going: answer("continue")}))
+    graph = build_graph()
+    send_with(graph, ASK, researched_topic())
+    replies = send(graph, keep_going)
+
+    assert replies == ["Plan for *AI in healthcare*: blog", BLOG]
+    state = graph.get_state(config()).values
+    assert state["active_topic_id"] == "topic-1"
+    assert list(state["topics"]) == ["topic-1"]
+    assert state["pending_topic_question"] is None
+
+
+def test_any_other_reply_drops_the_held_plan_and_is_handled_normally(monkeypatch, with_api_key):
+    linkedin = new_content("linkedin_post")(None)
+    fake_router(monkeypatch, routes(**{ASK: RADIOLOGY, "actually, a LinkedIn post": linkedin}))
+    graph = build_graph()
+    send_with(graph, ASK, researched_topic())
+    replies = send(graph, "actually, a LinkedIn post")
+
+    assert replies == ["Plan for *AI in healthcare*: LinkedIn post", LINKEDIN]
+    assert graph.get_state(config()).values["pending_topic_question"] is None
+
+
+def test_routing_is_told_about_the_pending_topic_question(monkeypatch, with_api_key):
+    router = fake_router(monkeypatch, routes(**{ASK: RADIOLOGY, "hmm": answer(None)}))
+    graph = build_graph()
+    send_with(graph, ASK, researched_topic())
+    send(graph, "hmm")
+
+    context = "\n".join(m["content"] for m in router.calls[-1]["messages"] if m["role"] == "system")
+    assert "Pending Topic question" in context
+    assert "AI in radiology" in context
+    assert "topic_answer" in context
+
+
+def test_a_narrower_angle_the_decision_calls_the_same_subject_runs_without_asking(
+    monkeypatch, with_api_key
+):
+    router = fake_router(monkeypatch, new_content("blog", subject="AI in radiology"))
+    replies = send_with(build_graph(), "a blog on AI in radiology", researched_topic())
+
+    assert replies == ["Plan for *AI in healthcare*: blog", BLOG]
+    context = "\n".join(m["content"] for m in router.calls[-1]["messages"] if m["role"] == "system")
+    assert "same_subject" in context
+
+
+def two_topics(active):
+    return {
+        "topics": {
+            **researched_topic()["topics"],
+            "topic-2": {"name": "AI in radiology", "brief": None},
+        },
+        "active_topic_id": active,
+    }
+
+
+def test_the_active_topic_set_in_the_input_is_respected(monkeypatch, with_api_key):
+    router = fake_router(monkeypatch, new_content("linkedin_post"))
+    graph = build_graph()
+    send_with(graph, "start", two_topics("topic-2"))
+    replies = send_with(graph, "now a LinkedIn post", {"active_topic_id": "topic-1"})
+
+    assert replies[-2:] == ["Plan for *AI in healthcare*: LinkedIn post", LINKEDIN]
+    assert "Active Topic: AI in healthcare" in router.calls[-1]["messages"][1]["content"]
+
+
+def test_with_no_active_topic_a_content_request_creates_a_topic_without_asking(
+    monkeypatch, with_api_key
+):
+    fake_router(monkeypatch, new_content("blog", subject="AI in finance", same_subject=False))
+    graph = build_graph()
+    replies = send_with(graph, "a blog on AI in finance", two_topics(None))
+
+    assert replies == ["Plan for *AI in finance*: research → brief → blog", RESEARCH, BRIEF, BLOG]
+    state = graph.get_state(config()).values
+    assert state["active_topic_id"] == "topic-3"
+    names = [t["name"] for t in state["topics"].values()]
+    assert names == ["AI in healthcare", "AI in radiology", "AI in finance"]
