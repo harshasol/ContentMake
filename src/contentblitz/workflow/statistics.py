@@ -11,14 +11,16 @@ import re
 
 from contentblitz.workflow.state import ResearchSource
 
-# A number, with any thousands separators kept so they can be told apart from a year.
-_NUMBER = re.compile(r"(?<![\d.])(?:\d{1,3}(?:,\d{3})+(?!\d)|\d+)(?:\.\d+)?%?")
-_PERCENT = re.compile(r"\s*\b(?:percent|per\s+cent)\b", re.IGNORECASE)
+# A number, with any thousands separators (a comma or a space between groups of three digits)
+# kept so it can be told apart from a year.
+_NUMBER = re.compile(r"(?<![\d.])(?:\d{1,3}(?:[, ]\d{3})+(?!\d)|\d+)(?:\.\d+)?%?")
+_PERCENT = re.compile(r"(?<=\d)[\s-]*per\s*cent\b", re.IGNORECASE)
 _YEAR = re.compile(r"(?:19|20)\d{2}")
 
 
 def _normalised(text: str) -> str:
-    """`45 percent` and `45 %` become `45%`, and runs of space one."""
+    """`45 percent`, `45-percent`, `45percent` and `45 %` become `45%`; any run of space,
+    no-break space included, becomes one space."""
     text = _PERCENT.sub("%", text)
     text = re.sub(r"(?<=\d)\s+%", "%", text)
     return re.sub(r"\s+", " ", text)
@@ -26,7 +28,7 @@ def _normalised(text: str) -> str:
 
 def _numbers(text: str) -> list[tuple[str, str]]:
     """Each number in the text, as written and without thousands separators."""
-    return [(n, n.replace(",", "")) for n in _NUMBER.findall(_normalised(text))]
+    return [(n, re.sub("[, ]", "", n)) for n in _NUMBER.findall(_normalised(text))]
 
 
 def _significant(figure: str) -> list[str]:
