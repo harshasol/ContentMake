@@ -93,7 +93,12 @@ def test_serpapi_sends_a_google_search_with_the_api_key():
     assert request.url.host == "serpapi.com"
     assert request.url.path == "/search.json"
     params = dict(request.url.params)
-    assert params == {"engine": "google", "q": "AI in healthcare 2026", "api_key": "serp-key", "num": "5"}
+    assert params == {
+        "engine": "google",
+        "q": "AI in healthcare 2026",
+        "api_key": "serp-key",
+        "num": "5",
+    }
 
 
 def test_serpapi_organic_results_become_search_results():
@@ -122,7 +127,9 @@ def test_serpapi_with_no_results_returns_an_empty_list():
 
 
 def test_serpapi_reports_its_error_message():
-    body = {"error": "Invalid API key. Your API key should be here: https://serpapi.com/manage-api-key"}
+    body = {
+        "error": "Invalid API key. Your API key should be here: https://serpapi.com/manage-api-key"
+    }
     provider = SerpApiProvider("bad", client_returning(httpx.Response(401, json=body)))
     with pytest.raises(SearchProviderError, match="Invalid API key"):
         provider.search("AI")

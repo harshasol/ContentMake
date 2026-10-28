@@ -22,9 +22,32 @@ class ResearchBrief(TypedDict):
     sources: list[Source]
 
 
+class ResearchSource(TypedDict):
+    """A Source as gathered by research, before the Content Strategist cites it in a Brief."""
+
+    title: str
+    url: str
+    site: str
+    snippet: str
+    page_text: str
+    query: str
+    provider: str
+    retrieved_at: str  # ISO 8601, UTC
+
+
+class ResearchRecord(TypedDict):
+    """The research record: what the Research agent gathered on a Topic, not yet synthesised."""
+
+    queries: list[str]
+    providers: list[str]
+    gathered_at: str  # ISO 8601, UTC
+    sources: list[ResearchSource]  # in rank order
+
+
 class Topic(TypedDict):
     name: str
     brief: NotRequired[ResearchBrief | None]
+    research: NotRequired[ResearchRecord | None]
     piece_ids: NotRequired[list[str]]
 
 

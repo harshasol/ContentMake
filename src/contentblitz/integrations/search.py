@@ -49,16 +49,16 @@ class _HttpProvider:
                 with httpx.Client(timeout=REQUEST_TIMEOUT_SECONDS) as client:
                     response = client.request(method, url, **kwargs)
         except httpx.TimeoutException as exc:
-            raise SearchProviderError(f"{self.name} timed out") from exc
+            raise SearchProviderError("timed out") from exc
         except httpx.HTTPError as exc:
-            raise SearchProviderError(f"{self.name} request failed: {exc}") from exc
+            raise SearchProviderError(f"request failed: {exc}") from exc
         try:
             body = response.json()
         except ValueError:
             body = {}
         if response.is_error:
             raise SearchProviderError(
-                f"{self.name} returned {response.status_code}: {self._error(body) or response.text}"
+                f"returned {response.status_code}: {self._error(body) or response.text}"
             )
         return body
 
@@ -79,7 +79,7 @@ class SerpApiProvider(_HttpProvider):
         body = self._send("GET", self.URL, params=params)
         error = self._error(body)
         if error and self.NO_RESULTS not in error:
-            raise SearchProviderError(f"{self.name}: {error}")
+            raise SearchProviderError(error)
         return [
             SearchResult(title=r["title"], url=r["link"], snippet=r.get("snippet", ""))
             for r in body.get("organic_results", [])[:max_results]
@@ -136,13 +136,24 @@ def configured_providers(
     return providers
 
 
+class SearchResponse(BaseModel):
+    """One query's results, the provider that answered, and why earlier providers failed."""
+
+    provider: str
+    results: list[SearchResult]
+    failures: dict[str, str] = {}  # provider name → reason
+
+
 def search_with_fallback(
     providers: list[SearchProvider], query: str, max_results: int = 10
-) -> list[SearchResult]:
-    errors = []
+) -> SearchResponse:
+    failures: dict[str, str] = {}
     for provider in providers:
         try:
-            return provider.search(query, max_results)
+            results = provider.search(query, max_results)
         except Exception as exc:  # noqa: BLE001 - any provider failure moves to the next one
-            errors.append(f"{provider.name}: {exc}")
-    raise SearchUnavailableError("; ".join(errors) or "no search providers configured")
+            failures[provider.name] = str(exc)
+            continue
+        return SearchResponse(provider=provider.name, results=results, failures=failures)
+    reasons = "; ".join(f"{name}: {reason}" for name, reason in failures.items())
+    raise SearchUnavailableError(reasons or "no search providers configured")

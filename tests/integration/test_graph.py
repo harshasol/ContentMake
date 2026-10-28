@@ -3,7 +3,9 @@ from langchain_core.messages import HumanMessage
 
 from contentblitz.agents import query_handler as qh
 from contentblitz.core.config import Settings
+from contentblitz.integrations import search
 from contentblitz.integrations.llm import StructuredOutputError
+from contentblitz.integrations.search import SearchResult
 from contentblitz.workflow.graph import build_graph
 from contentblitz.workflow.routing import RoutingDecision
 from contentblitz.workflow.topics import add_piece
@@ -14,15 +16,34 @@ def config(thread="t1"):
 
 
 class FakeRouter:
-    """Stands in for the model: returns a scripted routing decision per message."""
+    """Stands in for the model: returns a scripted routing decision per message.
+
+    Research query planning gets three fixed queries; only routing calls are recorded.
+    """
 
     def __init__(self, decide):
         self.decide = decide
         self.calls = []
 
     def __call__(self, agent, messages, schema):
+        if agent == "research":
+            return schema(queries=["q1", "q2", "q3"])
         self.calls.append({"agent": agent, "messages": messages, "schema": schema})
         return self.decide(messages[-1]["content"])
+
+
+class OneResultSearch:
+    """A search provider that finds the same page for every query."""
+
+    name = "FakeSearch"
+
+    def search(self, query, max_results=10):
+        return [SearchResult(title="AI report", url="https://example.com/ai", snippet="AI.")]
+
+
+@pytest.fixture(autouse=True)
+def fake_web_search(monkeypatch):
+    monkeypatch.setattr(search, "configured_providers", lambda: [OneResultSearch()])
 
 
 @pytest.fixture
@@ -158,7 +179,11 @@ def new_content(*formats, topic_name="AI in healthcare", fresh_research=False, s
     return lambda _: decision
 
 
-RESEARCH = "Deep Research Agent: done (stub)."
+def researched(topic="AI in healthcare"):
+    return f"Researched *{topic}*: 3 searches, 1 Source from 1 site via FakeSearch"
+
+
+RESEARCH = researched()
 BRIEF = "Content Strategist: done (stub)."
 BLOG = "SEO Blog Writer: done (stub)."
 LINKEDIN = "LinkedIn Post Writer: done (stub)."
@@ -187,12 +212,13 @@ def test_first_content_request_creates_the_active_topic_and_records_the_steps(
     send(graph, "write a blog about AI in healthcare")
 
     state = graph.get_state(config()).values
-    assert state["topics"] == {
-        "topic-1": {"name": "AI in healthcare", "brief": None, "piece_ids": []}
-    }
+    assert list(state["topics"]) == ["topic-1"]
+    topic = state["topics"]["topic-1"]
+    assert (topic["name"], topic["brief"], topic["piece_ids"]) == ("AI in healthcare", None, [])
+    assert [s["url"] for s in topic["research"]["sources"]] == ["https://example.com/ai"]
     assert state["active_topic_id"] == "topic-1"
     assert state["intent"] == "new_content"
-    steps = [{"agent": "research"}, {"agent": "content_strategist"}]
+    steps = [{"agent": "research", "instructions": None}, {"agent": "content_strategist"}]
     steps.append({"agent": "blog_writer", "instructions": None})
     assert state["plan"] == steps
     assert state["completed_steps"] == steps
@@ -474,10 +500,17 @@ def test_answering_new_creates_the_topic_and_runs_the_held_plan_research_first(
     send_with(graph, ASK, researched_topic())
     replies = send(graph, "a new one")
 
-    assert replies == ["Plan for *AI in radiology*: research → brief → blog", RESEARCH, BRIEF, BLOG]
+    research = researched("AI in radiology")
+    assert replies == ["Plan for *AI in radiology*: research → brief → blog", research, BRIEF, BLOG]
     state = graph.get_state(config()).values
     assert state["active_topic_id"] == "topic-2"
-    assert state["topics"]["topic-2"] == {"name": "AI in radiology", "brief": None, "piece_ids": []}
+    new_topic = state["topics"]["topic-2"]
+    assert (new_topic["name"], new_topic["brief"], new_topic["piece_ids"]) == (
+        "AI in radiology",
+        None,
+        [],
+    )
+    assert new_topic["research"]["sources"]
     assert state["topics"]["topic-1"]["name"] == "AI in healthcare"
     assert state["pending_topic_question"] is None
 
@@ -577,7 +610,8 @@ def test_with_no_active_topic_a_content_request_creates_a_topic_without_asking(
     graph = build_graph()
     replies = send_with(graph, "a blog on AI in finance", two_topics(None))
 
-    assert replies == ["Plan for *AI in finance*: research → brief → blog", RESEARCH, BRIEF, BLOG]
+    research = researched("AI in finance")
+    assert replies == ["Plan for *AI in finance*: research → brief → blog", research, BRIEF, BLOG]
     state = graph.get_state(config()).values
     assert state["active_topic_id"] == "topic-3"
     names = [t["name"] for t in state["topics"].values()]
