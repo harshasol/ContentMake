@@ -79,15 +79,22 @@ def draft(**overrides):
 
 
 class FakeStrategist:
-    """Stands in for the `content_strategist` model: returns the scripted draft Brief."""
+    """Stands in for the `content_strategist` model: returns the scripted draft Brief.
+
+    Replies queued in `replies` are used first, one per call; an exception is raised.
+    """
 
     def __init__(self, reply):
         self.reply = reply
+        self.replies = []
         self.calls = []
 
     def __call__(self, agent, messages, schema):
         self.calls.append({"agent": agent, "messages": messages, "schema": schema})
-        return schema.model_validate(self.reply)
+        reply = self.replies.pop(0) if self.replies else self.reply
+        if isinstance(reply, Exception):
+            raise reply
+        return schema.model_validate(reply)
 
 
 @pytest.fixture
@@ -401,3 +408,24 @@ def test_the_briefs_counts_are_traced(model):
         "dropped_findings": 1,
         "dropped_statistics": 0,
     }
+
+
+THIN = draft(
+    key_findings=[
+        {"statement": "AI reads scans faster.", "source_numbers": [2]},
+        {"statement": "Made up.", "source_numbers": [7]},
+        {"statement": "Never cited.", "source_numbers": []},
+    ]
+)
+
+
+def test_too_few_grounded_findings_retries_once_saying_what_was_dropped(model):
+    model.replies = [THIN, draft()]
+    _, state = run_plan(RESEARCH_ONLY, {"topic-1": topic()})
+
+    first, retry = model.calls
+    assert retry["messages"][: len(first["messages"])] == first["messages"]
+    feedback = retry["messages"][-1]["content"]
+    for fact in ["Made up.", "Never cited.", "1 to 3"]:
+        assert fact in feedback
+    assert len(state["topics"]["topic-1"]["brief"]["key_findings"]) == 4

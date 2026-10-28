@@ -39,6 +39,8 @@ NO_RESEARCH = (
     "Ask me to research it first."
 )
 
+MIN_FINDINGS = 2
+
 CITE = "The numbers of the Sources it comes from, as listed, e.g. [1, 3]."
 
 
@@ -95,9 +97,9 @@ def _source_text(number: int, source: ResearchSource) -> str:
     )
 
 
-def _draft(name: str, instructions: str | None, record: ResearchRecord) -> DraftBrief:
+def _prompt(name: str, instructions: str | None, record: ResearchRecord) -> list[dict]:
     sources = "\n\n".join(_source_text(n, s) for n, s in enumerate(record["sources"], start=1))
-    messages = [
+    return [
         {"role": "system", "content": SYSTEM_PROMPT},
         {
             "role": "user",
@@ -105,7 +107,24 @@ def _draft(name: str, instructions: str | None, record: ResearchRecord) -> Draft
             f"Sources:\n\n{sources}",
         },
     ]
-    return llm.complete_structured(AGENT, messages, DraftBrief)
+
+
+def _feedback(draft: DraftBrief, source_count: int) -> str:
+    """Tells the model which findings grounding dropped, and why."""
+    dropped = []
+    for finding in draft.key_findings:
+        if not finding.source_numbers:
+            dropped.append(f"- {finding.statement} (it cites no Source)")
+        elif not any(1 <= n <= source_count for n in finding.source_numbers):
+            cited = ", ".join(str(n) for n in finding.source_numbers)
+            dropped.append(f"- {finding.statement} (it cites [{cited}], which don't exist)")
+    return (
+        f"The Sources are numbered 1 to {source_count}. These findings were dropped because "
+        "they cite no Source that exists:\n"
+        + "\n".join(dropped)
+        + f"\nWrite the Brief again with at least {MIN_FINDINGS} key findings, each citing the "
+        "Sources it comes from."
+    )
 
 
 def _grounded[T: DraftFinding | DraftStatistic](claims: list[T], source_count: int) -> list[dict]:
@@ -161,9 +180,19 @@ def content_strategist(state: ContentBlitzState) -> ContentBlitzState:
     if not record:
         return {"abort_reason": NO_RESEARCH.format(topic=topic["name"])}
     step = current_step(state) or {}
-    draft = _draft(topic["name"], step.get("instructions"), record)
+    messages = _prompt(topic["name"], step.get("instructions"), record)
+    draft = llm.complete_structured(AGENT, messages, DraftBrief)
     brief = _brief(draft, record)
     _trace(draft, brief)
+    if len(brief["key_findings"]) < MIN_FINDINGS:
+        retry = [
+            *messages,
+            {"role": "assistant", "content": draft.model_dump_json()},
+            {"role": "user", "content": _feedback(draft, len(record["sources"]))},
+        ]
+        draft = llm.complete_structured(AGENT, retry, DraftBrief)
+        brief = _brief(draft, record)
+        _trace(draft, brief)
     topics = dict(state["topics"])
     topics[state["active_topic_id"]] = {**topic, "brief": brief}
     if _writers_follow(state):
