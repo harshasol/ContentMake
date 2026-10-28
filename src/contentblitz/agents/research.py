@@ -155,6 +155,7 @@ def research(state: ContentBlitzState) -> ContentBlitzState:
     name = topic["name"]
     providers = search.configured_providers()
     if not providers:
+        _trace(name, [], [], 0)
         return {"abort_reason": NO_PROVIDERS.format(topic=name, keys=_missing_keys())}
 
     options = get_model_config().search

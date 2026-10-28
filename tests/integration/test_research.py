@@ -587,6 +587,18 @@ def test_queries_provider_outcomes_and_source_count_are_traced(monkeypatch):
     }
 
 
+def test_research_with_no_search_provider_is_still_traced(monkeypatch):
+    fake_model(monkeypatch)
+    fake_search(monkeypatch)
+    client = RecordingClient()
+    with tracing_context(enabled=True, client=client):
+        run(build_graph())
+
+    outputs = [r.get("outputs") or {} for r in client.runs.values()]
+    [traced] = [o for o in outputs if "source_count" in o]
+    assert traced == {"queries": [], "provider_outcomes": [], "source_count": 0}
+
+
 def eight_sources():
     """One search finding eight pages on eight sites, ranked in this order."""
     return FakeProvider("SerpAPI", {QUERIES[0]: [hit(f"https://site{n}.com/a") for n in range(8)]})
