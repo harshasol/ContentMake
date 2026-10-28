@@ -6,6 +6,7 @@ from contentblitz.core.config import Settings
 from contentblitz.integrations.llm import StructuredOutputError
 from contentblitz.workflow.graph import build_graph
 from contentblitz.workflow.routing import RoutingDecision
+from contentblitz.workflow.topics import add_piece
 
 
 def config(thread="t1"):
@@ -109,6 +110,29 @@ def test_routing_sees_the_last_ten_messages_with_the_query_handler_model(monkeyp
     ]
 
 
+def test_progress_and_plan_messages_do_not_use_up_the_history_window(monkeypatch, with_api_key):
+    everything = new_content("blog", "linkedin_post", "image")(None)
+    router = fake_router(
+        monkeypatch,
+        lambda text: everything if text == "the works" else chat("reply to {text}")(text),
+    )
+    graph = build_graph()
+    send(graph, "first")
+    send(graph, "second")
+    assert len(send(graph, "the works")) == 6
+    send(graph, "last")
+
+    conversation = [m for m in router.calls[-1]["messages"] if m["role"] != "system"]
+    assert conversation == [
+        {"role": "user", "content": "first"},
+        {"role": "assistant", "content": "reply to first"},
+        {"role": "user", "content": "second"},
+        {"role": "assistant", "content": "reply to second"},
+        {"role": "user", "content": "the works"},
+        {"role": "user", "content": "last"},
+    ]
+
+
 def test_conversation_is_kept_per_thread(monkeypatch, with_api_key):
     fake_router(monkeypatch, chat("reply to {text}"))
     graph = build_graph()
@@ -123,11 +147,11 @@ def test_conversation_is_kept_per_thread(monkeypatch, with_api_key):
     assert history("b") == ["other", "reply to other"]
 
 
-def new_content(*formats, subject="AI in healthcare", fresh_research=False, same_subject=True):
+def new_content(*formats, topic_name="AI in healthcare", fresh_research=False, same_topic=False):
     decision = RoutingDecision(
         intent="new_content",
-        subject=subject,
-        same_subject=same_subject,
+        topic_name=topic_name,
+        same_topic=same_topic,
         formats=list(formats),
         fresh_research=fresh_research,
     )
@@ -163,7 +187,9 @@ def test_first_content_request_creates_the_active_topic_and_records_the_steps(
     send(graph, "write a blog about AI in healthcare")
 
     state = graph.get_state(config()).values
-    assert state["topics"] == {"topic-1": {"name": "AI in healthcare", "brief": None}}
+    assert state["topics"] == {
+        "topic-1": {"name": "AI in healthcare", "brief": None, "piece_ids": []}
+    }
     assert state["active_topic_id"] == "topic-1"
     assert state["intent"] == "new_content"
     steps = [{"agent": "research"}, {"agent": "content_strategist"}]
@@ -186,13 +212,13 @@ def send_with(graph, text, start, thread="t1"):
 
 
 def test_later_pieces_reuse_the_topics_research_brief(monkeypatch, with_api_key):
-    fake_router(monkeypatch, new_content("linkedin_post", "blog"))
+    fake_router(monkeypatch, new_content("linkedin_post", "blog", same_topic=True))
     replies = send_with(build_graph(), "now a LinkedIn post and a blog", researched_topic())
     assert replies == ["Plan for *AI in healthcare*: LinkedIn post → blog", LINKEDIN, BLOG]
 
 
 def test_fresh_research_reruns_research_even_with_a_brief(monkeypatch, with_api_key):
-    fake_router(monkeypatch, new_content("blog", fresh_research=True))
+    fake_router(monkeypatch, new_content("blog", fresh_research=True, same_topic=True))
     replies = send_with(build_graph(), "find newer sources, then a blog", researched_topic())
     assert replies[1:] == [RESEARCH, BRIEF, BLOG]
 
@@ -204,7 +230,7 @@ def test_research_only_runs_research_and_the_brief(monkeypatch, with_api_key):
 
 
 def test_image_only_runs_without_research(monkeypatch, with_api_key):
-    fake_router(monkeypatch, new_content("image", subject="a robot doctor"))
+    fake_router(monkeypatch, new_content("image", topic_name="a robot doctor"))
     replies = send(build_graph(), "make an image of a robot doctor")
     assert replies == ["Plan for *a robot doctor*: image", IMAGE]
 
@@ -261,7 +287,12 @@ def piece(kind, title, topic_id="topic-1"):
 
 
 def with_pieces(**pieces):
-    return {**researched_topic(), "content_pieces": pieces}
+    """A researched active Topic plus a second Topic, seeded with pieces the way agents add them."""
+    state = researched_topic()
+    state["topics"]["topic-2"] = {"name": "Remote work", "brief": None}
+    for piece_id, content_piece in pieces.items():
+        state.update(add_piece(state, piece_id, content_piece))
+    return state
 
 
 def refine(instructions, target=None, formats=()):
@@ -332,7 +363,6 @@ def test_routing_is_given_a_summary_of_the_content_pieces(monkeypatch, with_api_
             "piece-2": piece("linkedin_post", "Old post", topic_id="topic-2"),
         }
     )
-    start["topics"]["topic-2"] = {"name": "Remote work"}
     send_with(build_graph(), "which pieces do I have?", start)
 
     context = "\n".join(m["content"] for m in router.calls[-1]["messages"] if m["role"] == "system")
@@ -372,6 +402,26 @@ def test_refine_with_no_pieces_says_there_is_nothing_to_refine_yet(monkeypatch, 
     assert (state["plan"], state["completed_steps"]) == ([], [])
 
 
+def test_refine_of_a_missing_kind_lists_the_pieces_the_topic_has(monkeypatch, with_api_key):
+    fake_router(monkeypatch, refine("shorter", formats=["linkedin_post"]))
+    start = with_pieces(
+        **{
+            "piece-1": piece("blog", "AI in the clinic"),
+            "piece-2": piece("image", "Robot doctor"),
+        }
+    )
+    graph = build_graph()
+    [reply] = send_with(graph, "shorten the LinkedIn post", start)
+
+    assert reply == (
+        "There's no LinkedIn post on *AI in healthcare* to refine. It has:\n"
+        "- *AI in the clinic* (blog)\n"
+        "- *Robot doctor* (image)"
+    )
+    state = graph.get_state(config()).values
+    assert (state["plan"], state["completed_steps"]) == ([], [])
+
+
 def test_refine_ignores_pieces_on_other_topics_unless_named(monkeypatch, with_api_key):
     start = with_pieces(**{"piece-1": piece("blog", "Old blog", topic_id="topic-2")})
     fake_router(monkeypatch, refine("shorter", formats=["blog"]))
@@ -392,11 +442,11 @@ def routes(**decisions):
 
 ASK = "a blog on AI in radiology"
 RADIOLOGY = RoutingDecision(
-    intent="new_content", subject="AI in radiology", same_subject=False, formats=["blog"]
+    intent="new_content", topic_name="AI in radiology", same_topic=False, formats=["blog"]
 )
 
 
-def test_a_different_subject_asks_the_topic_question_and_runs_nothing(monkeypatch, with_api_key):
+def test_a_different_topic_asks_the_topic_question_and_runs_nothing(monkeypatch, with_api_key):
     fake_router(monkeypatch, routes(**{ASK: RADIOLOGY}))
     graph = build_graph()
     [question] = send_with(graph, ASK, researched_topic())
@@ -427,7 +477,7 @@ def test_answering_new_creates_the_topic_and_runs_the_held_plan_research_first(
     assert replies == ["Plan for *AI in radiology*: research → brief → blog", RESEARCH, BRIEF, BLOG]
     state = graph.get_state(config()).values
     assert state["active_topic_id"] == "topic-2"
-    assert state["topics"]["topic-2"] == {"name": "AI in radiology", "brief": None}
+    assert state["topics"]["topic-2"] == {"name": "AI in radiology", "brief": None, "piece_ids": []}
     assert state["topics"]["topic-1"]["name"] == "AI in healthcare"
     assert state["pending_topic_question"] is None
 
@@ -449,7 +499,7 @@ def test_answering_continue_runs_the_held_plan_on_the_current_topic_and_its_brie
 
 
 def test_any_other_reply_drops_the_held_plan_and_is_handled_normally(monkeypatch, with_api_key):
-    linkedin = new_content("linkedin_post")(None)
+    linkedin = new_content("linkedin_post", same_topic=True)(None)
     fake_router(monkeypatch, routes(**{ASK: RADIOLOGY, "actually, a LinkedIn post": linkedin}))
     graph = build_graph()
     send_with(graph, ASK, researched_topic())
@@ -471,15 +521,33 @@ def test_routing_is_told_about_the_pending_topic_question(monkeypatch, with_api_
     assert "topic_answer" in context
 
 
-def test_a_narrower_angle_the_decision_calls_the_same_subject_runs_without_asking(
-    monkeypatch, with_api_key
-):
-    router = fake_router(monkeypatch, new_content("blog", subject="AI in radiology"))
-    replies = send_with(build_graph(), "a blog on AI in radiology", researched_topic())
-
+def test_a_request_on_the_same_topic_runs_without_asking(monkeypatch, with_api_key):
+    fake_router(monkeypatch, new_content("blog", same_topic=True))
+    replies = send_with(build_graph(), "a blog on AI in healthcare", researched_topic())
     assert replies == ["Plan for *AI in healthcare*: blog", BLOG]
+
+
+def test_a_narrower_angle_asks_the_topic_question(monkeypatch, with_api_key):
+    narrower = new_content("blog", topic_name="AI in radiology", same_topic=False)
+    fake_router(monkeypatch, narrower)
+    graph = build_graph()
+    [question] = send_with(graph, "a blog on AI in radiology", researched_topic())
+
+    assert question == (
+        "This sounds like a different Topic: *AI in radiology*. "
+        "Start a new Topic, or continue with *AI in healthcare*?"
+    )
+    assert graph.get_state(config()).values["completed_steps"] == []
+
+
+def test_routing_is_told_that_a_narrower_angle_is_not_the_same_topic(monkeypatch, with_api_key):
+    router = fake_router(monkeypatch, chat("Sure."))
+    send_with(build_graph(), "hello", researched_topic())
+
     context = "\n".join(m["content"] for m in router.calls[-1]["messages"] if m["role"] == "system")
-    assert "same_subject" in context
+    assert "same_topic" in context
+    assert "only a request on the active Topic itself counts as the same Topic" in context
+    assert "a narrower or different angle on it is not the same Topic" in context
 
 
 def two_topics(active):
@@ -493,7 +561,7 @@ def two_topics(active):
 
 
 def test_the_active_topic_set_in_the_input_is_respected(monkeypatch, with_api_key):
-    router = fake_router(monkeypatch, new_content("linkedin_post"))
+    router = fake_router(monkeypatch, new_content("linkedin_post", same_topic=True))
     graph = build_graph()
     send_with(graph, "start", two_topics("topic-2"))
     replies = send_with(graph, "now a LinkedIn post", {"active_topic_id": "topic-1"})
@@ -505,7 +573,7 @@ def test_the_active_topic_set_in_the_input_is_respected(monkeypatch, with_api_ke
 def test_with_no_active_topic_a_content_request_creates_a_topic_without_asking(
     monkeypatch, with_api_key
 ):
-    fake_router(monkeypatch, new_content("blog", subject="AI in finance", same_subject=False))
+    fake_router(monkeypatch, new_content("blog", topic_name="AI in finance"))
     graph = build_graph()
     replies = send_with(graph, "a blog on AI in finance", two_topics(None))
 
@@ -514,3 +582,22 @@ def test_with_no_active_topic_a_content_request_creates_a_topic_without_asking(
     assert state["active_topic_id"] == "topic-3"
     names = [t["name"] for t in state["topics"].values()]
     assert names == ["AI in healthcare", "AI in radiology", "AI in finance"]
+
+
+def test_new_topic_ids_follow_the_highest_topic_number_and_never_overwrite(
+    monkeypatch, with_api_key
+):
+    fake_router(monkeypatch, new_content("image", topic_name="AI in finance"))
+    healthcare = {"name": "AI in healthcare", "brief": None}
+    notes = {"name": "Notes", "brief": None}
+    start = {"topics": {"topic-3": healthcare, "notes": notes}, "active_topic_id": None}
+    graph = build_graph()
+    send_with(graph, "an image about AI in finance", start)
+
+    state = graph.get_state(config()).values
+    assert state["active_topic_id"] == "topic-4"
+    assert state["topics"] == {
+        "topic-3": healthcare,
+        "notes": notes,
+        "topic-4": {"name": "AI in finance", "brief": None, "piece_ids": []},
+    }

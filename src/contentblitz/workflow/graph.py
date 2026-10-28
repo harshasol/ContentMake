@@ -27,6 +27,7 @@ AGENT_NODES: dict[str, AgentNode] = {
 
 
 def dispatcher(state: ContentBlitzState) -> ContentBlitzState:
+    """A no-op hub: its conditional edge sends the run to the next plan step's agent, or ends."""
     return {}
 
 

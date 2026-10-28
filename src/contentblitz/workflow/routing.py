@@ -4,9 +4,9 @@ from typing import Literal
 
 from pydantic import BaseModel, ConfigDict, Field
 
+from contentblitz.workflow.formats import Format
+
 Intent = Literal["new_content", "refine", "chat", "unclear"]
-# "research" alone means a research-only request.
-Format = Literal["research", "blog", "linkedin_post", "image"]
 TopicAnswer = Literal["new", "continue"]
 
 
@@ -20,8 +20,8 @@ class RoutingDecision(BaseModel):
     model_config = ConfigDict(json_schema_extra=_drop_defaults)
 
     intent: Intent
-    subject: str | None = Field(None, description="What the message is about, if anything.")
-    same_subject: bool = Field(False, description="Whether the subject matches the active Topic.")
+    topic_name: str | None = Field(None, description="The Topic the message is about, if any.")
+    same_topic: bool = Field(False, description="Whether the request is on the active Topic.")
     formats: list[Format] = Field(
         default_factory=list,
         description="Formats in the order asked; ['research'] means research only.",

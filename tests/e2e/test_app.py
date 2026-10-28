@@ -21,7 +21,11 @@ def test_chat_round_trip(monkeypatch):
     at = AppTest.from_file(APP, default_timeout=30).run()
     assert not at.exception
     assert [t.label for t in at.tabs] == [
-        "Chat", "Content Dashboard", "Research", "Brand Profiles", "Usage"
+        "Chat",
+        "Content Dashboard",
+        "Research",
+        "Brand Profiles",
+        "Usage",
     ]
 
     at.chat_input[0].set_value("hello").run()

@@ -1,10 +1,9 @@
 """Resolves which Content Piece a refine request targets, and plans its one refine step."""
 
-from contentblitz.workflow.plan import FORMAT_AGENTS, current_step
+from contentblitz.workflow.formats import PIECE_FORMATS
 from contentblitz.workflow.routing import RoutingDecision
 from contentblitz.workflow.state import ContentBlitzState, PlanStep
-
-KIND_LABELS = {"blog": "blog", "linkedin_post": "LinkedIn post", "image": "image"}
+from contentblitz.workflow.topics import active_topic
 
 
 def pieces_context(state: ContentBlitzState) -> str:
@@ -30,33 +29,37 @@ def resolve_target(state: ContentBlitzState, decision: RoutingDecision) -> list[
     pieces = state.get("content_pieces") or {}
     if decision.refine_target in pieces:
         return [decision.refine_target]
-    kinds = [f for f in decision.formats if f in KIND_LABELS] or list(KIND_LABELS)
-    topic_id = state.get("active_topic_id")
-    return [pid for pid, p in pieces.items() if p["kind"] in kinds and p["topic_id"] == topic_id]
+    kinds = [f for f in decision.formats if f in PIECE_FORMATS] or list(PIECE_FORMATS)
+    return [pid for pid in active_topic_pieces(state) if pieces[pid]["kind"] in kinds]
 
 
 def refine_step(state: ContentBlitzState, piece_id: str, instructions: str | None) -> PlanStep:
     kind = state["content_pieces"][piece_id]["kind"]
-    return {"agent": FORMAT_AGENTS[kind], "target": piece_id, "instructions": instructions}
-
-
-def stub_progress(agent_label: str, state: ContentBlitzState) -> str:
-    """What a stub writer reports for its step: the refine target and instructions, if any."""
-    step = current_step(state) or {}
-    if not step.get("target"):
-        return f"{agent_label}: done (stub)."
-    return f'{agent_label}: refining {step["target"]} with "{step.get("instructions")}" (stub).'
+    return {"agent": PIECE_FORMATS[kind].agent, "target": piece_id, "instructions": instructions}
 
 
 def _label(state: ContentBlitzState, piece_id: str) -> str:
     piece = state["content_pieces"][piece_id]
-    return f"*{piece['title']}* ({KIND_LABELS[piece['kind']]})"
+    return f"*{piece['title']}* ({PIECE_FORMATS[piece['kind']].label})"
 
 
 def describe_refine(state: ContentBlitzState, piece_id: str) -> str:
     return f"Refining {_label(state, piece_id)}"
 
 
-def which_piece(state: ContentBlitzState, candidates: list[str]) -> str:
+def active_topic_pieces(state: ContentBlitzState) -> list[str]:
+    topic = active_topic(state)
+    return list(topic.get("piece_ids", [])) if topic else []
+
+
+def no_piece_of_kind(state: ContentBlitzState, decision: RoutingDecision) -> str:
+    """Says the active Topic has no piece of the requested kind, and lists the ones it has."""
+    kinds = " or ".join(PIECE_FORMATS[f].label for f in decision.formats if f in PIECE_FORMATS)
+    topic = active_topic(state)
+    options = "\n".join(f"- {_label(state, pid)}" for pid in active_topic_pieces(state))
+    return f"There's no {kinds} on *{topic['name']}* to refine. It has:\n{options}"
+
+
+def which_piece_question(state: ContentBlitzState, candidates: list[str]) -> str:
     options = "\n".join(f"- {_label(state, pid)}" for pid in candidates)
     return f"Which piece would you like me to refine?\n{options}"
