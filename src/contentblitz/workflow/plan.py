@@ -25,7 +25,8 @@ def build_plan(decision: RoutingDecision, topic: Topic | None) -> list[PlanStep]
         research: PlanStep = {"agent": "research", "instructions": decision.instructions}
         if decision.fresh_research:
             research["fresh"] = True
-        steps = [research, {"agent": "content_strategist"}, *steps]
+        brief: PlanStep = {"agent": "content_strategist", "instructions": decision.instructions}
+        steps = [research, brief, *steps]
     unique: list[PlanStep] = []
     for step in steps:
         if step not in unique:
