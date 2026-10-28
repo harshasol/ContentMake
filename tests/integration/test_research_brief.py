@@ -548,6 +548,18 @@ def test_too_few_grounded_findings_retries_once_saying_what_was_dropped(model):
     assert len(state["topics"]["topic-1"]["brief"]["key_findings"]) == 4
 
 
+def test_a_draft_with_too_few_findings_and_none_dropped_is_asked_for_more(model):
+    one = draft(key_findings=[{"statement": "AI reads scans faster.", "source_numbers": [2]}])
+    model.replies = [one, draft()]
+    run_plan(RESEARCH_ONLY, {"topic-1": topic()})
+
+    feedback = model.calls[1]["messages"][-1]["content"]
+    assert feedback == (
+        "The Brief needs at least 2 key findings, each citing the Sources it comes from. "
+        "The Sources are numbered 1 to 3."
+    )
+
+
 THIN_BRIEF = (
     "I couldn't build a Research Brief on *AI in healthcare*: too few findings could be traced "
     "to the Sources, so I stopped the plan. The research is kept, so ask again to retry the "

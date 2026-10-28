@@ -143,7 +143,7 @@ def _draft(messages: list[dict]) -> DraftBrief | None:
 
 
 def _feedback(draft: DraftBrief, source_count: int) -> str:
-    """Tells the model which findings grounding dropped, and why."""
+    """Tells the model how many findings the Brief needs, and which grounding dropped and why."""
     dropped = []
     for finding in draft.key_findings:
         if not finding.source_numbers:
@@ -151,12 +151,15 @@ def _feedback(draft: DraftBrief, source_count: int) -> str:
         elif not any(1 <= n <= source_count for n in finding.source_numbers):
             cited = ", ".join(str(n) for n in finding.source_numbers)
             dropped.append(f"- {finding.statement} (it cites [{cited}], which don't exist)")
+    needed = (
+        f"The Brief needs at least {MIN_FINDINGS} key findings, each citing the Sources it comes "
+        f"from. The Sources are numbered 1 to {source_count}."
+    )
+    if not dropped:
+        return needed
     return (
-        f"The Sources are numbered 1 to {source_count}. These findings were dropped because "
-        "they cite no Source that exists:\n"
+        f"{needed}\nThese findings were dropped because they cite no Source that exists:\n"
         + "\n".join(dropped)
-        + f"\nWrite the Brief again with at least {MIN_FINDINGS} key findings, each citing the "
-        "Sources it comes from."
     )
 
 
