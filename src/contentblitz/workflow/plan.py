@@ -1,31 +1,19 @@
 """Turns a routing decision into an ordered plan of agent steps. The model only names formats."""
 
+from contentblitz.workflow.formats import PIECE_FORMATS, format_of, step_label
 from contentblitz.workflow.routing import RoutingDecision
-from contentblitz.workflow.state import AgentName, ContentBlitzState, PlanStep, Topic
+from contentblitz.workflow.state import ContentBlitzState, PlanStep, Topic
 
 MAX_STEPS = 6
-
-FORMAT_AGENTS: dict[str, AgentName] = {
-    "blog": "blog_writer",
-    "linkedin_post": "linkedin_writer",
-    "image": "image_generator",
-}
 WRITERS = {"blog_writer", "linkedin_writer"}
-STEP_LABELS: dict[AgentName, str] = {
-    "research": "research",
-    "content_strategist": "brief",
-    "blog_writer": "blog",
-    "linkedin_writer": "LinkedIn post",
-    "image_generator": "image",
-}
 
 
 def build_plan(decision: RoutingDecision, topic: Topic | None) -> list[PlanStep]:
     """Research first (ADR 0001) when a writer needs a Brief or research was asked for."""
     steps: list[PlanStep] = [
-        {"agent": FORMAT_AGENTS[f], "instructions": decision.instructions}
+        {"agent": PIECE_FORMATS[f].agent, "instructions": decision.instructions}
         for f in decision.formats
-        if f in FORMAT_AGENTS
+        if f in PIECE_FORMATS
     ]
     has_brief = bool(topic and topic.get("brief"))
     needs_research = (
@@ -42,8 +30,16 @@ def build_plan(decision: RoutingDecision, topic: Topic | None) -> list[PlanStep]
     return unique[:MAX_STEPS]
 
 
-def describe(plan: list[PlanStep], topic_name: str) -> str:
-    return f"Plan for *{topic_name}*: " + " → ".join(STEP_LABELS[s["agent"]] for s in plan)
+def replan(plan: list[PlanStep], topic: Topic | None) -> list[PlanStep]:
+    """Rebuild a held plan for another Topic, applying build_plan's rules afresh."""
+    formats = [f for s in plan if (f := format_of(s["agent"]))]
+    instructions = next((s.get("instructions") for s in plan if s.get("instructions")), None)
+    decision = RoutingDecision(intent="new_content", formats=formats, instructions=instructions)
+    return build_plan(decision, topic)
+
+
+def describe_plan(plan: list[PlanStep], topic_name: str) -> str:
+    return f"Plan for *{topic_name}*: " + " → ".join(step_label(s["agent"]) for s in plan)
 
 
 def current_step(state: ContentBlitzState) -> PlanStep | None:

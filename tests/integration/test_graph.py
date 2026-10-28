@@ -123,11 +123,11 @@ def test_conversation_is_kept_per_thread(monkeypatch, with_api_key):
     assert history("b") == ["other", "reply to other"]
 
 
-def new_content(*formats, subject="AI in healthcare", fresh_research=False, same_subject=True):
+def new_content(*formats, topic_name="AI in healthcare", fresh_research=False, same_topic=True):
     decision = RoutingDecision(
         intent="new_content",
-        subject=subject,
-        same_subject=same_subject,
+        topic_name=topic_name,
+        same_topic=same_topic,
         formats=list(formats),
         fresh_research=fresh_research,
     )
@@ -204,7 +204,7 @@ def test_research_only_runs_research_and_the_brief(monkeypatch, with_api_key):
 
 
 def test_image_only_runs_without_research(monkeypatch, with_api_key):
-    fake_router(monkeypatch, new_content("image", subject="a robot doctor"))
+    fake_router(monkeypatch, new_content("image", topic_name="a robot doctor"))
     replies = send(build_graph(), "make an image of a robot doctor")
     assert replies == ["Plan for *a robot doctor*: image", IMAGE]
 
@@ -392,11 +392,11 @@ def routes(**decisions):
 
 ASK = "a blog on AI in radiology"
 RADIOLOGY = RoutingDecision(
-    intent="new_content", subject="AI in radiology", same_subject=False, formats=["blog"]
+    intent="new_content", topic_name="AI in radiology", same_topic=False, formats=["blog"]
 )
 
 
-def test_a_different_subject_asks_the_topic_question_and_runs_nothing(monkeypatch, with_api_key):
+def test_a_different_topic_asks_the_topic_question_and_runs_nothing(monkeypatch, with_api_key):
     fake_router(monkeypatch, routes(**{ASK: RADIOLOGY}))
     graph = build_graph()
     [question] = send_with(graph, ASK, researched_topic())
@@ -471,15 +471,15 @@ def test_routing_is_told_about_the_pending_topic_question(monkeypatch, with_api_
     assert "topic_answer" in context
 
 
-def test_a_narrower_angle_the_decision_calls_the_same_subject_runs_without_asking(
+def test_a_narrower_angle_the_decision_calls_the_same_topic_runs_without_asking(
     monkeypatch, with_api_key
 ):
-    router = fake_router(monkeypatch, new_content("blog", subject="AI in radiology"))
+    router = fake_router(monkeypatch, new_content("blog", topic_name="AI in radiology"))
     replies = send_with(build_graph(), "a blog on AI in radiology", researched_topic())
 
     assert replies == ["Plan for *AI in healthcare*: blog", BLOG]
     context = "\n".join(m["content"] for m in router.calls[-1]["messages"] if m["role"] == "system")
-    assert "same_subject" in context
+    assert "same_topic" in context
 
 
 def two_topics(active):
@@ -505,7 +505,7 @@ def test_the_active_topic_set_in_the_input_is_respected(monkeypatch, with_api_ke
 def test_with_no_active_topic_a_content_request_creates_a_topic_without_asking(
     monkeypatch, with_api_key
 ):
-    fake_router(monkeypatch, new_content("blog", subject="AI in finance", same_subject=False))
+    fake_router(monkeypatch, new_content("blog", topic_name="AI in finance", same_topic=False))
     graph = build_graph()
     replies = send_with(graph, "a blog on AI in finance", two_topics(None))
 

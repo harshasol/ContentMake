@@ -1,19 +1,12 @@
 """Shared LangGraph state, saved per conversation (thread) by the checkpointer. See spec #4."""
 
-from typing import Annotated, Literal, NotRequired, TypedDict
+from typing import Annotated, NotRequired, TypedDict
 
 from langchain_core.messages import AnyMessage
 from langgraph.graph.message import add_messages
 
+from contentblitz.workflow.formats import AgentName, PieceKind
 from contentblitz.workflow.routing import Intent
-
-AgentName = Literal[
-    "research",
-    "content_strategist",
-    "blog_writer",
-    "linkedin_writer",
-    "image_generator",
-]
 
 
 class Source(TypedDict):
@@ -33,9 +26,6 @@ class Topic(TypedDict):
     name: str
     brief: NotRequired[ResearchBrief | None]
     piece_ids: NotRequired[list[str]]
-
-
-PieceKind = Literal["blog", "linkedin_post", "image"]
 
 
 class Revision(TypedDict):
@@ -58,7 +48,7 @@ class PlanStep(TypedDict):
 
 
 class PendingTopicQuestion(TypedDict):
-    """Asked when a content request seems to be about a different subject from the active Topic."""
+    """Asked when a request seems to be on a different Topic: the proposed name and held plan."""
 
     name: str
     plan: list[PlanStep]
