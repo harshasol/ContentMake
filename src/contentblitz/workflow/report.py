@@ -21,18 +21,24 @@ def _cell(text: str) -> str:
     return text.replace("|", "\\|")
 
 
-def _citations(numbers: list[int], sources: dict[int, Source]) -> str:
-    """`[n]` links to each cited Source's page."""
+def citation(numbers: list[int]) -> str:
+    """Source numbers as plain text for a model to read, e.g. `[1, 3]`."""
+    return f"[{', '.join(map(str, numbers))}]"
+
+
+def _linked_citations(numbers: list[int], sources: dict[int, Source]) -> str:
+    """`[n]` links to each cited Source's page, for the marketer to click."""
     return " ".join(f"[[{n}]]({sources[n]['url']})" for n in numbers)
 
 
-def _statistics(brief: ResearchBrief, sources: dict[int, Source]) -> str:
-    if not brief["statistics"]:
+def _statistics(statistics: list[Statistic], sources: dict[int, Source]) -> str:
+    if not statistics:
         return "No statistics were found in the Sources."
     rows = [
         f"| {_cell(s['figure'])} | {_cell(s['description'])} | "
-        f"{_citations(s['source_numbers'], sources)} | {'Yes' if s['verified'] else 'No'} |"
-        for s in brief["statistics"]
+        f"{_linked_citations(s['source_numbers'], sources)} | "
+        f"{'Yes' if s['verified'] else 'No'} |"
+        for s in statistics
     ]
     header = ["| Figure | What it measures | Sources | Verified |", "| --- | --- | --- | --- |"]
     return "\n".join([*header, *rows]) + f"\n\n{VERIFIED_NOTE}"
@@ -66,7 +72,7 @@ def render_report(topic_name: str, brief: ResearchBrief) -> str:
     """The full research report for a Topic's Research Brief, in Markdown."""
     sources = {s["number"]: s for s in brief["sources"]}
     findings = "\n".join(
-        f"- {f['statement']} {_citations(f['source_numbers'], sources)}"
+        f"- {f['statement']} {_linked_citations(f['source_numbers'], sources)}"
         for f in brief["key_findings"]
     )
     angles = "\n".join(f"- **{a['title']}**: {a['hook']}" for a in brief["angles"])
@@ -80,7 +86,7 @@ def render_report(topic_name: str, brief: ResearchBrief) -> str:
         f"*Research gathered on {_date(brief['research_gathered_at'])}.*",
         f"## Summary\n\n{brief['summary']}",
         f"## Key findings\n\n{findings}",
-        f"## Statistics\n\n{_statistics(brief, sources)}",
+        f"## Statistics\n\n{_statistics(brief['statistics'], sources)}",
         f"## Content angles\n\n{angles}",
         f"## Keywords\n\n**Target keyword:** {brief['target_keyword']}\n\n"
         f"**Secondary keywords:** {', '.join(brief['secondary_keywords'])}",

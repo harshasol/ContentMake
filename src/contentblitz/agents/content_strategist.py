@@ -19,7 +19,7 @@ from pydantic import BaseModel, Field
 from contentblitz.integrations import llm
 from contentblitz.workflow.plan import current_step, writers_follow
 from contentblitz.workflow.progress import progress_message
-from contentblitz.workflow.report import render_report, summary_line
+from contentblitz.workflow.report import citation, render_report, summary_line
 from contentblitz.workflow.state import (
     ContentBlitzState,
     ResearchBrief,
@@ -159,8 +159,8 @@ def _feedback(draft: DraftBrief, source_count: int) -> str:
         if not finding.source_numbers:
             dropped.append(f"- {finding.statement} (it cites no Source)")
         elif not _real_citations(finding.source_numbers, source_count):
-            cited = ", ".join(str(n) for n in finding.source_numbers)
-            dropped.append(f"- {finding.statement} (it cites [{cited}], which don't exist)")
+            cited = citation(finding.source_numbers)
+            dropped.append(f"- {finding.statement} (it cites {cited}, which don't exist)")
     needed = (
         f"The Brief needs at least {MIN_FINDINGS} key findings, each citing the Sources it comes "
         f"from. The Sources are numbered 1 to {source_count}."
