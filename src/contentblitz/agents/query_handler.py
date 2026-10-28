@@ -19,6 +19,7 @@ from contentblitz.workflow.refine import (
     resolve_target,
     which_piece_question,
 )
+from contentblitz.workflow.report import render_report
 from contentblitz.workflow.routing import RoutingDecision
 from contentblitz.workflow.state import ContentBlitzState, PlanStep
 from contentblitz.workflow.topics import UNTITLED_TOPIC, active_topic, create_topic
@@ -34,7 +35,8 @@ conversation and return a routing decision:
 - refine: the user wants an existing piece changed. Set instructions, set refine_target to the
   id of the Content Piece below that they mean (null if unsure), and set formats to its kind
   when they name one ("the LinkedIn post" → ["linkedin_post"]).
-- chat: a question or small talk. Answer it concisely in reply.
+- chat: a question or small talk. Answer it concisely in reply. If the user asks to see the
+  research itself ("show me the research", "what did you find?"), set show_research_report.
 - unclear: too vague to act on. Ask one short clarifying_question that suggests two or three
   concrete requests the user could make.
 Resolve references like "that" or "it" from the conversation.
@@ -99,6 +101,10 @@ APOLOGY = "Sorry, I couldn't reach the language model just now. Please try again
 NOTHING_TO_REFINE = (
     "There's nothing to refine yet. Ask me for a blog, a LinkedIn post or an image first."
 )
+NO_RESEARCH_YET = (
+    "There's no research yet. Ask me to research a Topic first, "
+    'for example "research AI in healthcare".'
+)
 
 _ROLES = {"human": "user", "ai": "assistant"}
 
@@ -128,6 +134,14 @@ def _chat_or_clarifying_text(decision: RoutingDecision) -> str:
     if decision.intent == "unclear":
         return decision.clarifying_question or GENERIC_CLARIFYING_QUESTION
     return GENERIC_CLARIFYING_QUESTION
+
+
+def _research_report(state: ContentBlitzState) -> str:
+    """The active Topic's research report, or a pointer to asking for research."""
+    topic = active_topic(state)
+    if not topic or not topic.get("brief"):
+        return NO_RESEARCH_YET
+    return render_report(topic["name"], topic["brief"])
 
 
 def _run_plan(plan: list[PlanStep], topic_update: ContentBlitzState) -> ContentBlitzState:
@@ -220,4 +234,6 @@ def query_handler(state: ContentBlitzState) -> ContentBlitzState:
         return _ask_topic_question(state, decision) or _new_content(state, decision)
     if decision.intent == "refine":
         return _refine(state, decision)
+    if decision.intent == "chat" and decision.show_research_report:
+        return _reply(_research_report(state), intent="chat")
     return _reply(_chat_or_clarifying_text(decision), intent=decision.intent)
