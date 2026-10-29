@@ -5,9 +5,11 @@ For a new image step:
 
 1. **Prompt optimisation.** One structured call to the `image_generator` model, given the step's
    instructions (or the marketer's message), the Topic, the Research Brief's summary and angles
-   when there is one, and a visual style (the default from config unless one is passed in). It
+   when there is one, a visual style (the default from config unless one is passed in), and the
+   title and kind of the Content Piece the image is for, when the step names a source piece. It
    returns the optimised prompt, the intended use, any shape the marketer asked for, and alt
-   text. The prompt always ends with the no-text rule.
+   text. The prompt always ends with the no-text rule. An image for a blog is a blog header and
+   one for a LinkedIn post a LinkedIn visual, whatever use the model gave.
 2. **Size.** The shape the marketer asked for, otherwise the intended use's: landscape for a blog
    header, square for LinkedIn or general use. The image model maps it to a size from config.
 3. **Generation** through the LLM integration module (ADR 0002), which tries the image models
@@ -19,11 +21,17 @@ For a new image step:
    model *placeholder* and the placeholder flag set, and the chat says so.
 5. **Storage.** The image is saved as a PNG in the Topic's images folder under the data folder,
    and as an *image* Content Piece with a *draft* Revision holding its metadata. Images have no
-   Quality Score.
+   Quality Score. An image for a Content Piece records that piece's id in its metadata; the
+   piece itself is unchanged.
 
-The models tried and failed, with each outcome, are kept on the Revision and in the trace.
+A refine step that targets an image re-runs prompt optimisation from the latest Revision's
+optimised prompt plus the instructions, keeps that Revision's shape unless the instructions ask
+for another, and saves the result as a new file and a *refinement* Revision on the same Content
+Piece. Earlier Revisions and their files are never changed.
+
+Both new and refined images go through `make_image`, so both fall back to a placeholder. The
+models tried and failed, with each outcome, are kept on the Revision and in the trace.
 A failed prompt optimisation posts an error, and the plan carries on.
-A refine step that targets an image is still a stub.
 """
 
 import re
@@ -34,9 +42,10 @@ from pydantic import BaseModel, Field
 
 from contentblitz.core.config import Aspect, get_model_config
 from contentblitz.integrations import llm
+from contentblitz.workflow.formats import PIECE_FORMATS
 from contentblitz.workflow.image_files import image_path, placeholder_png, save_png
 from contentblitz.workflow.plan import current_step
-from contentblitz.workflow.progress import progress_message, stub_progress
+from contentblitz.workflow.progress import progress_message
 from contentblitz.workflow.state import (
     PLACEHOLDER_MODEL,
     ContentBlitzState,
@@ -47,7 +56,7 @@ from contentblitz.workflow.state import (
     RevisionOrigin,
     Topic,
 )
-from contentblitz.workflow.topics import add_piece, new_piece_id
+from contentblitz.workflow.topics import add_piece, add_revision, new_piece_id, piece_topic
 
 AGENT = "image_generator"
 
@@ -58,6 +67,9 @@ USE_ASPECT: dict[ImageUse, Aspect] = {
     "linkedin": "square",
     "general": "square",
 }
+
+# An image for a Content Piece is used the way that piece's kind needs.
+KIND_USE: dict[str, ImageUse] = {"blog": "blog_header", "linkedin_post": "linkedin"}
 
 SYSTEM_PROMPT = """\
 You write prompts for an image generation model on behalf of a content marketer. Turn the
@@ -75,6 +87,11 @@ TITLE_CHARS = 80
 NO_IMAGE = (
     "I couldn't make the image for *{topic}*: the model didn't give a usable reply. "
     "The rest of the plan carries on, so ask again to retry the image."
+)
+
+NO_REFINED_IMAGE = (
+    "I couldn't make a new version of *{title}*: the model didn't give a usable reply. "
+    "The image is unchanged, so ask again to retry."
 )
 
 
@@ -100,11 +117,25 @@ def _with_no_text_rule(prompt: str) -> str:
     return prompt if prompt.endswith(NO_TEXT_RULE) else f"{prompt} {NO_TEXT_RULE}"
 
 
-def optimise_prompt(request: str, topic: Topic, visual_style: str | None = None) -> ImagePrompt:
+def _for_piece(piece: ContentPiece | None) -> str:
+    """The line naming the Content Piece the image is for, or nothing without one."""
+    if not piece:
+        return ""
+    return f"For the {PIECE_FORMATS[piece['kind']].label}: {piece['title']}\n"
+
+
+def optimise_prompt(
+    request: str,
+    topic: Topic,
+    visual_style: str | None = None,
+    piece: ContentPiece | None = None,
+) -> ImagePrompt:
     """The marketer's request as a detailed image prompt, ending with the no-text rule.
 
     `visual_style` is the Brand Profile's when there is one; otherwise the default from config.
-    Raises when every provider fails or the reply never fits.
+    `piece` is the Content Piece the image is for, when the request names one: its title and
+    kind go into the prompt, and its kind sets the intended use. Raises when every provider
+    fails or the reply never fits.
     """
     style = visual_style or get_model_config().image.default_style
     messages = [
@@ -113,12 +144,16 @@ def optimise_prompt(request: str, topic: Topic, visual_style: str | None = None)
             "role": "user",
             "content": f"Request: {request}\n"
             f"Topic: {topic['name']}\n"
+            f"{_for_piece(piece)}"
             f"Visual style: {style}\n\n"
             f"Research Brief: {_brief_text(topic)}",
         },
     ]
     optimised = llm.complete_structured_reply(AGENT, messages, ImagePrompt).value
-    return optimised.model_copy(update={"prompt": _with_no_text_rule(optimised.prompt)})
+    update: dict = {"prompt": _with_no_text_rule(optimised.prompt)}
+    if piece and piece["kind"] in KIND_USE:
+        update["use"] = KIND_USE[piece["kind"]]
+    return optimised.model_copy(update=update)
 
 
 def aspect_of(optimised: ImagePrompt) -> Aspect:
@@ -238,14 +273,18 @@ def _new_image(state: ContentBlitzState) -> ContentBlitzState:
     topic_id = state["active_topic_id"]
     topic = state["topics"][topic_id]
     request = _request(state)
+    source_id = (current_step(state) or {}).get("source_piece")
+    source = state.get("content_pieces", {}).get(source_id) if source_id else None
     try:
-        optimised = optimise_prompt(request, topic)
+        optimised = optimise_prompt(request, topic, piece=source)
         image = make_image(optimised.prompt, aspect_of(optimised), topic["name"])
         piece_id = new_piece_id(state)
         revision = image_revision(topic_id, piece_id, 1, request, optimised, image, "draft")
     except Exception:  # noqa: BLE001 - a failed image posts an error; the plan carries on
         return {"messages": [progress_message(NO_IMAGE.format(topic=topic["name"]))]}
     _trace(request, optimised.prompt, revision["image"])
+    if source:
+        revision["image"]["source_piece"] = source_id
     piece: ContentPiece = {
         "kind": "image",
         "topic_id": topic_id,
@@ -256,7 +295,39 @@ def _new_image(state: ContentBlitzState) -> ContentBlitzState:
     return {**add_piece(state, piece_id, piece), "messages": [message]}
 
 
+def _refine_request(latest_prompt: str, instructions: str) -> str:
+    return (
+        f"Change this image as the marketer asks: {instructions}\n"
+        f"Keep everything else from its current prompt: {latest_prompt}"
+    )
+
+
+def _refine_image(state: ContentBlitzState, piece_id: str) -> ContentBlitzState:
+    """A new image from the latest Revision's prompt plus the instructions, saved as a new file
+    and a *refinement* Revision. Earlier Revisions and their files are left as they are."""
+    piece = state["content_pieces"][piece_id]
+    topic = piece_topic(state, piece_id)
+    latest = piece["revisions"][-1]["image"]
+    instructions = _request(state)
+    number = len(piece["revisions"]) + 1
+    try:
+        optimised = optimise_prompt(_refine_request(latest["prompt"], instructions), topic)
+        # The shape carries over unless the instructions ask for another.
+        optimised = optimised.model_copy(update={"aspect": optimised.aspect or latest["aspect"]})
+        image = make_image(optimised.prompt, aspect_of(optimised), topic["name"])
+        revision = image_revision(
+            piece["topic_id"], piece_id, number, instructions, optimised, image, "refinement"
+        )
+    except Exception:  # noqa: BLE001 - a failed image posts an error; the plan carries on
+        return {"messages": [progress_message(NO_REFINED_IMAGE.format(title=piece["title"]))]}
+    _trace(instructions, optimised.prompt, revision["image"])
+    if "source_piece" in latest:  # still the image for the same piece
+        revision["image"]["source_piece"] = latest["source_piece"]
+    message = image_message(piece_id, number, revision["image"])
+    return {**add_revision(state, piece_id, revision), "messages": [message]}
+
+
 def image_generator(state: ContentBlitzState) -> ContentBlitzState:
-    if (current_step(state) or {}).get("target"):
-        return stub_progress("Image Generation Agent", state)  # refining an image: #45
-    return _new_image(state)
+    """Makes a new image, or refines the image a refine step targets."""
+    target = (current_step(state) or {}).get("target")
+    return _refine_image(state, target) if target else _new_image(state)

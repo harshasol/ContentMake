@@ -735,17 +735,16 @@ def test_refine_without_a_target_uses_the_only_piece_of_that_kind_on_the_active_
 
 def test_refine_it_uses_the_only_piece_on_the_active_topic(monkeypatch, with_api_key):
     fake_router(monkeypatch, refine("brighter colours"))
+    image = piece("image", "Robot doctor")
+    image["revisions"][0]["image"] = {"prompt": "A robot doctor.", "aspect": "square"}
     start = with_pieces(
         **{
-            "piece-1": piece("image", "Robot doctor"),
+            "piece-1": image,
             "piece-2": piece("blog", "Old blog", topic_id="topic-2"),
         }
     )
     replies = send_with(build_graph(), "make it brighter", start)
-    assert replies == [
-        "Refining *Robot doctor* (image)",
-        'Image Generation Agent: refining piece-1 with "brighter colours" (stub).',
-    ]
+    assert replies == ["Refining *Robot doctor* (image)", IMAGE]
 
 
 def test_routing_is_given_a_summary_of_the_content_pieces(monkeypatch, with_api_key):
@@ -1232,6 +1231,22 @@ def test_that_blog_resolves_to_the_active_topics_latest_blog_when_no_id_is_given
 
     [step] = graph.get_state(config()).values["plan"]
     assert step["source_piece"] == "piece-3"
+
+
+def test_an_image_for_the_blog_is_planned_for_the_active_topics_blog(monkeypatch, with_api_key):
+    decision = new_content("image", same_topic=True)(None)
+    fake_router(monkeypatch, lambda _: decision.model_copy(update={"source_kind": "blog"}))
+    start = with_pieces(
+        **{
+            "piece-1": piece("blog", "AI in the clinic"),
+            "piece-2": piece("blog", "Remote blog", topic_id="topic-2"),
+        }
+    )
+    graph = build_graph()
+    send_with(graph, "add an image for the blog", start)
+
+    [step] = graph.get_state(config()).values["plan"]
+    assert step == {"agent": "image_generator", "instructions": None, "source_piece": "piece-1"}
 
 
 def test_a_source_piece_on_another_topic_is_not_used(monkeypatch, with_api_key):

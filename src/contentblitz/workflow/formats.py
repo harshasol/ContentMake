@@ -45,7 +45,7 @@ FORMATS: dict[str, FormatSpec] = {
         templates=get_args(LinkedInTemplate),
         length_unit="characters",
     ),
-    "image": FormatSpec("image_generator", "image", "image"),
+    "image": FormatSpec("image_generator", "image", "image", options=("source_piece",)),
 }
 PIECE_FORMATS = {kind: spec for spec in FORMATS.values() if (kind := spec.kind)}
 

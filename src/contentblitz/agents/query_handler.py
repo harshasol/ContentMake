@@ -37,8 +37,9 @@ conversation and return a routing decision:
   the user asks for them. For a LinkedIn post, set template (industry insights, personal
   story, tips or announcement) only when the user names one, and length with length_unit
   "characters" only when they ask for a length in characters. When the request turns an
-  existing Content Piece below into the new one ("turn that blog into a LinkedIn post"), set
-  source_kind to that piece's kind and source_piece to its id.
+  existing Content Piece below into the new one ("turn that blog into a LinkedIn post"), or asks
+  for an image for one ("add an image for the blog"), set source_kind to that piece's kind and
+  source_piece to its id.
 - refine: the user wants an existing piece changed. Set instructions, set refine_target to the
   id of the Content Piece below that they mean (null if unsure), and set formats to its kind
   when they name one ("the LinkedIn post" → ["linkedin_post"]). Set template and length as for
