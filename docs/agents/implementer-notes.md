@@ -52,14 +52,16 @@ Commit messages end with the `Co-Authored-By` trailer given in the session.
 
 **Images** (#21)
 - `agents/image_generator.py`: `optimise_prompt(request, topic, visual_style=None)` returns an `ImagePrompt` (`prompt` ending with `NO_TEXT_RULE`, `use`, `aspect`, `alt_text`); `aspect_of` picks the shape; `image_revision(...)` saves the PNG and returns the Revision with its `image` metadata; `image_message(piece_id, revision_number, metadata)` is the chat message, whose `additional_kwargs["content_piece"]` is `{"piece_id", "revision"}` (from 1).
+- `make_image(prompt, aspect, topic_name, visual_style=None)` returns a `GeneratedImage` and never raises for a failed model: it falls back to a placeholder card (model `PLACEHOLDER_MODEL`, in the visual style's first `#RRGGBB` or `image.placeholder_colour`). **Generate images through it, not `llm.generate_image`**, so refinement also gets the placeholder. `image_revision` sets the `placeholder` flag and `fallbacks` from the `GeneratedImage`, and `image_message` says when it is a placeholder.
 - `ImageMetadata` in `workflow/state.py` is the fixed record on `Revision["image"]`. Images have no Quality Score.
 - `workflow/image_files.py`: `image_path(topic_id, piece_id, revision_number)` (`<data>/images/<topic>/<piece>-r<n>.png`) and `save_png`.
-- Config: `image.models`, `image.sizes`, `image.quality`, `image.default_style`; `ImageOptions.size_for(model, aspect)` and `quality_for(model)`.
+- `workflow/image_files.py` also draws the card: `placeholder_png(size, colour, topic_name)`.
+- Config: `image.models`, `image.sizes`, `image.quality`, `image.default_style`, `image.placeholder_colour`; `ImageOptions.size_for(model, aspect)` and `quality_for(model)`.
 - Tests: `tests/conftest.py` blocks LiteLLM's image call and points the data folder at a temporary directory for every test.
 
 **Model calls** (ADR 0002)
 - Model calls go only through `integrations/llm.py`: `complete`, `complete_structured`, `complete_structured_reply`. After a second invalid reply they raise `StructuredOutputError`.
-- Images: `generate_image(prompt, aspect)` uses the first image model; `generate_image_with(model, prompt, aspect)` one given model. Both return a `GeneratedImage(data, model, provider_url)` and raise `ImageGenerationError` for an unusable result.
+- Images: `generate_image(prompt, aspect)` tries the image models in config order, skipping one whose provider has no API key, and rejects a result that fails `check_image` (PNG/JPEG/WebP, both sides ≥ 512 px, not nearly one colour). It returns a `GeneratedImage(data, model, provider_url, fallbacks)`, where `fallbacks` is a tuple of `"model: outcome"`, or raises `NoUsableImage` (with `.fallbacks`) when every model fails. `generate_image_with(model, prompt, aspect)` calls one model, unchecked, and raises `ImageGenerationError` for no image.
 - Each agent's model and fallbacks are in `config/models.yaml`. Thresholds are in its `quality` section.
 
 ## Conventions

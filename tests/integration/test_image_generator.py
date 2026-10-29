@@ -14,10 +14,11 @@ import pytest
 from langchain_core.messages import HumanMessage
 from PIL import Image
 
-from contentblitz.agents.image_generator import optimise_prompt
+from contentblitz.agents.image_generator import make_image, optimise_prompt
 from contentblitz.integrations import llm
 from contentblitz.workflow.graph import build_graph
 
+REAL_GENERATE_IMAGE = llm.generate_image
 SIZES = {"landscape": (1536, 1024), "square": (1024, 1024), "portrait": (1024, 1536)}
 REQUEST = "an image of a robot doctor reading a scan"
 OPTIMISED = (
@@ -38,10 +39,11 @@ def image_prompt(**overrides):
     }
 
 
-def png(size):
+def png(size, blank=False):
     buffer = io.BytesIO()
     image = Image.new("RGB", size, (20, 120, 140))
-    image.paste((240, 200, 60), (0, 0, size[0] // 2, size[1] // 2))
+    if not blank:
+        image.paste((240, 200, 60), (0, 0, size[0] // 2, size[1] // 2))
     image.save(buffer, format="PNG")
     return buffer.getvalue()
 
@@ -338,4 +340,192 @@ def test_request_optimised_prompt_and_model_are_traced(models):
         "request": REQUEST,
         "optimised_prompt": f"{OPTIMISED} {NO_TEXT_RULE}",
         "model": "openai/gpt-image-1",
+        "fallbacks": [],
+        "placeholder": False,
     }
+
+
+# --- Model fallback, result checks and the placeholder (#44) ---
+
+GPT_IMAGE, DALL_E = "openai/gpt-image-1", "openai/dall-e-3"
+DEFAULT_COLOUR = (0x4A, 0x55, 0x68)  # the placeholder colour shipped in config
+
+
+class ScriptedImageModels:
+    """Each image model's results, one per call, the last repeating: image bytes, or an error
+    to raise. The real fallback and checks in `llm.generate_image` run on top."""
+
+    def __init__(self):
+        self.results = {GPT_IMAGE: [], DALL_E: []}
+        self.calls = []
+
+    def generate_with(self, model, prompt, aspect, config=None, client=None):
+        self.calls.append(model)
+        results = self.results[model]
+        result = results[min(self.calls.count(model), len(results)) - 1]
+        if isinstance(result, Exception):
+            raise result
+        return llm.GeneratedImage(result, model)
+
+
+@pytest.fixture
+def image_models(models, monkeypatch):
+    """The optimiser stays faked; image generation runs for real down to each model's call."""
+    monkeypatch.setenv("OPENAI_API_KEY", "test-key")
+    monkeypatch.setattr(llm, "generate_image", REAL_GENERATE_IMAGE)
+    scripted = ScriptedImageModels()
+    scripted.optimiser = models
+    monkeypatch.setattr(llm, "generate_image_with", scripted.generate_with)
+    return scripted
+
+
+def test_when_the_first_model_fails_the_second_is_tried_and_its_image_saved(image_models):
+    image_models.results = {
+        GPT_IMAGE: [RuntimeError("quota exceeded")],
+        DALL_E: [png((1024, 1024))],
+    }
+    [message], state = run_plan(image_step(), {"topic-1": topic()})
+
+    image = only_image(state)[2]["image"]
+    assert image_models.calls == [GPT_IMAGE, DALL_E]
+    assert (image["model"], image["placeholder"]) == (DALL_E, False)
+    assert image["fallbacks"] == ["openai/gpt-image-1: RuntimeError: quota exceeded"]
+    with Image.open(image["file_path"]) as saved:
+        assert saved.size == (1024, 1024)
+    assert "**Model:** openai/dall-e-3" in message.content
+
+
+@pytest.mark.parametrize(
+    ("result", "outcome"),
+    [
+        (png((1024, 1024), blank=True), "nearly a single colour"),
+        (png((256, 256)), "256×256 is smaller than 512 px"),
+        (b"<html>quota exceeded</html>", "not an image"),
+    ],
+    ids=["blank", "tiny", "undecodable"],
+)
+def test_a_broken_result_is_rejected_and_the_next_model_tried(image_models, result, outcome):
+    image_models.results = {GPT_IMAGE: [result], DALL_E: [png((1024, 1024))]}
+    _, state = run_plan(image_step(), {"topic-1": topic()})
+
+    image = only_image(state)[2]["image"]
+    assert image["model"] == DALL_E
+    assert image["fallbacks"] == [f"openai/gpt-image-1: failed check: {outcome}"]
+
+
+def assert_placeholder(state, data_dir, size):
+    piece_id, piece, revision = only_image(state)
+    image = revision["image"]
+    assert (piece["kind"], revision["origin"]) == ("image", "draft")
+    assert (image["model"], image["placeholder"]) == ("placeholder", True)
+    assert image["file_path"] == str(data_dir / "images" / "topic-1" / f"{piece_id}-r1.png")
+    assert image["size"] == f"{size[0]}x{size[1]}"
+    with Image.open(image["file_path"]) as saved:
+        assert (saved.format, saved.size) == ("PNG", size)
+        assert saved.convert("RGB").getpixel((5, 5)) == DEFAULT_COLOUR
+    return piece_id, image
+
+
+@pytest.mark.parametrize(
+    ("use", "size"), [("general", (1024, 1024)), ("blog_header", (1536, 1024))]
+)
+def test_when_every_model_fails_a_placeholder_in_the_requested_shape_is_saved(
+    image_models, data_dir, use, size
+):
+    image_models.optimiser.reply = image_prompt(use=use)
+    image_models.results = {
+        GPT_IMAGE: [RuntimeError("quota exceeded")],
+        DALL_E: [png((1024, 1024), blank=True)],
+    }
+    [message], state = run_plan(image_step(), {"topic-1": topic()})
+
+    piece_id, image = assert_placeholder(state, data_dir, size)
+    assert image["fallbacks"] == [
+        "openai/gpt-image-1: RuntimeError: quota exceeded",
+        "openai/dall-e-3: failed check: nearly a single colour",
+    ]
+    assert "placeholder" in message.content.lower()
+    assert message.additional_kwargs["content_piece"] == {"piece_id": piece_id, "revision": 1}
+
+
+def test_without_an_image_model_key_a_placeholder_is_saved_and_no_model_called(
+    image_models, data_dir, monkeypatch
+):
+    monkeypatch.setenv("OPENAI_API_KEY", "")
+    [message], state = run_plan(image_step(), {"topic-1": topic()})
+
+    _, image = assert_placeholder(state, data_dir, (1024, 1024))
+    assert image_models.calls == []
+    assert image["fallbacks"] == [
+        "openai/gpt-image-1: no API key configured",
+        "openai/dall-e-3: no API key configured",
+    ]
+    assert "placeholder" in message.content.lower()
+
+
+def test_the_plan_carries_on_after_a_placeholder(image_models):
+    image_models.results = {
+        GPT_IMAGE: [RuntimeError("down"), png((1024, 1024))],
+        DALL_E: [RuntimeError("down")],
+    }
+    messages, state = run_plan([*image_step(), *image_step()], {"topic-1": topic()})
+
+    first, second = (state["content_pieces"][p] for p in state["topics"]["topic-1"]["piece_ids"])
+    assert first["revisions"][0]["image"]["placeholder"] is True
+    assert second["revisions"][0]["image"]["model"] == GPT_IMAGE
+    assert len(messages) == 2
+    assert not state["abort_reason"]
+
+
+def test_the_placeholder_uses_the_visual_styles_primary_colour(monkeypatch):
+    monkeypatch.setenv("OPENAI_API_KEY", "")
+    style = "bold flat illustration, primary colour #FF6600, accents #003366"
+
+    image = make_image("a robot doctor", "portrait", "AI in radiology", visual_style=style)
+
+    assert (image.model, image.fallbacks[0]) == (
+        "placeholder",
+        "openai/gpt-image-1: no API key configured",
+    )
+    with Image.open(io.BytesIO(image.data)) as card:
+        assert card.size == (1024, 1536)
+        assert card.convert("RGB").getpixel((5, 5)) == (0xFF, 0x66, 0x00)
+
+
+def test_the_placeholder_uses_the_configured_colour_when_the_style_has_none(monkeypatch):
+    monkeypatch.setenv("OPENAI_API_KEY", "")
+
+    image = make_image("a robot doctor", "square", "AI in radiology", visual_style="soft pastels")
+
+    with Image.open(io.BytesIO(image.data)) as card:
+        assert card.convert("RGB").getpixel((5, 5)) == DEFAULT_COLOUR
+
+
+def test_fallbacks_and_the_placeholder_flag_are_traced(image_models):
+    from langsmith import tracing_context
+
+    class RecordingClient:
+        def __init__(self):
+            self.runs = {}
+
+        def create_run(self, **run):
+            self.runs[run["id"]] = run
+
+        def update_run(self, run_id, **update):
+            self.runs.setdefault(run_id, {}).update(update)
+
+        def __getattr__(self, name):
+            return lambda *args, **kwargs: None
+
+    image_models.results = {GPT_IMAGE: [RuntimeError("down")], DALL_E: [RuntimeError("down")]}
+    client = RecordingClient()
+    with tracing_context(enabled=True, client=client):
+        run_plan(image_step(), {"topic-1": topic()})
+
+    [traced] = [r.get("outputs") for r in client.runs.values() if r.get("name") == "image"]
+    assert traced["model"] == "placeholder"
+    assert traced["placeholder"] is True
+    assert traced["fallbacks"] == [
+        "openai/gpt-image-1: RuntimeError: down",
+        "openai/dall-e-3: RuntimeError: down",
+    ]

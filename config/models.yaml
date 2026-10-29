@@ -31,6 +31,8 @@ image:
   default_style: >-
     clean, modern editorial illustration with soft natural light, a calm professional colour
     palette and plenty of negative space
+  # The placeholder card's colour (when no image model works) if the visual style gives none.
+  placeholder_colour: "#4A5568"
 
 search:
   providers: [serpapi, tavily]   # tried in order; one without an API key is skipped

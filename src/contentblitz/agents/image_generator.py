@@ -10,15 +10,23 @@ For a new image step:
    text. The prompt always ends with the no-text rule.
 2. **Size.** The shape the marketer asked for, otherwise the intended use's: landscape for a blog
    header, square for LinkedIn or general use. The image model maps it to a size from config.
-3. **Generation** through the LLM integration module (ADR 0002), with the first image model.
-4. **Storage.** The image is saved as a PNG in the Topic's images folder under the data folder,
+3. **Generation** through the LLM integration module (ADR 0002), which tries the image models
+   in config order and rejects broken results (not a PNG, JPEG or WebP, under 512 px, or
+   nearly one colour).
+4. **Placeholder.** When every model fails, or no image model key is configured, a placeholder
+   card is drawn in the requested shape, in the visual style's primary colour (its first
+   `#RRGGBB`) or the configured default colour. It is saved like any other image, with the
+   model *placeholder* and the placeholder flag set, and the chat says so.
+5. **Storage.** The image is saved as a PNG in the Topic's images folder under the data folder,
    and as an *image* Content Piece with a *draft* Revision holding its metadata. Images have no
    Quality Score.
 
-A failed prompt optimisation or generation posts an error, and the plan carries on.
+The models tried and failed, with each outcome, are kept on the Revision and in the trace.
+A failed prompt optimisation posts an error, and the plan carries on.
 A refine step that targets an image is still a stub.
 """
 
+import re
 from datetime import UTC, datetime
 
 from langsmith import traceable
@@ -26,10 +34,11 @@ from pydantic import BaseModel, Field
 
 from contentblitz.core.config import Aspect, get_model_config
 from contentblitz.integrations import llm
-from contentblitz.workflow.image_files import image_path, save_png
+from contentblitz.workflow.image_files import image_path, placeholder_png, save_png
 from contentblitz.workflow.plan import current_step
 from contentblitz.workflow.progress import progress_message, stub_progress
 from contentblitz.workflow.state import (
+    PLACEHOLDER_MODEL,
     ContentBlitzState,
     ContentPiece,
     ImageMetadata,
@@ -117,6 +126,30 @@ def aspect_of(optimised: ImagePrompt) -> Aspect:
     return optimised.aspect or USE_ASPECT[optimised.use]
 
 
+HEX_COLOUR = re.compile(r"#[0-9A-Fa-f]{6}\b")
+
+
+def placeholder_colour(visual_style: str | None) -> str:
+    """The visual style's primary colour (its first "#RRGGBB"), or the configured default."""
+    match = HEX_COLOUR.search(visual_style or "")
+    return match.group(0) if match else get_model_config().image.placeholder_colour
+
+
+def make_image(
+    prompt: str, aspect: Aspect, topic_name: str, visual_style: str | None = None
+) -> llm.GeneratedImage:
+    """The image for `prompt`, from the first image model that gives a usable one, or a
+    placeholder card in `aspect`'s shape when none does. Never raises for a failed model."""
+    try:
+        return llm.generate_image(prompt, aspect)
+    except Exception as error:  # noqa: BLE001 - every failure ends in the placeholder
+        fallbacks = getattr(error, "fallbacks", None) or (f"{type(error).__name__}: {error}",)
+    config = get_model_config().image
+    width, height = config.size_for(config.primary, aspect).split("x")
+    data = placeholder_png((int(width), int(height)), placeholder_colour(visual_style), topic_name)
+    return llm.GeneratedImage(data, PLACEHOLDER_MODEL, None, tuple(fallbacks))
+
+
 def _now() -> str:
     return datetime.now(UTC).isoformat(timespec="seconds")
 
@@ -147,8 +180,8 @@ def image_revision(
         "file_path": str(path),
         "provider_url": image.provider_url,
         "provider_url_temporary": image.provider_url is not None,
-        "placeholder": False,
-        "fallbacks": [],
+        "placeholder": image.model == PLACEHOLDER_MODEL,
+        "fallbacks": list(image.fallbacks),
     }
     return {
         "text": optimised.alt_text,
@@ -161,19 +194,28 @@ def image_revision(
 def image_message(piece_id: str, revision_number: int, metadata: ImageMetadata):
     """The chat message saying the image is ready; its metadata references the Revision."""
     size = metadata["size"].replace("x", "×")
-    text = (
-        f"Image ready: *{metadata['alt_text']}*\n\n"
-        f"**Model:** {metadata['model']}\n\n"
-        f"**Size:** {size}"
+    heading = (
+        f"Placeholder image for *{metadata['alt_text']}*: no image model gave a usable image, "
+        "so this is a placeholder card. Ask again to retry the image."
+        if metadata["placeholder"]
+        else f"Image ready: *{metadata['alt_text']}*"
     )
+    text = f"{heading}\n\n**Model:** {metadata['model']}\n\n**Size:** {size}"
     reference = {"content_piece": {"piece_id": piece_id, "revision": revision_number}}
     return progress_message(text, reference)
 
 
 @traceable(name="image")
-def _trace(request: str, optimised_prompt: str, model: str) -> dict:
-    """Puts the request, the optimised prompt and the model in the image step's trace."""
-    return {"request": request, "optimised_prompt": optimised_prompt, "model": model}
+def _trace(request: str, optimised_prompt: str, metadata: ImageMetadata) -> dict:
+    """Puts the request, the optimised prompt, the model, the models tried and failed with each
+    outcome, and the placeholder flag in the image step's trace."""
+    return {
+        "request": request,
+        "optimised_prompt": optimised_prompt,
+        "model": metadata["model"],
+        "fallbacks": metadata["fallbacks"],
+        "placeholder": metadata["placeholder"],
+    }
 
 
 def _request(state: ContentBlitzState) -> str:
@@ -198,12 +240,12 @@ def _new_image(state: ContentBlitzState) -> ContentBlitzState:
     request = _request(state)
     try:
         optimised = optimise_prompt(request, topic)
-        image = llm.generate_image(optimised.prompt, aspect_of(optimised))
+        image = make_image(optimised.prompt, aspect_of(optimised), topic["name"])
         piece_id = new_piece_id(state)
         revision = image_revision(topic_id, piece_id, 1, request, optimised, image, "draft")
     except Exception:  # noqa: BLE001 - a failed image posts an error; the plan carries on
         return {"messages": [progress_message(NO_IMAGE.format(topic=topic["name"]))]}
-    _trace(request, optimised.prompt, image.model)
+    _trace(request, optimised.prompt, revision["image"])
     piece: ContentPiece = {
         "kind": "image",
         "topic_id": topic_id,

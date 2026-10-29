@@ -190,3 +190,23 @@ def test_image_settings_are_read_from_config_and_default_when_missing(tmp_path):
     assert defaults.size_for("openai/gpt-image-1", "portrait") == "1024x1536"
     assert defaults.quality_for("openai/gpt-image-1") == "medium"
     assert defaults.default_style
+
+
+def test_the_placeholder_colour_is_read_from_config_and_defaults_when_missing(tmp_path):
+    assert load_model_config(DEFAULT_CONFIG_PATH).image.placeholder_colour == "#4A5568"
+
+    def placeholder_colour(image):
+        path = tmp_path / "models.yaml"
+        path.write_text(
+            "agents:\n"
+            + "".join(f"  {a}:\n    models: [{MODELS}]\n" for a in AGENT_NAMES)
+            + "image:\n  models: [openai/gpt-image-1]\n"
+            + image
+            + "search:\n  providers: [serpapi]\n"
+        )
+        return load_model_config(path).image.placeholder_colour
+
+    assert placeholder_colour('  placeholder_colour: "#123ABC"\n') == "#123ABC"
+    assert placeholder_colour("") == "#4A5568"
+    with pytest.raises(ValueError, match="placeholder_colour"):
+        placeholder_colour("  placeholder_colour: teal\n")

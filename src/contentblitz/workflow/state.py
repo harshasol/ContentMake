@@ -106,7 +106,7 @@ class ImageMetadata(TypedDict):
     provider_url: str | None  # the provider's link, if it gave one
     provider_url_temporary: bool  # provider links expire: the file is the copy to keep
     placeholder: bool
-    fallbacks: list[str]  # the image models tried and failed before this one
+    fallbacks: list[str]  # each image model tried and failed before this one: "model: outcome"
 
 
 class Revision(TypedDict):

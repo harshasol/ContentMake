@@ -110,11 +110,20 @@ def test_a_structured_reply_falls_back_to_the_configured_model_when_none_is_name
     assert reply.model == "openai/gpt-4o-mini"
 
 
-def _png(size=(1536, 1024)):
+def _png(size=(1536, 1024), blank=False, format="PNG"):
     """Image bytes as a provider would return them, made with Pillow."""
     buffer = io.BytesIO()
-    Image.new("RGB", size, (30, 90, 160)).save(buffer, format="PNG")
+    image = Image.new("RGB", size, (30, 90, 160))
+    if not blank:
+        image.paste((240, 200, 60), (0, 0, size[0] // 2, size[1] // 2))
+    image.save(buffer, format=format)
     return buffer.getvalue()
+
+
+@pytest.fixture(autouse=True)
+def openai_key(monkeypatch):
+    """The image models are OpenAI's, which are only tried with a key configured."""
+    monkeypatch.setenv("OPENAI_API_KEY", "test-key")
 
 
 def _image_response(b64_json=None, url=None):
@@ -192,3 +201,119 @@ def test_generate_image_raises_when_the_result_has_no_image(monkeypatch):
 
     with pytest.raises(llm.ImageGenerationError):
         llm.generate_image("a robot doctor", "square")
+
+
+def _b64(data):
+    return _image_response(b64_json=base64.b64encode(data).decode())
+
+
+def _per_model_image_generation(monkeypatch, results):
+    """Each image model returns (or raises) its own scripted result; the calls are kept."""
+    calls = []
+
+    def fake_image_generation(**kwargs):
+        calls.append(kwargs["model"])
+        result = results[kwargs["model"]]
+        if isinstance(result, Exception):
+            raise result
+        return _b64(result)
+
+    monkeypatch.setattr(llm.litellm, "image_generation", fake_image_generation)
+    return calls
+
+
+def _three_models():
+    config = load_model_config(DEFAULT_CONFIG_PATH)
+    config.image.models = ["openai/gpt-image-1", "openai/dall-e-3", "openai/dall-e-2"]
+    return config
+
+
+def test_image_models_are_tried_in_config_order_until_one_gives_a_usable_image(monkeypatch):
+    png = _png()
+    calls = _per_model_image_generation(
+        monkeypatch,
+        {
+            "openai/gpt-image-1": RuntimeError("quota exceeded"),
+            "openai/dall-e-3": RuntimeError("service unavailable"),
+            "openai/dall-e-2": png,
+        },
+    )
+
+    image = llm.generate_image("a robot doctor", "landscape", config=_three_models())
+
+    assert calls == ["openai/gpt-image-1", "openai/dall-e-3", "openai/dall-e-2"]
+    assert (image.data, image.model) == (png, "openai/dall-e-2")
+    assert image.fallbacks == (
+        "openai/gpt-image-1: RuntimeError: quota exceeded",
+        "openai/dall-e-3: RuntimeError: service unavailable",
+    )
+
+
+def test_the_first_usable_image_stops_the_fallback(monkeypatch):
+    calls = _per_model_image_generation(
+        monkeypatch, {"openai/gpt-image-1": _png(), "openai/dall-e-3": _png()}
+    )
+
+    image = llm.generate_image("a robot doctor", "square")
+
+    assert calls == ["openai/gpt-image-1"]
+    assert image.fallbacks == ()
+
+
+@pytest.mark.parametrize(
+    ("result", "outcome"),
+    [
+        (_png(blank=True), "failed check: nearly a single colour"),
+        (_png((400, 1024)), "failed check: 400×1024 is smaller than 512 px"),
+        (b"not an image", "failed check: not an image"),
+        (_png(format="GIF"), "failed check: GIF is not PNG, JPEG or WebP"),
+    ],
+    ids=["blank", "tiny", "undecodable", "gif"],
+)
+def test_an_unusable_result_counts_as_a_failure_and_the_next_model_is_tried(
+    monkeypatch, result, outcome
+):
+    png = _png()
+    _per_model_image_generation(monkeypatch, {"openai/gpt-image-1": result, "openai/dall-e-3": png})
+
+    image = llm.generate_image("a robot doctor", "square")
+
+    assert (image.data, image.model) == (png, "openai/dall-e-3")
+    assert image.fallbacks == (f"openai/gpt-image-1: {outcome}",)
+
+
+@pytest.mark.parametrize("format", ["JPEG", "WEBP"])
+def test_jpeg_and_webp_results_are_accepted(monkeypatch, format):
+    data = _png(format=format)
+    _per_model_image_generation(monkeypatch, {"openai/gpt-image-1": data})
+
+    assert llm.generate_image("a robot doctor", "square").data == data
+
+
+def test_when_every_model_fails_the_error_lists_each_outcome(monkeypatch):
+    _per_model_image_generation(
+        monkeypatch,
+        {"openai/gpt-image-1": RuntimeError("quota exceeded"), "openai/dall-e-3": _png((300, 300))},
+    )
+
+    with pytest.raises(llm.NoUsableImage) as raised:
+        llm.generate_image("a robot doctor", "square")
+
+    assert raised.value.fallbacks == (
+        "openai/gpt-image-1: RuntimeError: quota exceeded",
+        "openai/dall-e-3: failed check: 300×300 is smaller than 512 px",
+    )
+
+
+def test_a_model_without_its_api_key_is_skipped(monkeypatch):
+    monkeypatch.setenv("OPENAI_API_KEY", "")
+    calls = _per_model_image_generation(monkeypatch, {"openai/gpt-image-1": _png()})
+
+    with pytest.raises(llm.NoUsableImage) as raised:
+        llm.generate_image("a robot doctor", "square")
+
+    assert calls == []
+    assert raised.value.fallbacks == (
+        "openai/gpt-image-1: no API key configured",
+        "openai/dall-e-3: no API key configured",
+    )
