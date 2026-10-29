@@ -236,6 +236,21 @@ def test_viewing_an_older_revision_does_not_change_the_state(monkeypatch):
     assert table.iloc[0]["Revision"] == 2
 
 
+def test_restoring_revision_1_adds_a_revision_showing_its_content(monkeypatch):
+    at = _scripted(monkeypatch, {"piece-1": _refined_blog()})
+    at.tabs[1].selectbox[0].select("piece-1").run()
+    assert [b.key for b in at.tabs[1].button if "restore" in b.key] == ["restore_revision_1"]
+
+    at.tabs[1].button(key="restore_revision_1").click().run()
+
+    tab = at.tabs[1]
+    [history] = [d.value for d in tab.dataframe if "Origin" in d.value.columns]
+    assert list(history["Revision"]) == [1, 2, 3]
+    assert list(history["Origin"]) == ["Draft", "Refinement", "Restore"]
+    assert "First version" in _markdown(tab)  # the new latest shows the restored content
+    assert not [i for i in tab.info if "older Revision" in i.value]
+
+
 def test_export_buttons_appear_on_an_opened_piece(monkeypatch):
     at = _scripted(monkeypatch, {"piece-1": _blog()})
     assert not at.tabs[1].get("download_button")

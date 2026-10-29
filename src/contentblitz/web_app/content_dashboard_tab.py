@@ -54,7 +54,7 @@ def _open_piece(workspace: Workspace, groups: list[TopicPieces]) -> None:
         key="open_piece",
     )
     if piece_id and (piece := workspace.piece(piece_id)):
-        viewed = revision_history(piece)
+        viewed = revision_history(piece, workspace)
         piece_detail(piece, viewed)
         export_buttons(workspace.piece_exports(piece_id, viewed), key=f"export_{piece_id}")
         piece_edit(workspace, piece)

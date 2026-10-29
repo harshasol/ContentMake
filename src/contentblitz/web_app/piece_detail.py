@@ -14,7 +14,7 @@ from contentblitz.workflow.image_files import image_caption
 from contentblitz.workflow.quality_score import QualityScore
 from contentblitz.workflow.report import display_date
 from contentblitz.workflow.state import Revision
-from contentblitz.workflow.workspace import PieceDetail
+from contentblitz.workflow.workspace import PieceDetail, Workspace
 
 MISSING_IMAGE = "The image file for this Revision is missing, so it can't be shown."
 ORIGIN_LABELS = {
@@ -43,16 +43,16 @@ def viewed_key(piece_id: str) -> str:
     return f"viewed_revision_{piece_id}"
 
 
-def revision_history(piece: PieceDetail) -> int | None:
-    """The Revision history (#62): a table of every Revision, then a View button for each.
+def revision_history(piece: PieceDetail, workspace: Workspace) -> int | None:
+    """The Revision history (#62): a table of every Revision, then a View button for each and,
+    for the older ones, a Restore button (#64) that calls `workspace.restore`.
 
     Returns the number to show in `piece_detail`: the one chosen with View (kept in session
     state, so it survives reruns), or None for the latest. Viewing never touches the Workspace.
-    The Restore action (#64) belongs next to each View button in `_view_buttons`.
     """
     st.markdown("**Revision history**")
     st.dataframe(_history_table(piece), hide_index=True, use_container_width=True)
-    _view_buttons(piece)
+    _view_buttons(piece, workspace)
     chosen = st.session_state.get(viewed_key(piece.piece_id))
     return chosen if chosen and chosen <= len(piece.revisions) else None
 
@@ -79,14 +79,28 @@ def _score(kind: str, revision: Revision) -> str:
     return NONE if kind == "image" or not score else str(score["score"])
 
 
-def _view_buttons(piece: PieceDetail) -> None:
-    for number, column in enumerate(st.columns(len(piece.revisions)), start=1):
+def _view_buttons(piece: PieceDetail, workspace: Workspace) -> None:
+    latest = len(piece.revisions)
+    for number, column in enumerate(st.columns(latest), start=1):
         column.button(
             f"View {number}",
             key=f"view_revision_{number}",
             on_click=st.session_state.__setitem__,
             args=(viewed_key(piece.piece_id), number),
         )
+        if number != latest:
+            column.button(
+                f"Restore {number}",
+                key=f"restore_revision_{number}",
+                on_click=_restore,
+                args=(workspace, piece.piece_id, number),
+            )
+
+
+def _restore(workspace: Workspace, piece_id: str, number: int) -> None:
+    """Restore Revision `number` (#64) and go back to viewing the latest, the restored copy."""
+    workspace.restore(piece_id, number)
+    st.session_state[viewed_key(piece_id)] = None
 
 
 def show_revision(kind: str, revision: Revision) -> None:
