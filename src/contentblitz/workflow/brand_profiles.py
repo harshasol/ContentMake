@@ -96,11 +96,13 @@ DEFAULT_PROFILE = BrandProfile(
 
 
 class BrandProfileError(ValueError):
-    """A Brand Profile can't be saved or changed; `field` names the field at fault, if any."""
+    """A Brand Profile can't be saved or changed; `field` names the field at fault, if any, and
+    `message` says what is wrong without the field name."""
 
     def __init__(self, message: str, field: str | None = None):
         super().__init__(f"{field}: {message}" if field else message)
         self.field = field
+        self.message = message
 
 
 class BrandProfileNotFound(BrandProfileError):
@@ -199,9 +201,10 @@ class BrandProfileStore:
         """A new profile with `profile_id`'s fields, under `name` or "<name> copy" (numbered
         until unique). Default can be duplicated."""
         source = self.get(profile_id)
-        return self.create({**source.fields(), "name": name or self._copy_name(source.name)})
+        return self.create({**source.fields(), "name": name or self.copy_name(source.name)})
 
-    def _copy_name(self, name: str) -> str:
+    def copy_name(self, name: str) -> str:
+        """The first free "<name> copy", "<name> copy 2", ... for a duplicate of `name`."""
         taken = {profile.name.casefold() for profile in self.list()}
         n = 1
         while True:
