@@ -145,8 +145,7 @@ class LinkedInDraft(BaseModel):
 def _brief_text(brief: ResearchBrief) -> str:
     findings = "\n".join(f"- {f['statement']}" for f in brief["key_findings"])
     statistics = "\n".join(
-        f"- {s['figure']}: {s['description']} "
-        f"({'verified' if s['verified'] else 'unverified'})"
+        f"- {s['figure']}: {s['description']} ({'verified' if s['verified'] else 'unverified'})"
         for s in brief["statistics"]
     )
     angles = "\n".join(f"- {a['title']}: {a['hook']}" for a in brief["angles"])

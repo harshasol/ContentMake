@@ -947,9 +947,7 @@ def placeholder_pixel(state):
         return saved.convert("RGB").getpixel((5, 5))
 
 
-def test_the_placeholder_is_drawn_in_the_active_profiles_primary_colour(
-    image_models, monkeypatch
-):
+def test_the_placeholder_is_drawn_in_the_active_profiles_primary_colour(image_models, monkeypatch):
     monkeypatch.setenv("OPENAI_API_KEY", "")
     profile = teal_profile()
     _, state = run_plan(image_step(), {"topic-1": topic()}, brand_profile_id=profile.id)
