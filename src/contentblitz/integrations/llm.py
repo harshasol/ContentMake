@@ -50,6 +50,20 @@ def _configure_cache(config: ModelConfig) -> None:
     _cache_key = key
 
 
+def reset_cache() -> None:
+    """Close LiteLLM's disk cache handle and drop it, so the next call reopens (or recreates) it.
+
+    Clear cache (#77) calls this before deleting the folder."""
+    global _cache_key
+    current = litellm.cache
+    disk = getattr(current, "cache", None)
+    handle = getattr(disk, "disk_cache", None)
+    if handle is not None:
+        handle.close()
+    litellm.cache = None
+    _cache_key = None
+
+
 def _tokens(response, field: str) -> int:
     return int(getattr(getattr(response, "usage", None), field, 0) or 0)
 
