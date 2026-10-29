@@ -11,6 +11,7 @@ order the chat lists them.
 """
 
 import re
+from collections.abc import Sequence
 from dataclasses import dataclass
 from typing import TypedDict
 
@@ -304,6 +305,27 @@ def citations(draft: Draft, min_citations: int) -> CheckResult:
     }
 
 
+def words_to_avoid(text: str, avoid: Sequence[str]) -> CheckResult:
+    """None of the Brand Profile's words to avoid appear in `text` (spec #22): each is matched
+    as a whole word or phrase, ignoring case, and the measured value lists those found."""
+    words = _words(text)
+    found = [w for w in avoid if _occurrences(words, _words(w)) > 0]
+    quoted = ", ".join(f'"{w}"' for w in found)
+    return {
+        "name": "words to avoid",
+        "passed": not found,
+        "measured": ", ".join(found) or "none found",
+        "reason": f"remove {quoted}: the Brand Profile's words to avoid"
+        if found
+        else f"none of the Brand Profile's {len(avoid)} words to avoid",
+    }
+
+
+def _words_to_avoid(text: str, avoid: Sequence[str]) -> list[CheckResult]:
+    """The words-to-avoid check, or none when the profile has no words to avoid."""
+    return [words_to_avoid(text, avoid)] if avoid else []
+
+
 LENGTH_TOLERANCE = 0.15  # either side of a length the request sets
 
 
@@ -315,10 +337,14 @@ def word_range(rules: BlogQuality, words: int | None = None) -> tuple[int, int]:
     return round(words * (1 - LENGTH_TOLERANCE)), round(words * (1 + LENGTH_TOLERANCE))
 
 
-def check_blog(draft: Draft, rules: BlogQuality, words: int | None = None) -> list[CheckResult]:
+def check_blog(
+    draft: Draft, rules: BlogQuality, words: int | None = None, avoid: Sequence[str] = ()
+) -> list[CheckResult]:
     """Every blog check's result, in the order the chat lists them.
 
     `words` is the length the request set, if any; it replaces the configured word range.
+    `avoid` is the Brand Profile's words to avoid, looked for in the body (leaving out its
+    Sources) and the meta description; with none, that check is skipped.
     """
     return [
         keyword_density(draft, rules.density_range),
@@ -327,6 +353,7 @@ def check_blog(draft: Draft, rules: BlogQuality, words: int | None = None) -> li
         readability(draft, rules.max_grade),
         length(draft, word_range(rules, words)),
         citations(draft, rules.min_citations),
+        *_words_to_avoid(f"{_prose(draft.body)}\n{draft.meta_description}", avoid),
     ]
 
 
@@ -551,11 +578,13 @@ def check_linkedin(
     rules: LinkedInQuality,
     chars: int | None = None,
     tags: tuple[int, int] | None = None,
+    avoid: Sequence[str] = (),
 ) -> list[CheckResult]:
     """Every LinkedIn check's result, in the order the chat lists them.
 
     `chars` and `tags` are the length and hashtag range the request set, if any; they replace
-    the configured ranges.
+    the configured ranges. `avoid` is the Brand Profile's words to avoid, looked for in the
+    whole post; with none, that check is skipped.
     """
     return [
         post_length(post, char_range(rules, chars)),
@@ -565,4 +594,5 @@ def check_linkedin(
         call_to_action(post, rules.cta_phrases),
         plain_text(post),
         grounded_figures(post),
+        *_words_to_avoid(post.text, avoid),
     ]

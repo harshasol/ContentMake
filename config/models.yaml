@@ -18,6 +18,8 @@ agents:
     models: [openai/gpt-4o-mini]   # used for prompt optimisation
   quality_judge:
     models: [openai/gpt-4o-mini]   # the AI reviewer: scores each draft and suggests fixes
+  brand_voice:
+    models: [openai/gpt-4o-mini]   # Learn voice: describes a brand's voice from a writing sample
 
 image:
   models: [openai/gpt-image-1, openai/dall-e-3]   # tried in order
@@ -27,10 +29,6 @@ image:
   quality:                       # lower quality keeps image cost down
     openai/gpt-image-1: medium
     openai/dall-e-3: standard
-  # The visual style when no Brand Profile gives one.
-  default_style: >-
-    clean, modern editorial illustration with soft natural light, a calm professional colour
-    palette and plenty of negative space
   # The placeholder card's colour (when no image model works) if the visual style gives none.
   placeholder_colour: "#4A5568"
 

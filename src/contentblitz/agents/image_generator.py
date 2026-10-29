@@ -5,20 +5,21 @@ For a new image step:
 
 1. **Prompt optimisation.** One structured call to the `image_generator` model, given the step's
    instructions (or the marketer's message), the Topic, the Research Brief's summary and angles
-   when there is one, a visual style (the default from config unless one is passed in), and the
-   title and kind of the Content Piece the image is for, when the step names a source piece. It
-   returns the optimised prompt, the intended use, any shape the marketer asked for, and alt
-   text. The prompt always ends with the no-text rule. An image for a blog is a blog header and
-   one for a LinkedIn post a LinkedIn visual, whatever use the model gave.
+   when there is one, the active Brand Profile's visual style (colours, mood, medium and notes),
+   and the title and kind of the Content Piece the image is for, when the step names a source
+   piece. It returns the optimised prompt, the intended use, any shape the marketer asked for,
+   and alt text. The prompt always ends with the no-text rule. An image for a blog is a blog
+   header and one for a LinkedIn post a LinkedIn visual, whatever use the model gave.
 2. **Size.** The shape the marketer asked for, otherwise the intended use's: landscape for a blog
    header, square for LinkedIn or general use. The image model maps it to a size from config.
 3. **Generation** through the LLM integration module (ADR 0002), which tries the image models
    in config order and rejects broken results (not a PNG, JPEG or WebP, under 512 px, or
    nearly one colour).
 4. **Placeholder.** When every model fails, or no image model key is configured, a placeholder
-   card is drawn in the requested shape, in the visual style's primary colour (its first
-   `#RRGGBB`) or the configured default colour. It is saved like any other image, with the
-   model *placeholder* and the placeholder flag set, and the chat says so.
+   card is drawn in the requested shape, in the active Brand Profile's primary colour (its
+   first colour) or, when the profile has no colours, the configured placeholder colour. It is
+   saved like any other image, with the model *placeholder* and the placeholder flag set, and
+   the chat says so.
 5. **Storage.** The image is saved as a PNG in the Topic's images folder under the data folder,
    and as an *image* Content Piece with a *draft* Revision holding its metadata. Images have no
    Quality Score. An image for a Content Piece records that piece's id in its metadata; the
@@ -50,8 +51,10 @@ from langchain_core.messages import AIMessage
 from langsmith import traceable
 from pydantic import BaseModel, Field
 
-from contentblitz.core.config import HEX_COLOUR, Aspect, get_model_config
+from contentblitz.core.config import Aspect, get_model_config
 from contentblitz.integrations import llm
+from contentblitz.workflow.active_brand_profile import active_brand_profile
+from contentblitz.workflow.brand_profiles import describe_visual_style
 from contentblitz.workflow.formats import PIECE_FORMATS, ImageUse
 from contentblitz.workflow.image_files import (
     PLACEHOLDER_LABEL,
@@ -143,17 +146,16 @@ def _for_piece(piece: ContentPiece | None) -> str:
 def optimise_prompt(
     request: str,
     topic: Topic,
-    visual_style: str | None = None,
+    visual_style: str,
     piece: ContentPiece | None = None,
 ) -> ImagePrompt:
     """The marketer's request as a detailed image prompt, ending with the no-text rule.
 
-    `visual_style` is the Brand Profile's when there is one; otherwise the default from config.
+    `visual_style` is the active Brand Profile's (`describe_visual_style`; Default's included).
     `piece` is the Content Piece the image is for, when the request names one: its title and
     kind go into the prompt, and its kind sets the intended use. Raises when every provider
     fails or the reply never fits.
     """
-    style = visual_style or get_model_config().image.default_style
     messages = [
         {"role": "system", "content": SYSTEM_PROMPT},
         {
@@ -161,7 +163,7 @@ def optimise_prompt(
             "content": f"Request: {request}\n"
             f"Topic: {topic['name']}\n"
             f"{_for_piece(piece)}"
-            f"Visual style: {style}\n\n"
+            f"Visual style: {visual_style}\n\n"
             f"Research Brief: {_brief_text(topic)}",
         },
     ]
@@ -183,24 +185,20 @@ def asked_aspect(request: str) -> Aspect | None:
     return next((aspect for aspect in get_args(Aspect) if aspect in words), None)
 
 
-def placeholder_colour(visual_style: str | None) -> str:
-    """The visual style's primary colour (its first "#RRGGBB"), or the configured default."""
-    match = re.search(HEX_COLOUR, visual_style or "")
-    return match.group(0) if match else get_model_config().image.placeholder_colour
-
-
 def make_image(
-    prompt: str, aspect: Aspect, topic_name: str, visual_style: str | None = None
+    prompt: str, aspect: Aspect, topic_name: str, colour: str | None = None
 ) -> llm.GeneratedImage:
     """The image for `prompt`, from the first image model that gives a usable one, or a
-    placeholder card in `aspect`'s shape when none does. Never raises for a failed model."""
+    placeholder card in `aspect`'s shape when none does, in `colour` ("#RRGGBB") or the
+    configured placeholder colour. Never raises for a failed model."""
     try:
         return llm.generate_image(prompt, aspect)
     except llm.NoUsableImage as error:
         fallbacks = error.fallbacks
     config = get_model_config().image
     width, height = config.size_for(config.primary, aspect).split("x")
-    data = placeholder_png((int(width), int(height)), placeholder_colour(visual_style), topic_name)
+    colour = colour or config.placeholder_colour
+    data = placeholder_png((int(width), int(height)), colour, topic_name)
     return llm.GeneratedImage(data, PLACEHOLDER_MODEL, None, fallbacks)
 
 
@@ -388,18 +386,22 @@ def _refine_image(state: ContentBlitzState, piece_id: str) -> _ImageJob:
 
 
 def _make_image(state: ContentBlitzState, job: _ImageJob) -> ContentBlitzState:
-    """Optimises the prompt (or falls back to the job's plain one), makes the image (or a
-    placeholder), saves it as the job's Revision, and posts the image message."""
+    """Optimises the prompt in the active Brand Profile's visual style (or falls back to the
+    job's plain one), makes the image (or a placeholder in the profile's primary colour), saves
+    it as the job's Revision, and posts the image message."""
     topic = state["topics"][job.topic_id]
+    style = active_brand_profile(state).visual_style
     try:
-        optimised = optimise_prompt(job.optimiser_request, topic, piece=job.source)
+        optimised = optimise_prompt(
+            job.optimiser_request, topic, describe_visual_style(style), job.source
+        )
         optimiser_failure = None
     except Exception as error:  # noqa: BLE001 - a plain prompt still makes an image
         optimised, optimiser_failure = job.fallback, f"{type(error).__name__}: {error}"
     if job.kept_aspect and not optimised.aspect:
         optimised = optimised.model_copy(update={"aspect": job.kept_aspect})
     try:
-        image = make_image(optimised.prompt, aspect_of(optimised), topic["name"])
+        image = make_image(optimised.prompt, aspect_of(optimised), topic["name"], style.primary)
         revision = image_revision(
             job.topic_id,
             job.piece_id,

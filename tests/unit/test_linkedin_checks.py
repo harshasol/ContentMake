@@ -57,6 +57,15 @@ def test_the_checks_are_listed_in_the_order_the_chat_shows_them():
     assert all(set(r) == {"name", "passed", "measured", "reason"} for r in results)
 
 
+def test_words_to_avoid_is_checked_last_only_when_the_profile_has_some():
+    post = Post(text="A revolutionary idea.\n\nWhat do you think?\n\n#Disruptive", brief_facts="")
+    assert "words to avoid" not in [r["name"] for r in check_linkedin(post, LinkedInQuality())]
+    avoid = ["Revolutionary", "disruptive", "synergy"]
+    [*_, last] = check_linkedin(post, LinkedInQuality(), avoid=avoid)
+    assert (last["name"], last["passed"]) == ("words to avoid", False)
+    assert last["measured"] == "Revolutionary, disruptive"  # hashtags are checked too
+
+
 # Length
 
 

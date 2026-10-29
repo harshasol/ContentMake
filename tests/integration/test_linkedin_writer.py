@@ -12,7 +12,11 @@ from langchain_core.messages import HumanMessage
 from langsmith import tracing_context
 
 from contentblitz.integrations import llm
+from contentblitz.workflow.brand_profiles import BrandProfileStore
 from contentblitz.workflow.graph import build_graph
+
+# What a Revision records when the conversation's active Brand Profile is Default (#52).
+DEFAULT_RECORD = {"id": "default", "name": "Default", "updated_at": "2026-10-29T00:00:00+00:00"}
 
 BRIEF_CREATED_AT = "2026-10-20T10:00:00+00:00"
 
@@ -113,7 +117,10 @@ SUGGESTIONS = [
 
 
 def verdict(**overrides):
-    return {"engagement": 8, "suggestions": SUGGESTIONS, **overrides}
+    """A reviewer verdict. Its brand-voice score is its engagement score unless given, so the
+    reviewer's average is the engagement score."""
+    found = {"engagement": 8, "suggestions": SUGGESTIONS, **overrides}
+    return {"brand_voice": found["engagement"], **found}
 
 
 class FakeModel:
@@ -156,9 +163,10 @@ def config(thread="t1"):
     return {"configurable": {"thread_id": thread}}
 
 
-def run_plan(plan, topics=None, graph=None, thread="t1", pieces=None):
-    """Run `plan` from the dispatcher, as if the Query Handler had just posted it. Returns the
-    replies the plan produced and the state afterwards."""
+def run_plan(plan, topics=None, graph=None, thread="t1", pieces=None, profile=None):
+    """Run `plan` from the dispatcher, as if the Query Handler had just posted it, with
+    `profile` as the active Brand Profile (Default when not given). Returns the replies the
+    plan produced and the state afterwards."""
     graph = graph or build_graph()
     before = len(graph.get_state(config(thread)).values.get("messages", []))
     seeded = {
@@ -171,6 +179,8 @@ def run_plan(plan, topics=None, graph=None, thread="t1", pieces=None):
         seeded |= {"topics": topics, "active_topic_id": "topic-1"}
     if pieces is not None:
         seeded["content_pieces"] = pieces
+    if profile is not None:
+        seeded["brand_profile"] = profile.model_dump(mode="json")
     graph.update_state(config(thread), seeded, as_node="query_handler")
     result = graph.invoke(None, config(thread))
     return [m.content for m in result["messages"][before + 1 :]], result
@@ -215,7 +225,12 @@ def test_the_post_is_saved_as_a_linkedin_content_piece_with_its_first_revision(m
     assert datetime.fromisoformat(created_at) > datetime.fromisoformat(BRIEF_CREATED_AT)
     quality = revision.pop("quality_score")
     assert quality["checks"]
-    assert revision == {"text": POST, "template": "industry insights", "origin": "draft"}
+    assert revision == {
+        "text": POST,
+        "template": "industry insights",
+        "origin": "draft",
+        "brand_profile": DEFAULT_RECORD,
+    }
 
 
 def test_hashtags_without_a_hash_are_given_one_and_end_the_post_on_one_line(model):
@@ -406,6 +421,78 @@ def test_each_attempts_checks_and_quality_score_are_traced(model):
     assert (first["passed"], second["passed"]) == (False, True)
 
 
+# --- Brand voice and words to avoid (#22) ----------------------------------------------------
+
+
+def acme():
+    return BrandProfileStore().create(
+        {
+            "name": "Acme Health",
+            "audience": "Hospital CIOs",
+            "tone": ["confident"],
+            "donts": ["make medical claims"],
+            "words_to_avoid": ["radiologists"],
+            "writing_sample": "We keep hospitals running, quietly and well.",
+        }
+    )
+
+
+def reviewer_prompt(model, n=0):
+    return prompt_of(model.calls_to("quality_judge")[n])
+
+
+def test_the_reviewer_judges_the_post_against_the_active_profile(model):
+    run_plan(LINKEDIN, {"topic-1": topic()}, profile=acme())
+
+    prompt = reviewer_prompt(model)
+    for fact in ["Hospital CIOs", "confident", "make medical claims", "radiologists"]:
+        assert fact in prompt, fact
+    assert "quietly and well" not in prompt
+
+
+def test_the_posts_brand_voice_score_is_shown_saved_and_averaged(model):
+    # Every check passes but words to avoid: 70 x 7/8 = 61.25. Engagement 8 and brand voice 4
+    # average 6: 18 points, 79 in all.
+    model.verdict = verdict(brand_voice=4)
+    [reply], state = run_plan(LINKEDIN, {"topic-1": topic()}, profile=acme())
+
+    after_post = plain(reply.split("```")[-1])
+    assert "Brand voice: 4/10" in after_post
+    assert "words to avoid radiologists ✗" in after_post
+    quality = revision_of(state)["quality_score"]
+    assert (quality["score"], quality["review"]["brand_voice"]) == (79, 4)
+
+
+def test_a_post_with_a_word_to_avoid_is_revised_without_it(model):
+    without = TEXT.replace("radiologists working alone", "readers working alone").replace(
+        "one radiologist", "one reader"
+    )
+    model.reply = [linkedin_draft(), linkedin_draft(text=without)]
+    [reply], state = run_plan(LINKEDIN, {"topic-1": topic()}, profile=acme())
+
+    revise = prompt_of(model.calls_to("linkedin_writer")[1])
+    assert "words to avoid" in revise and "radiologists" in revise
+    assert "Automatic revisions: 1 of 3" in plain(reply)
+    assert revision_of(state)["quality_score"]["checks"][-1]["passed"] is True
+
+
+def test_a_refinement_is_judged_against_the_profile_active_when_it_runs(model):
+    refine_post(profile=acme())
+
+    assert "Hospital CIOs" in reviewer_prompt(model)
+
+
+def test_each_post_attempts_trace_has_the_profile_id_and_brand_voice_score(model):
+    model.verdict = verdict(brand_voice=7)
+    client = RecordingClient()
+    with tracing_context(enabled=True, client=client):
+        run_plan(LINKEDIN, {"topic-1": topic()})
+
+    traced = [(r.get("outputs") or {}) for r in client.runs.values()]
+    traced = [t for t in traced if "brand_profile_id" in t]
+    assert [(t["brand_profile_id"], t["brand_voice"]) for t in traced] == [("default", 7)]
+
+
 def test_a_draft_failing_a_feed_convention_is_revised_to_a_pass(model):
     markdown = linkedin_draft(text=TEXT.replace("Trust matters", "**Trust** matters"))
     model.reply = [markdown, linkedin_draft()]
@@ -560,9 +647,11 @@ DRAFT_REVISION = {
 HAND_EDIT = {"text": HAND_EDITED, "origin": "hand_edit", "created_at": "2026-10-22T10:00:00+00:00"}
 
 
-def refine_post(instructions="make it punchier", revisions=(DRAFT_REVISION, HAND_EDIT), **options):
+def refine_post(
+    instructions="make it punchier", revisions=(DRAFT_REVISION, HAND_EDIT), profile=None, **options
+):
     """Run a refine step on the seeded post piece-1, by default with a hand edit, recording no
-    template, as its latest Revision."""
+    template, as its latest Revision, with `profile` as the active Brand Profile."""
     plan = [
         {"agent": "linkedin_writer", "target": "piece-1", "instructions": instructions, **options}
     ]
@@ -573,7 +662,7 @@ def refine_post(instructions="make it punchier", revisions=(DRAFT_REVISION, HAND
         "revisions": list(revisions),
     }
     seeded = topic() | {"piece_ids": ["piece-1"]}
-    return run_plan(plan, {"topic-1": seeded}, pieces={"piece-1": post})
+    return run_plan(plan, {"topic-1": seeded}, pieces={"piece-1": post}, profile=profile)
 
 
 def test_refining_a_post_revises_its_latest_revision_even_a_hand_edit(model):
@@ -597,7 +686,12 @@ def test_a_refined_post_is_added_as_a_new_refinement_revision_on_the_same_piece(
     quality = refined.pop("quality_score")
     assert (quality["passed"], quality["revisions_used"]) == (True, 0)
     # The template carries over from the last Revision that recorded one.
-    assert refined == {"text": POST, "template": "tips", "origin": "refinement"}
+    assert refined == {
+        "text": POST,
+        "template": "tips",
+        "origin": "refinement",
+        "brand_profile": DEFAULT_RECORD,
+    }
     assert reply.startswith(f"```text\n{POST}\n```")
     after_post = plain(reply.split("```")[-1])
     assert "Characters: 1,341" in after_post and "Quality Score: 94/100" in after_post

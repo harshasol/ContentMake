@@ -28,9 +28,9 @@ from datetime import UTC, datetime
 
 from pydantic import BaseModel, Field
 
-from contentblitz.agents.quality_judge import review
 from contentblitz.core.config import get_model_config
 from contentblitz.integrations import llm
+from contentblitz.workflow.brand_voice import brand_voice
 from contentblitz.workflow.content_checks import (
     CheckResult,
     Post,
@@ -43,7 +43,7 @@ from contentblitz.workflow.formats import PIECE_FORMATS, LinkedInTemplate
 from contentblitz.workflow.plan import current_step
 from contentblitz.workflow.progress import progress_message
 from contentblitz.workflow.quality_loop import Attempt, QualityFormat, quality_loop, quality_text
-from contentblitz.workflow.quality_score import QualityScore, Review
+from contentblitz.workflow.quality_score import QualityScore
 from contentblitz.workflow.routing import Template
 from contentblitz.workflow.state import (
     ContentBlitzState,
@@ -250,6 +250,7 @@ def _prompt(state: ContentBlitzState) -> list[dict]:
             f"Template: {_template(state) or 'none given, pick the template that fits best'}\n"
             f"Instructions: {_step(state).get('instructions') or 'none'}\n\n"
             f"Templates:\n{templates}\n\n"
+            f"{brand_voice(state)}\n\n"
             f"Research Brief:\n\n{_brief_text(topic['brief'])}{_source_text(state)}",
         },
     ]
@@ -308,14 +309,14 @@ def _refined_latest_revision(state: ContentBlitzState) -> dict | None:
     return _redraft(state, draft, REFINE_PROMPT.format(instructions=instructions))
 
 
-def _checks(state: ContentBlitzState, draft: dict) -> list[CheckResult]:
+def _checks(state: ContentBlitzState, draft: dict, avoid: list[str]) -> list[CheckResult]:
     post = Post(text=draft["post"], brief_facts=_brief_facts(_topic(state)["brief"]))
     rules = get_model_config().quality.linkedin
-    return check_linkedin(post, rules, _step(state).get("length"), _hashtag_range(state))
+    return check_linkedin(post, rules, _step(state).get("length"), _hashtag_range(state), avoid)
 
 
-def _judge(state: ContentBlitzState, draft: dict) -> Review | None:
-    return review(f"LinkedIn post:\n\n{draft['post']}", JUDGING_CRITERIA)
+def _reviewed_text(draft: dict) -> str:
+    return f"LinkedIn post:\n\n{draft['post']}"
 
 
 def _fenced(post: str) -> str:
@@ -396,7 +397,8 @@ LINKEDIN = QualityFormat(
     draft=_first_draft,
     revise=_revise,
     checks=_checks,
-    judge=_judge,
+    reviewed_text=_reviewed_text,
+    judging_criteria=JUDGING_CRITERIA,
     finalise=_finalise,
     failure=_failure,
 )

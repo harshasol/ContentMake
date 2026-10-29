@@ -103,6 +103,19 @@ def test_the_quality_judge_has_its_own_model_entry_and_is_required():
     assert load_model_config(DEFAULT_CONFIG_PATH).for_agent("quality_judge").primary
 
 
+def test_brand_voice_has_its_own_model_entry_and_is_required(tmp_path):
+    assert "brand_voice" in AGENT_NAMES
+    assert load_model_config(DEFAULT_CONFIG_PATH).for_agent("brand_voice").primary
+    path = tmp_path / "models.yaml"
+    path.write_text(
+        "agents:\n"
+        + "".join(f"  {a}:\n    models: [{MODELS}]\n" for a in AGENT_NAMES if a != "brand_voice")
+        + "image:\n  models: [openai/gpt-image-1]\nsearch:\n  providers: [tavily]\n"
+    )
+    with pytest.raises(ValueError, match="brand_voice"):
+        load_model_config(path)
+
+
 def test_the_pass_mark_defaults_to_7_and_is_read_from_config(tmp_path):
     assert load_model_config(DEFAULT_CONFIG_PATH).quality.pass_mark == 7
     path = tmp_path / "models.yaml"
@@ -161,7 +174,6 @@ def test_shipped_config_sizes_each_image_model_for_each_aspect():
         "openai/dall-e-3": ["1792x1024", "1024x1024", "1024x1792"],
     }
     assert [image.quality_for(m) for m in image.models] == ["medium", "standard"]
-    assert "illustration" in image.default_style
 
 
 def test_image_settings_are_read_from_config_and_default_when_missing(tmp_path):
@@ -179,17 +191,14 @@ def test_image_settings_are_read_from_config_and_default_when_missing(tmp_path):
         "image:\n  models: [openai/dall-e-2]\n"
         "  sizes:\n    openai/dall-e-2: {landscape: 512x512}\n"
         "  quality:\n    openai/dall-e-2: hd\n"
-        "  default_style: flat pastel vector art\n"
     )
     assert configured.size_for("openai/dall-e-2", "landscape") == "512x512"
     assert configured.quality_for("openai/dall-e-2") == "hd"
-    assert configured.default_style == "flat pastel vector art"
 
     defaults = image_config("image:\n  models: [openai/gpt-image-1]\n")
     assert defaults.size_for("openai/gpt-image-1", "landscape") == "1536x1024"
     assert defaults.size_for("openai/gpt-image-1", "portrait") == "1024x1536"
     assert defaults.quality_for("openai/gpt-image-1") == "medium"
-    assert defaults.default_style
 
 
 def test_the_placeholder_colour_is_read_from_config_and_defaults_when_missing(tmp_path):

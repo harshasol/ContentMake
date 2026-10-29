@@ -1,4 +1,6 @@
-"""The LangGraph workflow: Query Handler → dispatcher → agent → dispatcher → … → end.
+"""The LangGraph workflow: Brand Profile → Query Handler → dispatcher → agent → … → end.
+
+Each run starts by loading the conversation's active Brand Profile (spec #22).
 
 An agent stops the plan by returning `{"abort_reason": reason}`: the reason is posted in the
 chat and the remaining steps don't run. ADR 0001: research comes before writing, so a failed
@@ -17,6 +19,7 @@ from contentblitz.agents.image_generator import image_generator
 from contentblitz.agents.linkedin_writer import linkedin_writer
 from contentblitz.agents.query_handler import query_handler
 from contentblitz.agents.research import research
+from contentblitz.workflow.active_brand_profile import load_brand_profile
 from contentblitz.workflow.plan import current_step
 from contentblitz.workflow.progress import progress_message
 from contentblitz.workflow.state import ContentBlitzState
@@ -62,12 +65,14 @@ def _as_step(agent: AgentNode) -> AgentNode:
 
 def build_graph(checkpointer: BaseCheckpointSaver | None = None):
     builder = StateGraph(ContentBlitzState)
+    builder.add_node("brand_profile", load_brand_profile)
     builder.add_node("query_handler", query_handler)
     builder.add_node("dispatcher", dispatcher)
     for name, agent in AGENT_NODES.items():
         builder.add_node(name, _as_step(agent))
         builder.add_edge(name, "dispatcher")
-    builder.add_edge(START, "query_handler")
+    builder.add_edge(START, "brand_profile")
+    builder.add_edge("brand_profile", "query_handler")
     builder.add_edge("query_handler", "dispatcher")
     builder.add_conditional_edges("dispatcher", _next_step, [*AGENT_NODES, END])
     return builder.compile(checkpointer=checkpointer or MemorySaver())
