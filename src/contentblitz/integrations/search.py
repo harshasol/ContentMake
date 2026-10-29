@@ -16,6 +16,7 @@ from pydantic import BaseModel
 
 from contentblitz.core import call_context, tracing, usage
 from contentblitz.core.config import ModelConfig, Settings, get_model_config, get_settings
+from contentblitz.integrations import search_cache
 
 REQUEST_TIMEOUT_SECONDS = 10  # per search request; queries run in parallel, providers in turn
 MAX_PAGE_BYTES = 2_000_000  # HTML read per page; anything past this is ignored
@@ -188,11 +189,19 @@ class SearchResponse(BaseModel):
 def search_with_fallback(
     providers: list[SearchProvider], query: str, max_results: int = 10, fresh: bool = False
 ) -> SearchResponse:
-    """`fresh` is passed to every provider tried, so none answers from a cache. Each query is
-    recorded in the usage ledger, with the provider that answered and those that failed."""
+    """Each provider in turn answers from the search cache (keyed by provider, normalised query
+    and `max_results`) or live, and live answers are cached. `fresh` skips the cache, overwrites
+    the entry and is passed to the provider, so it never answers from its own cache either. Each
+    query is recorded in the usage ledger, with the provider that answered, whether it was a
+    cache hit, and the providers that failed."""
     failures: dict[str, str] = {}
     started = time.perf_counter()
     for provider in providers:
+        key = (provider.name, search_cache.normalise_query(query), max_results)
+        if not fresh and (hit := search_cache.get("search", key)) is not None:
+            results = [SearchResult.model_validate(r) for r in hit]
+            _record_search(providers, provider.name, failures, started, cached=True)
+            return SearchResponse(provider=provider.name, results=results, failures=failures)
         try:
             with tracing.span(
                 f"search: {provider.name}",
@@ -205,6 +214,8 @@ def search_with_fallback(
         except Exception as exc:  # noqa: BLE001 - any provider failure moves to the next one
             failures[provider.name] = str(exc)
             continue
+        if results:  # an empty answer may be a blip, so the next search asks again
+            search_cache.put("search", key, [r.model_dump() for r in results])
         _record_search(providers, provider.name, failures, started)
         return SearchResponse(provider=provider.name, results=results, failures=failures)
     _record_search(providers, NO_PROVIDER, failures, started)
@@ -215,10 +226,14 @@ NO_PROVIDER = "none"  # the ledger's provider for a query no provider answered
 
 
 def _record_search(
-    providers: list[SearchProvider], answered_by: str, failures: dict[str, str], started: float
+    providers: list[SearchProvider],
+    answered_by: str,
+    failures: dict[str, str],
+    started: float,
+    cached: bool = False,
 ) -> None:
     context = call_context.current()
-    price = get_model_config().search.prices.get(answered_by.lower(), 0.0)
+    price = 0.0 if cached else get_model_config().search.prices.get(answered_by.lower(), 0.0)
     usage.record(
         usage.UsageEvent(
             ts=datetime.now(UTC).isoformat(),
@@ -229,27 +244,41 @@ def _record_search(
             model=answered_by,
             primary=providers[0].name if providers else None,
             cost_usd=price,
+            cached=cached,
             latency_s=round(time.perf_counter() - started, 3),
             failed=[{"provider": name, "error": error} for name, error in failures.items()],
         )
     )
 
 
-def fetch_page(url: str, timeout: float, max_chars: int, client: httpx.Client | None = None) -> str:
+def fetch_page(
+    url: str,
+    timeout: float,
+    max_chars: int,
+    client: httpx.Client | None = None,
+    fresh: bool = False,
+) -> str:
     """The readable article text of a web page, cut to max_chars.
 
     Returns "" instead of raising when the page fails, takes longer than timeout seconds in
-    all, isn't HTML, or has nothing readable. Only the first MAX_PAGE_BYTES are read.
+    all, isn't HTML, or has nothing readable. Only the first MAX_PAGE_BYTES are read. Readable
+    text is cached by URL (page text cache); `fresh` skips the cache and overwrites the entry.
     """
     with tracing.span("fetch page", "tool", inputs={"url": url}) as span:
-        try:
-            with _http_client(client, timeout) as http_client:
-                html = _read_html(http_client, url, timeout)
-            text = trafilatura.extract(html, include_comments=False) if html else None
-        except Exception:  # noqa: BLE001 - an unreadable page falls back to its snippet
-            text = None
-        page = (text or "").strip()[:max_chars].rstrip()
-        span.end(outputs={"chars": len(page)})
+        text = None if fresh else search_cache.get("page_text", (url,))
+        cache_hit = text is not None
+        if text is None:
+            try:
+                with _http_client(client, timeout) as http_client:
+                    html = _read_html(http_client, url, timeout)
+                text = (trafilatura.extract(html, include_comments=False) if html else "") or ""
+            except Exception:  # noqa: BLE001 - an unreadable page falls back to its snippet
+                text = ""
+            text = text.strip()[:MAX_PAGE_BYTES]
+            if text:
+                search_cache.put("page_text", (url,), text)
+        page = text[:max_chars].rstrip()
+        span.end(outputs={"chars": len(page), "cache_hit": cache_hit})
     return page
 
 

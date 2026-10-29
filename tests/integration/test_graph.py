@@ -110,7 +110,7 @@ class OneResultSearch:
 def fake_web_search(monkeypatch):
     provider = OneResultSearch()
     monkeypatch.setattr(search, "configured_providers", lambda: [provider])
-    monkeypatch.setattr(search, "fetch_page", lambda url, timeout, max_chars: "")
+    monkeypatch.setattr(search, "fetch_page", lambda url, timeout, max_chars, fresh=False: "")
     return provider
 
 
