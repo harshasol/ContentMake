@@ -6,6 +6,7 @@ Refine requests become a one-step plan to the writer of the target Content Piece
 
 from langchain_core.messages import AIMessage, AnyMessage
 
+from contentblitz.core import tracing
 from contentblitz.core.config import get_settings
 from contentblitz.integrations import llm
 from contentblitz.workflow.plan import build_plan, describe_plan, replan
@@ -155,6 +156,7 @@ def _research_report(state: ContentBlitzState) -> str:
 def _run_plan(plan: list[PlanStep], topic_update: ContentBlitzState) -> ContentBlitzState:
     """Post the plan for the Topic the update makes active, and hand it to the dispatcher."""
     topic = topic_update["topics"][topic_update["active_topic_id"]]
+    tracing.annotate({"plan": [step["agent"] for step in plan], "topic": topic["name"]})
     announcement = progress_message(describe_plan(plan, topic["name"]))
     return {**_reply(announcement, intent="new_content", plan=plan), **topic_update}
 
@@ -247,6 +249,7 @@ def query_handler(state: ContentBlitzState) -> ContentBlitzState:
         return _reply(GENERIC_CLARIFYING_QUESTION, intent="unclear")
     except Exception:
         return _reply(APOLOGY)
+    tracing.annotate({"routing_decision": decision.model_dump(mode="json")})
     answered = _answer_topic_question(state, decision)
     if answered:
         return answered

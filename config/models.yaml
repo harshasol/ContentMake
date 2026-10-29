@@ -29,6 +29,9 @@ image:
   quality:                       # lower quality keeps image cost down
     openai/gpt-image-1: medium
     openai/dall-e-3: standard
+  prices:                        # USD per image, an estimate used only if LiteLLM has no price
+    openai/gpt-image-1: 0.042    # medium quality, 1024x1024
+    openai/dall-e-3: 0.04        # standard quality, 1024x1024
   # The placeholder card's colour (when no image model works) if the visual style gives none.
   placeholder_colour: "#4A5568"
 
@@ -39,10 +42,29 @@ search:
   pages_to_read: 6               # top Sources whose page text is read
   page_timeout_seconds: 8        # per page read
   text_cap_chars: 2000           # page text kept per Source
+  prices: {}                     # USD per search by provider, e.g. {serpapi: 0.015}; default free
 
 llm:
   num_retries: 2
   timeout_seconds: 60
+  retry_strategy: exponential_backoff_retry   # or constant_retry: how retries wait before a fallback
+  token_prices: {}               # estimate for a model LiteLLM can't price, per 1,000 tokens:
+                                 #   openai/some-model: {input_per_1k: 0.0025, output_per_1k: 0.01}
+
+cache:                             # disk caches under <data folder>/<folder>/<cache name>
+  folder: cache
+  model_responses:                 # identical completions are answered from LiteLLM's cache
+    enabled: true
+    expiry_hours: 24
+  search:                          # search results (#75)
+    enabled: true
+    expiry_hours: 24
+  page_text:                       # fetched page text (#75)
+    enabled: true
+    expiry_hours: 168
+  research_brief:                  # Research Briefs (#76); no expiry, the key changes with the research
+    enabled: true
+    expiry_hours: null
 
 quality:
   max_revisions: 3

@@ -5,6 +5,8 @@ state read and write. The Streamlit app only calls it and never reads graph stat
 UI stays thin and every action can be tested against the real graph.
 """
 
+import shutil
+import time
 import uuid
 from dataclasses import dataclass
 from datetime import UTC, datetime
@@ -13,7 +15,16 @@ from typing import Any, Literal
 
 from langchain_core.messages import AnyMessage, HumanMessage
 
+from contentblitz.core import cache, call_context, tracing
 from contentblitz.core.config import ModelConfig, Settings, get_model_config, get_settings
+from contentblitz.core.usage import (
+    Breakdown,
+    FallbackRow,
+    RunRow,
+    Totals,
+    get_ledger,
+)
+from contentblitz.integrations import llm
 from contentblitz.workflow.brand_profiles import DEFAULT_PROFILE_ID
 from contentblitz.workflow.export import (
     REPORT_EXPORTS,
@@ -93,6 +104,25 @@ class PieceRow:
 
 
 @dataclass(frozen=True)
+class UsageView:
+    """What the Usage tab shows (#73), read from the usage ledger."""
+
+    conversation: Totals
+    today: Totals
+    all_time: Totals
+    cache_hit_rate: float | None
+    by_agent: list[Breakdown]
+    by_model: list[Breakdown]
+    recent_runs: list[RunRow]
+    fallback_events: list[FallbackRow]
+    searches: list[Breakdown]
+
+    @property
+    def fallbacks(self) -> int:
+        return len(self.fallback_events)
+
+
+@dataclass(frozen=True)
 class TopicPieces:
     """The Content Pieces of one Topic, in the order they were made."""
 
@@ -154,6 +184,16 @@ class Workspace:
         if not topic or not topic.get("brief"):
             return None
         return Research(topic["name"], topic["brief"], render_report(topic["name"], topic["brief"]))
+
+    def clear_cache(self) -> None:
+        """Empty the model response, search, page text and Research Brief caches (spec #24).
+
+        Open handles are closed first, then the folders are deleted; each cache reopens on its
+        next use. The usage ledger is not touched."""
+        llm.reset_cache()
+        cache.close_all()
+        for folder in cache.cache_dirs():
+            shutil.rmtree(folder, ignore_errors=True)
 
     def configuration(
         self, settings: Settings | None = None, config: ModelConfig | None = None
@@ -309,23 +349,64 @@ class Workspace:
             exports.append(export_report(research.topic_name, research.report, REPORT_EXPORTS[0]))
         return export_bundle(topic["name"], exports) if exports else None
 
-    def send(self, text: str, brand_profile_id: str = DEFAULT_PROFILE_ID) -> None:
-        """Send the marketer's message and run the workflow; read the replies with `messages()`."""
-        self.graph.invoke(
+    def send(self, text: str, brand_profile_id: str = DEFAULT_PROFILE_ID) -> str:
+        """Send the marketer's message and run the workflow; read the replies with `messages()`.
+        Returns the run id, which `run_caption` and the usage ledger know the run by."""
+        return self._run(
             {"messages": [HumanMessage(content=text)], "brand_profile_id": brand_profile_id},
-            config=self._config,
+            request=text,
         )
+
+    def _run(self, inputs: dict, request: str) -> str:
+        """One workflow invocation is one Run: every call it makes is tagged with its id, and the
+        ledger keeps what was asked, when it started and how long it took, for the Usage tab's
+        recent runs. The run is also its one LangSmith trace (#78), tagged with the same id and
+        with the Topic active when the run ended."""
+        started = datetime.now(UTC).isoformat()
+        timer = time.perf_counter()
+        with call_context.run(self.thread_id) as run_id, tracing.tracing():
+            try:
+                with tracing.run_trace(
+                    run_id, self.thread_id, inputs.get("brand_profile_id")
+                ) as root:
+                    self.graph.invoke(inputs, config=self._config)
+                    topic = active_topic(self._state())
+                    root.add_metadata({"topic": topic["name"] if topic else None})
+            finally:
+                get_ledger().record_run(run_id, request, started, time.perf_counter() - timer)
+        return run_id
+
+    def usage(self) -> UsageView:
+        """The usage ledger's totals for this conversation, today and all time, and its tables."""
+        ledger = get_ledger()
+        return UsageView(
+            conversation=ledger.totals(conversation_id=self.thread_id),
+            today=ledger.totals(day=datetime.now(UTC).date()),
+            all_time=ledger.totals(),
+            cache_hit_rate=ledger.cache_hit_rate(),
+            by_agent=ledger.by_agent(),
+            by_model=ledger.by_model(),
+            recent_runs=ledger.recent_runs(),
+            fallback_events=ledger.fallback_events(),
+            searches=ledger.searches_per_provider(),
+        )
+
+    def run_caption(self, run_id: str) -> str | None:
+        """The run's cost and tokens as a one-line caption, read from the usage ledger. It is not
+        a chat message, so it is never stored in the conversation or sent to a model."""
+        return get_ledger().caption(run_id)
 
     def has_active_topic(self) -> bool:
         """Whether the conversation has an active Topic (the Refresh research button needs one)."""
         return active_topic(self._state()) is not None
 
-    def refresh_research(self, brand_profile_id: str = DEFAULT_PROFILE_ID) -> None:
+    def refresh_research(self, brand_profile_id: str = DEFAULT_PROFILE_ID) -> str:
         """Run the *refresh research* command on the active Topic: a direct command to the
-        workflow, not a chat message. Without an active Topic the chat says so."""
-        self.graph.invoke(
+        workflow, not a chat message. Without an active Topic the chat says so. Returns the run
+        id."""
+        return self._run(
             {"command": "refresh_research", "brand_profile_id": brand_profile_id},
-            config=self._config,
+            request="Refresh research",
         )
 
 

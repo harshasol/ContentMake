@@ -31,6 +31,8 @@ class Settings(BaseSettings):
     serpapi_api_key: str | None = None
     tavily_api_key: str | None = None
     langsmith_tracing: bool = False
+    langsmith_api_key: str | None = None
+    langsmith_project: str = "contentblitz"
 
     contentblitz_config: Path = DEFAULT_CONFIG_PATH
     contentblitz_data_dir: Path = Path("data")
@@ -48,9 +50,21 @@ class AgentModels(BaseModel):
         return self.models[1:]
 
 
+class TokenPrice(BaseModel):
+    """What a model costs per 1,000 tokens, in USD; used when LiteLLM has no price for it."""
+
+    input_per_1k: float = Field(0, ge=0)
+    output_per_1k: float = Field(0, ge=0)
+
+
 class LLMOptions(BaseModel):
     num_retries: int = 2
     timeout_seconds: int = 60
+    # How LiteLLM waits between retries of one model, before the next model is tried.
+    retry_strategy: Literal["constant_retry", "exponential_backoff_retry"] = (
+        "exponential_backoff_retry"
+    )
+    token_prices: dict[str, TokenPrice] = {}  # model -> estimate for a model LiteLLM can't price
 
 
 class BlogQuality(BaseModel):
@@ -107,6 +121,7 @@ class SearchOptions(BaseModel):
     pages_to_read: int = Field(6, ge=0)
     page_timeout_seconds: float = Field(8, gt=0)
     text_cap_chars: int = Field(2000, ge=0)
+    prices: dict[str, float] = {}  # provider (config name) -> USD per search; none = free
 
 
 Aspect = Literal["landscape", "square", "portrait"]
@@ -128,6 +143,7 @@ class ImageOptions(AgentModels):
 
     sizes: dict[str, dict[Aspect, str]] = {}  # model -> aspect -> "WIDTHxHEIGHT"
     quality: dict[str, str] = {}  # model -> the quality it is asked for
+    prices: dict[str, float] = {}  # model -> USD per image, when LiteLLM has no price for it
     placeholder_colour: str = Field(DEFAULT_PLACEHOLDER_COLOUR, pattern=f"^{HEX_COLOUR}$")
 
     def size_for(self, model: str, aspect: Aspect) -> str:
@@ -137,12 +153,34 @@ class ImageOptions(AgentModels):
         return self.quality.get(model, DEFAULT_IMAGE_QUALITY)
 
 
+class CacheOptions(BaseModel):
+    """One disk cache: its on/off switch and how long an entry lives (None: it never expires)."""
+
+    enabled: bool = True
+    expiry_hours: float | None = Field(24, gt=0)
+
+    @property
+    def expiry_seconds(self) -> int | None:
+        return None if self.expiry_hours is None else round(self.expiry_hours * 3600)
+
+
+class CacheConfig(BaseModel):
+    """The caches of spec #24: each lives in `<data folder>/<folder>/<cache name>`."""
+
+    folder: str = "cache"
+    model_responses: CacheOptions = CacheOptions(expiry_hours=24)
+    search: CacheOptions = CacheOptions(expiry_hours=24)
+    page_text: CacheOptions = CacheOptions(expiry_hours=7 * 24)
+    research_brief: CacheOptions = CacheOptions(expiry_hours=None)
+
+
 class ModelConfig(BaseModel):
     agents: dict[str, AgentModels]
     image: ImageOptions
     search: SearchOptions
     llm: LLMOptions = LLMOptions()
     quality: QualityOptions = QualityOptions()
+    cache: CacheConfig = CacheConfig()
 
     def for_agent(self, agent: str) -> AgentModels:
         if agent not in self.agents:

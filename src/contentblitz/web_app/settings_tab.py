@@ -1,4 +1,4 @@
-"""The Settings tab (#70): read-only configuration and the New conversation button.
+"""The Settings tab (#70): read-only configuration, New conversation and Clear cache (#77).
 
 Changing models stays a config edit (ADR 0002). Key values are never shown, only set or not.
 """
@@ -16,6 +16,9 @@ def _start_new_conversation() -> None:
 
 def settings_tab(workspace: Workspace) -> None:
     st.button("New conversation", key="new_conversation", on_click=_start_new_conversation)
+    if st.button("Clear cache", key="clear_cache"):
+        workspace.clear_cache()
+        st.success("Cache cleared: model responses, searches, pages and Research Briefs.")
     view = workspace.configuration()
 
     st.subheader("Providers")

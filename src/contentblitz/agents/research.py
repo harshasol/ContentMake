@@ -5,11 +5,11 @@ fallback chain, merges the results into ranked Sources and saves them on the act
 as its Research Record. It does not summarise: that is the Content Strategist's job.
 """
 
-from concurrent.futures import ThreadPoolExecutor
 from datetime import UTC, datetime
 from typing import TypedDict
 
 from langsmith import traceable
+from langsmith.utils import ContextThreadPoolExecutor
 from pydantic import BaseModel, Field, field_validator
 
 from contentblitz.core.config import SearchOptions, get_model_config
@@ -98,12 +98,14 @@ def _search_all(
         )
         return QuerySearch(query, response, retrieved_at=_now()), outcome
 
-    with ThreadPoolExecutor(max_workers=len(queries)) as pool:
+    with ContextThreadPoolExecutor(max_workers=len(queries)) as pool:
         runs = list(pool.map(run, queries))
     return [s for s, _ in runs if s], [outcome for _, outcome in runs]
 
 
-def _read_pages(sources: list[ResearchSource], options: SearchOptions) -> list[ResearchSource]:
+def _read_pages(
+    sources: list[ResearchSource], options: SearchOptions, fresh: bool = False
+) -> list[ResearchSource]:
     """The top Sources with their page text, read in parallel; the rest keep only their snippet.
 
     A page that can't be read gives no text, so its Source falls back to its snippet.
@@ -114,11 +116,14 @@ def _read_pages(sources: list[ResearchSource], options: SearchOptions) -> list[R
 
     def read(source: ResearchSource) -> ResearchSource:
         text = search.fetch_page(
-            source["url"], timeout=options.page_timeout_seconds, max_chars=options.text_cap_chars
+            source["url"],
+            timeout=options.page_timeout_seconds,
+            max_chars=options.text_cap_chars,
+            fresh=fresh,
         )
         return {**source, "page_text": text}
 
-    with ThreadPoolExecutor(max_workers=len(top)) as pool:
+    with ContextThreadPoolExecutor(max_workers=len(top)) as pool:
         return [*pool.map(read, top), *sources[len(top) :]]
 
 
@@ -176,7 +181,7 @@ def research(state: ContentBlitzState) -> ContentBlitzState:
     _trace(queries, outcomes, len(sources))
     if not sources:
         return {"abort_reason": NO_SOURCES.format(topic=name)}
-    sources = _read_pages(sources, options)
+    sources = _read_pages(sources, options, fresh=step.get("fresh", False))
 
     record: ResearchRecord = {
         "queries": queries,
