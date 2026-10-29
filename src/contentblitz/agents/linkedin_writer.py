@@ -56,8 +56,11 @@ SYSTEM_PROMPT = """\
 You are a LinkedIn writer for a content marketer. Write one LinkedIn post from the Research
 Brief below, using its findings and statistics and nothing from your own knowledge: every figure
 in the post must come from the Brief. Prefer verified statistics; use an unverified one only
-when you must. Write plain text with short paragraphs separated by blank lines, and give the
-hashtags separately; draw the hashtags from the keywords where possible.
+when you must. Open with one short line that grabs attention before LinkedIn's "...see more"
+cut-off: a bold claim, a question or a surprising statistic. Then write short paragraphs
+separated by blank lines, easy to scan on a phone, and close with a call to action: a question
+or an invitation to comment or share. Write plain text: no Markdown, and no [n] citations.
+Give the hashtags separately, and draw the hashtags from the keywords where possible.
 Follow the structure of the template you are given, or pick the template that fits best when you
 aren't given one. Follow the marketer's instructions."""
 
@@ -137,6 +140,9 @@ def _prompt(state: ContentBlitzState) -> list[dict]:
             "content": f"Topic: {topic['name']}\n"
             f"Target length: {_range_text(*char_range(rules))} characters, hashtags included\n"
             f"Hashtags: {_range_text(*hashtag_range(rules))} hashtags\n"
+            f"Opening line: at most {rules.max_hook_chars} characters\n"
+            f"Paragraphs: at least {rules.min_paragraphs}, each at most "
+            f"{rules.max_paragraph_chars} characters\n"
             "Template: none given, pick the template that fits best\n"
             f"Instructions: {_step(state).get('instructions') or 'none'}\n\n"
             f"Templates:\n{templates}\n\n"

@@ -48,6 +48,10 @@ def test_the_checks_are_listed_in_the_order_the_chat_shows_them():
     assert [r["name"] for r in results] == [
         "length",
         "hashtags",
+        "hook",
+        "paragraphs",
+        "call to action",
+        "plain text",
     ]
     assert all(set(r) == {"name", "passed", "measured", "reason"} for r in results)
 
@@ -134,3 +138,169 @@ def test_hashtag_range_comes_from_the_rules_or_the_request():
     result = check("hashtags", with_tags(TAGS), hashtags=5)
     assert not result["passed"]
     assert "5" in result["reason"]
+
+
+def test_a_padded_post_passes_every_check():
+    results = check_linkedin(Post(text=padded(1450), brief_facts=""), LinkedInQuality())
+    assert [r["name"] for r in results if not r["passed"]] == []
+
+
+# Hook
+
+
+def test_a_short_first_line_is_a_hook():
+    result = check("hook", with_tags(TAGS))
+    assert result["passed"]
+    assert result["measured"] == "36 chars"
+
+
+@pytest.mark.parametrize(("size", "passed"), [(150, True), (151, False)])
+def test_the_first_line_must_be_at_most_150_characters(size, passed):
+    hook = ("Long hook " * 20)[: size - 1].strip().ljust(size - 1, "x") + "."
+    result = check("hook", with_tags(TAGS, BODY.replace(HOOK, hook)))
+    assert result["passed"] is passed
+    assert result["measured"] == f"{size} chars"
+    if not passed:
+        assert "150" in result["reason"]
+
+
+def test_the_hook_is_the_first_line_even_when_its_paragraph_goes_on():
+    body = BODY.replace(HOOK, f"{HOOK}\n{'More detail follows here. ' * 8}")
+    assert check("hook", with_tags(TAGS, body))["passed"]
+
+
+@pytest.mark.parametrize(
+    "first_line", ["#AI is changing radiology", "https://example.com/ai-in-healthcare"]
+)
+def test_a_first_line_that_is_a_hashtag_or_a_link_is_not_a_hook(first_line):
+    result = check("hook", with_tags(TAGS, BODY.replace(HOOK, first_line)))
+    assert not result["passed"]
+
+
+def test_hook_length_comes_from_the_rules():
+    assert not check("hook", with_tags(TAGS), rules=LinkedInQuality(max_hook_chars=30))["passed"]
+
+
+# Paragraphs
+
+
+def test_four_short_paragraphs_pass():
+    result = check("paragraphs", with_tags(TAGS))
+    assert result["passed"]
+    assert result["measured"] == "4 paragraphs"
+
+
+def test_a_wall_of_text_fails():
+    wall = " ".join(BODY.split("\n\n")) + " " + "Care teams adapt fast. " * 50
+    result = check("paragraphs", with_tags(TAGS, wall.strip()))
+    assert not result["passed"]
+    assert result["measured"] == "1 paragraph"
+    assert "at least 4" in result["reason"] and "300" in result["reason"]
+
+
+def test_too_few_paragraphs_fail():
+    body = "\n\n".join(BODY.split("\n\n")[1:])
+    result = check("paragraphs", with_tags(TAGS, body))
+    assert not result["passed"]
+    assert result["measured"] == "3 paragraphs"
+
+
+@pytest.mark.parametrize(("size", "passed"), [(300, True), (301, False)])
+def test_no_paragraph_may_be_longer_than_300_characters(size, passed):
+    long = FILLER[: size - 1].strip().ljust(size - 1, "x") + "."
+    body = BODY.replace("Hospitals are adopting it quickly.", long)
+    result = check("paragraphs", with_tags(TAGS, body))
+    assert result["passed"] is passed
+    if not passed:
+        assert "301" in result["reason"]
+
+
+def test_paragraph_limits_come_from_the_rules():
+    rules = LinkedInQuality(min_paragraphs=5)
+    assert not check("paragraphs", with_tags(TAGS), rules=rules)["passed"]
+    rules = LinkedInQuality(max_paragraph_chars=40)
+    assert not check("paragraphs", with_tags(TAGS), rules=rules)["passed"]
+
+
+# Call to action
+
+
+def ending(last):
+    return with_tags(TAGS, BODY.replace("What would you do with the time it saves?", last))
+
+
+def test_a_closing_question_is_a_call_to_action():
+    result = check("call to action", ending("What would you do with the time it saves? 👇"))
+    assert result["passed"]
+    assert result["measured"] == "question"
+
+
+@pytest.mark.parametrize(
+    ("last", "phrase"),
+    [
+        ("Share this with a colleague who reads scans.", "share"),
+        ("Let me know how your team uses AI.", "let me know"),
+        ("Follow me for more on medical AI.", "follow"),
+        ("Drop a comment below.", "comment"),
+    ],
+)
+def test_a_closing_invitation_is_a_call_to_action(last, phrase):
+    result = check("call to action", ending(last))
+    assert result["passed"]
+    assert result["measured"] == f'"{phrase}"'
+
+
+def test_an_ending_with_no_question_or_invitation_fails():
+    result = check("call to action", ending("AI is here to stay."))
+    assert not result["passed"]
+    assert result["measured"] == "none"
+    assert "question" in result["reason"]
+
+
+def test_a_question_earlier_in_the_post_is_not_the_call_to_action():
+    body = BODY.replace("Hospitals are adopting it quickly.", "Are hospitals ready?")
+    result = check("call to action", with_tags(TAGS, body.replace(
+        "What would you do with the time it saves?", "AI is here to stay.")))
+    assert not result["passed"]
+
+
+def test_call_to_action_phrases_come_from_the_rules():
+    rules = LinkedInQuality(cta_phrases=["register"])
+    assert check("call to action", ending("Register for the webinar."), rules=rules)["passed"]
+    assert not check("call to action", ending("Share this post."), rules=rules)["passed"]
+
+
+# Plain text
+
+
+def test_a_plain_text_post_passes():
+    result = check("plain text", with_tags(TAGS))
+    assert result["passed"]
+    assert result["measured"] == "no Markdown"
+
+
+@pytest.mark.parametrize(
+    ("markdown", "kind"),
+    [
+        ("## Why it matters", "heading"),
+        ("Hospitals are **adopting** it quickly.", "bold"),
+        ("Hospitals are __adopting__ it quickly.", "bold"),
+        ("Hospitals are *adopting* it quickly.", "italic"),
+        ("Hospitals are _adopting_ it quickly.", "italic"),
+        ("Hospitals are [adopting it](https://example.com) quickly.", "link"),
+        ("Hospitals are adopting it quickly [2].", "citation"),
+    ],
+)
+def test_markdown_and_citations_fail_plain_text(markdown, kind):
+    body = BODY.replace("Hospitals are adopting it quickly.", markdown)
+    result = check("plain text", with_tags(TAGS, body))
+    assert not result["passed"]
+    assert kind in result["measured"]
+
+
+def test_plain_text_allows_snake_case_asterisk_footnotes_and_bare_links():
+    body = BODY.replace(
+        "Hospitals are adopting it quickly.",
+        "Hospitals use model_v2 at 2*3 sites. Read more at https://example.com/a_b_c.",
+    )
+    assert check("plain text", with_tags(TAGS, body))["passed"]

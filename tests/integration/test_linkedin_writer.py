@@ -233,6 +233,13 @@ def test_the_post_is_checked_and_its_quality_score_is_posted_and_saved(model):
     assert "Quality Score: 94/100" in after_post
     assert "length 1,341 chars ✓" in after_post
     assert "hashtags 10 hashtags ✓" in after_post
+    for line in [
+        "hook 68 chars ✓",
+        "paragraphs 8 paragraphs ✓",
+        'call to action "comment" ✓',
+        "plain text no Markdown ✓",
+    ]:
+        assert line in after_post, line
     assert "Automatic revisions: 0 of 3" in after_post
     assert "Engagement: 8/10" in after_post
     for suggestion in SUGGESTIONS[:3]:
@@ -273,6 +280,8 @@ def test_the_writer_model_is_given_the_whole_brief_the_template_guides_and_instr
         "hashtags from the keywords",
         "1300-1600 characters",
         "8-12 hashtags",
+        "at most 150 characters",  # the opening line
+        "300 characters",  # the longest paragraph
         "industry insights: a striking statistic or claim, why it matters, a takeaway",
         "personal story: a narrative arc",
         "tips: a hook, then 3-5 numbered tips as short paragraphs",
@@ -392,3 +401,14 @@ def test_each_attempts_checks_and_quality_score_are_traced(model):
         "reason": "1732 characters, hashtags included; the target is 1300-1600",
     }
     assert (first["passed"], second["passed"]) == (False, True)
+
+
+def test_a_draft_failing_a_feed_convention_is_revised_to_a_pass(model):
+    markdown = linkedin_draft(text=TEXT.replace("Trust matters", "**Trust** matters"))
+    model.reply = [markdown, linkedin_draft()]
+    [reply], state = run_plan(LINKEDIN, {"topic-1": topic()})
+
+    revise = prompt_of(model.calls_to("linkedin_writer")[1])
+    assert "plain text (bold)" in revise
+    assert "Automatic revisions: 1 of 3" in plain(reply)
+    assert revision_of(state)["text"] == POST

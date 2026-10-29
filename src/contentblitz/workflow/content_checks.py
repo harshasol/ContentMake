@@ -396,6 +396,114 @@ def hashtags(post: Post, hashtag_range: tuple[int, int]) -> CheckResult:
     }
 
 
+_URL = re.compile(r"(?:https?://|www\.)\S+")
+
+
+def hook(post: Post, max_chars: int) -> CheckResult:
+    """The first line, which shows before LinkedIn's "...see more", is non-empty, at most
+    `max_chars` long, and isn't a hashtag or a link."""
+    text = post.text.strip()
+    first = text.splitlines()[0].strip() if text else ""
+    problems = []
+    if not first:
+        problems.append("the first line is empty")
+    if len(first) > max_chars:
+        problems.append(f"the first line is {len(first)} characters; the most is {max_chars}")
+    if first.startswith("#"):
+        problems.append("the first line is a hashtag")
+    if _URL.fullmatch(first):
+        problems.append("the first line is a link")
+    return {
+        "name": "hook",
+        "passed": not problems,
+        "measured": f"{len(first)} chars",
+        "reason": "; ".join(problems)
+        or f"a {len(first)}-character opening line, at most {max_chars}, before the cut-off",
+    }
+
+
+def paragraphs(post: Post, min_paragraphs: int, max_chars: int) -> CheckResult:
+    """At least `min_paragraphs` paragraphs separated by blank lines before the hashtags, none
+    longer than `max_chars`."""
+    body, _ = _split_hashtags(post.text)
+    long = [len(p) for p in body if len(p) > max_chars]
+    problems = []
+    if len(body) < min_paragraphs:
+        problems.append(
+            f"there are {len(body)} paragraphs; the target is at least {min_paragraphs}, "
+            "separated by blank lines"
+        )
+    if long:
+        sizes = ", ".join(f"{n} characters" for n in long)
+        problems.append(f"paragraphs of {sizes} are longer than the most, {max_chars}")
+    count = f"{len(body)} paragraph{'' if len(body) == 1 else 's'}"
+    return {
+        "name": "paragraphs",
+        "passed": not problems,
+        "measured": count,
+        "reason": "; ".join(problems)
+        or f"{count}, at least {min_paragraphs}, none longer than {max_chars} characters",
+    }
+
+
+_CLOSING_QUESTION = re.compile(r"\?\W*$")
+
+
+def call_to_action(post: Post, phrases: list[str]) -> CheckResult:
+    """The last paragraph before the hashtags ends with a question or has a call-to-action
+    phrase."""
+    body, _ = _split_hashtags(post.text)
+    last = body[-1] if body else ""
+    found = next(
+        (p for p in phrases if re.search(rf"\b{re.escape(p)}s?\b", last, re.IGNORECASE)), None
+    )
+    if _CLOSING_QUESTION.search(last):
+        measured = "question"
+    elif found:
+        measured = f'"{found}"'
+    else:
+        measured = "none"
+    passed = measured != "none"
+    return {
+        "name": "call to action",
+        "passed": passed,
+        "measured": measured,
+        "reason": f"the closing paragraph invites a response ({measured})"
+        if passed
+        else "the closing paragraph must end with a question or invite readers to comment, "
+        "share or follow",
+    }
+
+
+_MARKDOWN = {
+    "heading": re.compile(r"^\s{0,3}#{1,6}\s", re.MULTILINE),
+    "bold": re.compile(r"\*\*[^*\n]+\*\*|__[^_\n]+__"),
+    "italic": re.compile(
+        r"(?<![\w*])\*(?![\s*])[^*\n]+?(?<!\s)\*(?![\w*])"
+        r"|(?<![\w_])_(?![\s_])[^_\n]+?(?<!\s)_(?![\w_])"
+    ),
+    "link": re.compile(r"\[[^\]\n]+\]\([^)\s]+\)"),
+    "citation": _CITATION,
+}
+
+
+def plain_text(post: Post) -> CheckResult:
+    """No Markdown headings, bold or italic markers or link syntax, which LinkedIn shows as
+    typed, and no `[n]` citations, which LinkedIn posts don't carry."""
+    body, _ = _split_hashtags(post.text)
+    text = "\n\n".join(body)
+    found = [kind for kind, pattern in _MARKDOWN.items() if pattern.search(text)]
+    return {
+        "name": "plain text",
+        "passed": not found,
+        "measured": ", ".join(found) or "no Markdown",
+        "reason": f"remove the {', '.join(found)}: LinkedIn shows Markdown as typed, and posts "
+        "carry no [n] citations"
+        if found
+        else "plain text, with no Markdown or citations",
+    }
+
+
 def char_range(rules: LinkedInQuality, chars: int | None = None) -> tuple[int, int]:
     """The character range a post is written to: when the request sets a length, it is the
     most, with 15% below it; otherwise the configured range."""
@@ -420,4 +528,8 @@ def check_linkedin(
     return [
         post_length(post, char_range(rules, chars)),
         hashtags(post, hashtag_range(rules, tags)),
+        hook(post, rules.max_hook_chars),
+        paragraphs(post, rules.min_paragraphs, rules.max_paragraph_chars),
+        call_to_action(post, rules.cta_phrases),
+        plain_text(post),
     ]
