@@ -1234,6 +1234,22 @@ def test_that_blog_resolves_to_the_active_topics_latest_blog_when_no_id_is_given
     assert step["source_piece"] == "piece-3"
 
 
+def test_an_image_for_the_blog_is_planned_for_the_active_topics_blog(monkeypatch, with_api_key):
+    decision = new_content("image", same_topic=True)(None)
+    fake_router(monkeypatch, lambda _: decision.model_copy(update={"source_kind": "blog"}))
+    start = with_pieces(
+        **{
+            "piece-1": piece("blog", "AI in the clinic"),
+            "piece-2": piece("blog", "Remote blog", topic_id="topic-2"),
+        }
+    )
+    graph = build_graph()
+    send_with(graph, "add an image for the blog", start)
+
+    [step] = graph.get_state(config()).values["plan"]
+    assert step == {"agent": "image_generator", "instructions": None, "source_piece": "piece-1"}
+
+
 def test_a_source_piece_on_another_topic_is_not_used(monkeypatch, with_api_key):
     fake_router(monkeypatch, builds_on(source_piece="piece-2"))
     start = with_pieces(**{"piece-2": piece("blog", "Remote blog", topic_id="topic-2")})

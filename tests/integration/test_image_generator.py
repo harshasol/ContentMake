@@ -339,3 +339,78 @@ def test_request_optimised_prompt_and_model_are_traced(models):
         "optimised_prompt": f"{OPTIMISED} {NO_TEXT_RULE}",
         "model": "openai/gpt-image-1",
     }
+
+
+SOURCES = {
+    "blog": {"title": "How AI reads your X-ray", "text": "# How AI reads your X-ray\n\nBody."},
+    "linkedin_post": {"title": "Radiology's new colleague", "text": "AI reads scans too."},
+}
+SOURCE_LABELS = {"blog": "blog", "linkedin_post": "LinkedIn post"}
+
+
+def run_for_piece(kind, instructions=REQUEST):
+    """Run an image step made for a seeded `kind` Content Piece ("an image for the blog")."""
+    source = {
+        "kind": kind,
+        "topic_id": "topic-1",
+        "title": SOURCES[kind]["title"],
+        "revisions": [{"text": SOURCES[kind]["text"], "origin": "draft"}],
+    }
+    graph = build_graph()
+    graph.update_state(config(), {"content_pieces": {"piece-1": source}}, as_node="query_handler")
+    seeded = {**topic(), "piece_ids": ["piece-1"]}
+    step = {"agent": "image_generator", "instructions": instructions, "source_piece": "piece-1"}
+    return run_plan([step], {"topic-1": seeded}, graph=graph)
+
+
+@pytest.mark.parametrize("kind", ["blog", "linkedin_post"])
+def test_the_optimiser_is_given_the_source_pieces_title_and_kind(models, kind):
+    run_for_piece(kind)
+
+    prompt = prompt_of(models.prompt_calls[0])
+    assert f"For the {SOURCE_LABELS[kind]}: {SOURCES[kind]['title']}" in prompt
+
+
+@pytest.mark.parametrize(
+    ("kind", "use", "size"),
+    [("blog", "blog_header", (1536, 1024)), ("linkedin_post", "linkedin", (1024, 1024))],
+)
+def test_an_image_for_a_piece_takes_its_shape_from_the_pieces_kind(models, kind, use, size):
+    models.reply = image_prompt(use="general")
+    _, state = run_for_piece(kind)
+
+    image = state["content_pieces"]["piece-2"]["revisions"][0]["image"]
+    assert image["use"] == use
+    with Image.open(image["file_path"]) as saved:
+        assert saved.size == size
+
+
+def test_a_shape_the_marketer_names_wins_over_the_pieces_kind(models):
+    models.reply = image_prompt(use="blog_header", aspect="portrait")
+    _, state = run_for_piece("blog", "a portrait image for the blog")
+
+    image = state["content_pieces"]["piece-2"]["revisions"][0]["image"]
+    assert image["aspect"] == "portrait"
+    with Image.open(image["file_path"]) as saved:
+        assert saved.size == (1024, 1536)
+
+
+def test_an_image_for_a_piece_records_it_and_leaves_the_piece_unchanged(models):
+    _, state = run_for_piece("blog")
+
+    assert state["topics"]["topic-1"]["piece_ids"] == ["piece-1", "piece-2"]
+    blog, image = state["content_pieces"]["piece-1"], state["content_pieces"]["piece-2"]
+    assert image["kind"] == "image"
+    assert image["revisions"][0]["image"]["source_piece"] == "piece-1"
+    assert blog == {
+        "kind": "blog",
+        "topic_id": "topic-1",
+        "title": SOURCES["blog"]["title"],
+        "revisions": [{"text": SOURCES["blog"]["text"], "origin": "draft"}],
+    }
+
+
+def test_an_image_for_no_piece_records_none(models):
+    _, state = run_plan(image_step(), {"topic-1": topic()})
+
+    assert "source_piece" not in only_image(state)[2]["image"]

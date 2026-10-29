@@ -51,7 +51,8 @@ Commit messages end with the `Co-Authored-By` trailer given in the session.
 - `agents/quality_judge.py` is the AI reviewer, using the `quality_judge` model in `config/models.yaml`.
 
 **Images** (#21)
-- `agents/image_generator.py`: `optimise_prompt(request, topic, visual_style=None)` returns an `ImagePrompt` (`prompt` ending with `NO_TEXT_RULE`, `use`, `aspect`, `alt_text`); `aspect_of` picks the shape; `image_revision(...)` saves the PNG and returns the Revision with its `image` metadata; `image_message(piece_id, revision_number, metadata)` is the chat message, whose `additional_kwargs["content_piece"]` is `{"piece_id", "revision"}` (from 1).
+- An image step can carry `source_piece` (the image format takes it as an option, resolved by `resolve_source` as for repurposing): `optimise_prompt(..., piece=...)` gets that piece's title and kind, its kind sets the use (`KIND_USE`), and the metadata records `ImageMetadata["source_piece"]` (`NotRequired`, absent without a source).
+- `agents/image_generator.py`: `optimise_prompt(request, topic, visual_style=None, piece=None)` returns an `ImagePrompt` (`prompt` ending with `NO_TEXT_RULE`, `use`, `aspect`, `alt_text`); `aspect_of` picks the shape; `image_revision(...)` saves the PNG and returns the Revision with its `image` metadata; `image_message(piece_id, revision_number, metadata)` is the chat message, whose `additional_kwargs["content_piece"]` is `{"piece_id", "revision"}` (from 1).
 - `ImageMetadata` in `workflow/state.py` is the fixed record on `Revision["image"]`. Images have no Quality Score.
 - `workflow/image_files.py`: `image_path(topic_id, piece_id, revision_number)` (`<data>/images/<topic>/<piece>-r<n>.png`) and `save_png`.
 - Config: `image.models`, `image.sizes`, `image.quality`, `image.default_style`; `ImageOptions.size_for(model, aspect)` and `quality_for(model)`.
