@@ -12,10 +12,11 @@ import litellm
 from PIL import Image, ImageStat
 from pydantic import BaseModel, ValidationError
 
-from contentblitz.core import call_context, usage
+from contentblitz.core import cache, call_context, usage
 from contentblitz.core.config import Aspect, ModelConfig, get_model_config, get_settings
 
 _callbacks_configured = False
+_cache_key: tuple | None = None
 
 
 class StructuredOutputError(ValueError):
@@ -35,6 +36,26 @@ def _configure_callbacks() -> None:
     if not _callbacks_configured and get_settings().langsmith_tracing:
         litellm.success_callback = [*litellm.success_callback, "langsmith"]
     _callbacks_configured = True
+
+
+def _configure_cache(config: ModelConfig) -> None:
+    """Point LiteLLM's disk cache at the model response cache folder, or switch it off.
+
+    LiteLLM keeps one global cache and caches completions only (never image generation), so
+    it is rebuilt when the folder, switch or expiry changes. Spec #24."""
+    global _cache_key
+    options = cache.options("model_responses", config)
+    folder = cache.cache_dir("model_responses", config)
+    key = (folder, options.enabled, options.expiry_seconds)
+    if key == _cache_key and (litellm.cache is not None) == options.enabled:
+        return
+    if options.enabled:
+        litellm.cache = litellm.Cache(
+            type="disk", disk_cache_dir=str(folder), ttl=options.expiry_seconds
+        )
+    else:
+        litellm.cache = None
+    _cache_key = key
 
 
 def _tokens(response, field: str) -> int:
@@ -59,15 +80,24 @@ def _litellm_cost(response) -> float | None:
     return float(cost) if cost is not None else None
 
 
+def _cache_hit(response) -> bool:
+    return bool((getattr(response, "_hidden_params", None) or {}).get("cache_hit"))
+
+
 def _cost(response, model: str, config: ModelConfig) -> tuple[float, bool]:
     """(cost, estimated): LiteLLM's price, else the configured per-1k estimate for `model`.
     A cost of 0 with tokens used counts as unknown. Unknown and unconfigured costs 0."""
-    tokens_in, tokens_out = _tokens(response, "prompt_tokens"), _tokens(response, "completion_tokens")
+    tokens_in, tokens_out = (
+        _tokens(response, "prompt_tokens"),
+        _tokens(response, "completion_tokens"),
+    )
     cost = _litellm_cost(response)
     if cost is None or (cost == 0 and tokens_in + tokens_out > 0):
         price = config.llm.token_prices.get(model)
         if price:
-            estimate = tokens_in / 1000 * price.input_per_1k + tokens_out / 1000 * price.output_per_1k
+            estimate = (
+                tokens_in / 1000 * price.input_per_1k + tokens_out / 1000 * price.output_per_1k
+            )
             return estimate, True
     return cost or 0.0, False
 
@@ -83,7 +113,8 @@ def _record_completion(
 ):
     """Append the call to the usage ledger, tagged from the call context (spec #24)."""
     context = call_context.current()
-    cost, estimated = _cost(response, answered_by, config)
+    cached = _cache_hit(response)
+    cost, estimated = (0.0, False) if cached else _cost(response, answered_by, config)
     usage.record(
         usage.UsageEvent(
             ts=datetime.now(UTC).isoformat(),
@@ -95,9 +126,10 @@ def _record_completion(
             primary=primary,
             tokens_in=_tokens(response, "prompt_tokens"),
             tokens_out=_tokens(response, "completion_tokens"),
-            cost_usd=cost,
+            cost_usd=cost,  # LiteLLM still prices a cache hit; the ledger doesn't
             estimated=estimated,
             latency_s=round(time.perf_counter() - started, 3),
+            cached=cached,
             failed=failed,
         )
     )
@@ -111,6 +143,7 @@ def complete(agent: str, messages: list[dict], config: ModelConfig | None = None
 def _complete(agent: str, messages: list[dict], config: ModelConfig | None, **kwargs) -> Reply[str]:
     _configure_callbacks()
     config = config or get_model_config()
+    _configure_cache(config)
     models = config.for_agent(agent)
     started = time.perf_counter()
     failed: list[dict[str, str]] = []
@@ -292,7 +325,9 @@ def generate_image_with(
     """Generate one image with `model`, unchecked. Asks for base64 output, and downloads the
     image when the model returns a URL instead. Raises ImageGenerationError for no image.
     `failed_models` are the models that failed before this one; the usage event keeps them."""
-    return _generate(model, prompt, aspect, config or get_model_config(), client, failed_models or [])
+    return _generate(
+        model, prompt, aspect, config or get_model_config(), client, failed_models or []
+    )
 
 
 def _image_cost(response, model: str, config: ModelConfig) -> tuple[float, bool]:

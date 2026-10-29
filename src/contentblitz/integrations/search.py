@@ -5,9 +5,9 @@ Page text is read with fetch_page, which extracts the readable article with traf
 """
 
 import time
-from datetime import UTC, datetime
 from collections.abc import Iterator
 from contextlib import contextmanager
+from datetime import UTC, datetime
 from typing import NamedTuple, Protocol
 
 import httpx

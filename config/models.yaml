@@ -51,6 +51,21 @@ llm:
   token_prices: {}               # estimate for a model LiteLLM can't price, per 1,000 tokens:
                                  #   openai/some-model: {input_per_1k: 0.0025, output_per_1k: 0.01}
 
+cache:                             # disk caches under <data folder>/<folder>/<cache name>
+  folder: cache
+  model_responses:                 # identical completions are answered from LiteLLM's cache
+    enabled: true
+    expiry_hours: 24
+  search:                          # search results (#75)
+    enabled: true
+    expiry_hours: 24
+  page_text:                       # fetched page text (#75)
+    enabled: true
+    expiry_hours: 168
+  research_brief:                  # Research Briefs (#76); no expiry, the key changes with the research
+    enabled: true
+    expiry_hours: null
+
 quality:
   max_revisions: 3
   pass_mark: 7                     # the reviewer's average (1-10) a draft needs to pass

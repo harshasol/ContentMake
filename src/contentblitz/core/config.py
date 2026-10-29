@@ -151,12 +151,34 @@ class ImageOptions(AgentModels):
         return self.quality.get(model, DEFAULT_IMAGE_QUALITY)
 
 
+class CacheOptions(BaseModel):
+    """One disk cache: its on/off switch and how long an entry lives (None: it never expires)."""
+
+    enabled: bool = True
+    expiry_hours: float | None = Field(24, gt=0)
+
+    @property
+    def expiry_seconds(self) -> int | None:
+        return None if self.expiry_hours is None else round(self.expiry_hours * 3600)
+
+
+class CacheConfig(BaseModel):
+    """The caches of spec #24: each lives in `<data folder>/<folder>/<cache name>`."""
+
+    folder: str = "cache"
+    model_responses: CacheOptions = CacheOptions(expiry_hours=24)
+    search: CacheOptions = CacheOptions(expiry_hours=24)
+    page_text: CacheOptions = CacheOptions(expiry_hours=7 * 24)
+    research_brief: CacheOptions = CacheOptions(expiry_hours=None)
+
+
 class ModelConfig(BaseModel):
     agents: dict[str, AgentModels]
     image: ImageOptions
     search: SearchOptions
     llm: LLMOptions = LLMOptions()
     quality: QualityOptions = QualityOptions()
+    cache: CacheConfig = CacheConfig()
 
     def for_agent(self, agent: str) -> AgentModels:
         if agent not in self.agents:

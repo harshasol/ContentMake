@@ -166,14 +166,19 @@ def test_an_image_records_an_image_event_with_its_model_and_cost(monkeypatch):
 def test_an_image_fallback_captures_the_failed_models_error(monkeypatch):
     _fake_images(
         monkeypatch,
-        {"openai/gpt-image-1": RuntimeError("content policy"), "openai/dall-e-3": _image_response()},
+        {
+            "openai/gpt-image-1": RuntimeError("content policy"),
+            "openai/dall-e-3": _image_response(),
+        },
     )
 
     llm.generate_image("a cat", "landscape")
 
     (event,) = get_ledger().events
     assert (event.model, event.primary) == ("openai/dall-e-3", "openai/gpt-image-1")
-    assert event.failed == [{"provider": "openai/gpt-image-1", "error": "RuntimeError: content policy"}]
+    assert event.failed == [
+        {"provider": "openai/gpt-image-1", "error": "RuntimeError: content policy"}
+    ]
 
 
 def test_an_unpriced_image_uses_the_configured_per_image_price_as_an_estimate(monkeypatch):
@@ -190,3 +195,14 @@ def test_an_unpriced_image_uses_the_configured_per_image_price_as_an_estimate(mo
 def test_the_shipped_config_prices_every_image_model():
     config = load_model_config(DEFAULT_CONFIG_PATH)
     assert set(config.image.models) <= set(config.image.prices)
+
+
+def test_the_run_caption_counts_the_fallback(monkeypatch):
+    from contentblitz.core import call_context
+
+    _scripted(monkeypatch, RuntimeError("429"), _response())
+
+    with call_context.run("conv", "run-1"):
+        llm.complete("blog_writer", MESSAGES, config=_config())
+
+    assert get_ledger().caption("run-1").endswith("· 1 fallback")
