@@ -12,10 +12,11 @@ import litellm
 from PIL import Image, ImageStat
 from pydantic import BaseModel, ValidationError
 
-from contentblitz.core import call_context, usage
+from contentblitz.core import cache, call_context, usage
 from contentblitz.core.config import Aspect, ModelConfig, get_model_config, get_settings
 
 _callbacks_configured = False
+_cache_key: tuple | None = None
 
 
 class StructuredOutputError(ValueError):
@@ -37,6 +38,26 @@ def _configure_callbacks() -> None:
     _callbacks_configured = True
 
 
+def _configure_cache(config: ModelConfig) -> None:
+    """Point LiteLLM's disk cache at the model response cache folder, or switch it off.
+
+    LiteLLM keeps one global cache and caches completions only (never image generation), so
+    it is rebuilt when the folder, switch or expiry changes. Spec #24."""
+    global _cache_key
+    options = cache.options("model_responses", config)
+    folder = cache.cache_dir("model_responses", config)
+    key = (folder, options.enabled, options.expiry_seconds)
+    if key == _cache_key and (litellm.cache is not None) == options.enabled:
+        return
+    if options.enabled:
+        litellm.cache = litellm.Cache(
+            type="disk", disk_cache_dir=str(folder), ttl=options.expiry_seconds
+        )
+    else:
+        litellm.cache = None
+    _cache_key = key
+
+
 def _tokens(response, field: str) -> int:
     return int(getattr(getattr(response, "usage", None), field, 0) or 0)
 
@@ -52,9 +73,14 @@ def _cost(response) -> float:
     return float(cost or 0.0)
 
 
+def _cache_hit(response) -> bool:
+    return bool((getattr(response, "_hidden_params", None) or {}).get("cache_hit"))
+
+
 def _record_completion(agent: str, primary: str, answered_by: str, response, started: float):
     """Append the call to the usage ledger, tagged from the call context (spec #24)."""
     context = call_context.current()
+    cached = _cache_hit(response)
     usage.record(
         usage.UsageEvent(
             ts=datetime.now(UTC).isoformat(),
@@ -66,8 +92,9 @@ def _record_completion(agent: str, primary: str, answered_by: str, response, sta
             primary=primary,
             tokens_in=_tokens(response, "prompt_tokens"),
             tokens_out=_tokens(response, "completion_tokens"),
-            cost_usd=_cost(response),
+            cost_usd=0.0 if cached else _cost(response),  # LiteLLM still prices a hit
             latency_s=round(time.perf_counter() - started, 3),
+            cached=cached,
         )
     )
 
@@ -80,6 +107,7 @@ def complete(agent: str, messages: list[dict], config: ModelConfig | None = None
 def _complete(agent: str, messages: list[dict], config: ModelConfig | None, **kwargs) -> Reply[str]:
     _configure_callbacks()
     config = config or get_model_config()
+    _configure_cache(config)
     models = config.for_agent(agent)
     started = time.perf_counter()
     response = litellm.completion(
