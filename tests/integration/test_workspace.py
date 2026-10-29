@@ -125,3 +125,37 @@ def test_an_image_message_carries_the_images_metadata(monkeypatch):
     assert "robot doctor" in image_message.image["prompt"]
     assert image_message.image["model"] == "openai/gpt-image-1"
     assert all(isinstance(m, ChatMessage) for m in messages)
+
+
+def test_the_configuration_shows_which_keys_are_set_and_never_their_values():
+    from contentblitz.core.config import get_model_config
+
+    settings = Settings(
+        _env_file=None, openai_api_key="sk-secret-openai", tavily_api_key="tvly-secret"
+    )
+    view = Workspace(build_graph(), new_thread_id()).configuration(settings, get_model_config())
+
+    assert view.provider_keys == {
+        "OpenAI": True,
+        "Anthropic": False,
+        "Gemini": False,
+        "SerpAPI": False,
+        "Tavily": True,
+    }
+    assert "secret" not in repr(view)
+
+
+def test_the_configuration_describes_models_search_images_and_thresholds():
+    from contentblitz.core.config import get_model_config
+
+    config = get_model_config()
+    view = Workspace(build_graph(), new_thread_id()).configuration(
+        Settings(_env_file=None), config
+    )
+
+    assert view.agents["blog_writer"] == (config.agents["blog_writer"].primary, [])
+    assert set(view.agents) == set(config.agents)
+    assert view.search_providers == config.search.providers
+    assert view.image_models == config.image.models
+    assert view.thresholds["Pass mark"] == "7"
+    assert view.thresholds["Blog words"] == "900–1800"

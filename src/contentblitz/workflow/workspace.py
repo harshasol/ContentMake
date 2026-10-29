@@ -11,6 +11,7 @@ from typing import Any, Literal
 
 from langchain_core.messages import AnyMessage, HumanMessage
 
+from contentblitz.core.config import ModelConfig, Settings, get_model_config, get_settings
 from contentblitz.workflow.brand_profiles import DEFAULT_PROFILE_ID
 from contentblitz.workflow.state import ContentBlitzState, ImageMetadata
 from contentblitz.workflow.topics import find_revision
@@ -24,6 +25,31 @@ class ChatMessage:
     role: Literal["user", "assistant"]
     text: str
     image: ImageMetadata | None = None
+
+
+# The providers the Settings tab reports on, and the Settings field holding each one's key.
+PROVIDER_KEYS = {
+    "OpenAI": "openai_api_key",
+    "Anthropic": "anthropic_api_key",
+    "Gemini": "gemini_api_key",
+    "SerpAPI": "serpapi_api_key",
+    "Tavily": "tavily_api_key",
+}
+
+
+@dataclass(frozen=True)
+class ConfigurationView:
+    """What the Settings tab shows (#70). It holds whether each key is set, never a key value."""
+
+    provider_keys: dict[str, bool]
+    agents: dict[str, tuple[str, list[str]]]  # agent -> (model, fallbacks)
+    search_providers: list[str]  # in fallback order
+    image_models: list[str]  # in fallback order
+    thresholds: dict[str, str]  # label -> the quality rule, as text
+
+
+def _range(low: float, high: float) -> str:
+    return f"{low}–{high}"
 
 
 def new_thread_id() -> str:
@@ -52,6 +78,36 @@ class Workspace:
             for m in state.get("messages", [])
             if m.type in ("human", "ai")
         ]
+
+    def configuration(
+        self, settings: Settings | None = None, config: ModelConfig | None = None
+    ) -> ConfigurationView:
+        """The read-only description of the configuration (ADR 0002): which provider keys are
+        set, each agent's model and fallbacks, the search order, the image models and the
+        quality thresholds."""
+        settings = settings or get_settings()
+        config = config or get_model_config()
+        quality, blog, post = config.quality, config.quality.blog, config.quality.linkedin
+        return ConfigurationView(
+            provider_keys={n: bool(getattr(settings, f)) for n, f in PROVIDER_KEYS.items()},
+            agents={n: (a.primary, a.fallbacks) for n, a in config.agents.items()},
+            search_providers=list(config.search.providers),
+            image_models=list(config.image.models),
+            thresholds={
+                "Pass mark": f"{quality.pass_mark:g}",
+                "Max automatic revisions": str(quality.max_revisions),
+                "Blog words": _range(*blog.word_range),
+                "Blog keyword density %": _range(*blog.density_range),
+                "Blog meta description characters": _range(*blog.meta_length_range),
+                "Blog max reading grade": f"{blog.max_grade:g}",
+                "Blog min citations": str(blog.min_citations),
+                "LinkedIn characters": _range(*post.char_range),
+                "LinkedIn hashtags": _range(*post.hashtag_range),
+                "LinkedIn max hook characters": str(post.max_hook_chars),
+                "LinkedIn min paragraphs": str(post.min_paragraphs),
+                "LinkedIn max paragraph characters": str(post.max_paragraph_chars),
+            },
+        )
 
     def send(self, text: str, brand_profile_id: str = DEFAULT_PROFILE_ID) -> None:
         """Send the marketer's message and run the workflow; read the replies with `messages()`."""
