@@ -363,7 +363,8 @@ def test_rebuilding_a_brief_replaces_the_topics_only_brief(model):
     _, state = run_plan(RESEARCH_ONLY, {"topic-1": topic()}, graph=graph)
 
     model.reply = draft(summary="A newer summary.")
-    _, state = run_plan(RESEARCH_ONLY, state["topics"], graph=graph)
+    newer = [{"agent": "content_strategist", "instructions": "a newer angle"}]
+    _, state = run_plan(newer, state["topics"], graph=graph)
 
     assert state["topics"]["topic-1"]["brief"]["summary"] == "A newer summary."
 

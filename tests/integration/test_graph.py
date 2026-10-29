@@ -11,6 +11,7 @@ from contentblitz.core.config import Settings
 from contentblitz.integrations import llm, search
 from contentblitz.integrations.llm import StructuredOutputError
 from contentblitz.integrations.search import SearchResult
+from contentblitz.workflow import brief_cache
 from contentblitz.workflow import graph as workflow
 from contentblitz.workflow.brand_profiles import BrandProfileStore
 from contentblitz.workflow.graph import build_graph
@@ -1597,6 +1598,8 @@ def test_defaults_fields_reach_the_writers_when_no_other_profile_is_active(
 def brief_made_as(monkeypatch, brand_profile_id, thread):
     """Researches a new Topic under a profile; returns its Brief and the brand-neutral calls."""
     fake_router(monkeypatch, new_content("blog"))
+    # Both runs have identical research, so keep the Brief cache from answering the second (#76).
+    monkeypatch.setattr(brief_cache, "cached_brief", lambda record, instructions: None)
     # Pin research timestamps so the two Briefs don't differ when a second ticks over.
     monkeypatch.setattr(research_agent, "_now", lambda: "2026-01-01T00:00:00+00:00")
     calls = record_model_calls(monkeypatch)
