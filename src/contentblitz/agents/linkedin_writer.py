@@ -40,6 +40,7 @@ from contentblitz.workflow.content_checks import (
     range_text,
 )
 from contentblitz.workflow.formats import PIECE_FORMATS, LinkedInTemplate
+from contentblitz.workflow.hand_edit import brief_facts
 from contentblitz.workflow.plan import current_step
 from contentblitz.workflow.progress import progress_message
 from contentblitz.workflow.quality_loop import Attempt, QualityFormat, quality_loop, quality_text
@@ -157,13 +158,6 @@ def _brief_text(brief: ResearchBrief) -> str:
         f"Content angles:\n{angles or 'none'}\n\n"
         f"Keywords: {keywords}"
     )
-
-
-def _brief_facts(brief: ResearchBrief) -> str:
-    """The Brief's findings and statistics, which every figure in the post must come from."""
-    findings = [f["statement"] for f in brief["key_findings"]]
-    statistics = [f"{s['figure']}: {s['description']}" for s in brief["statistics"]]
-    return "\n".join([*findings, *statistics])
 
 
 def _step(state: ContentBlitzState) -> PlanStep:
@@ -309,7 +303,7 @@ def _refined_latest_revision(state: ContentBlitzState) -> dict | None:
 
 
 def _checks(state: ContentBlitzState, draft: dict, avoid: list[str]) -> list[CheckResult]:
-    post = Post(text=draft["post"], brief_facts=_brief_facts(_topic(state)["brief"]))
+    post = Post(text=draft["post"], brief_facts=brief_facts(_topic(state)["brief"]))
     rules = get_model_config().quality.linkedin
     return check_linkedin(post, rules, _step(state).get("length"), _hashtag_range(state), avoid)
 

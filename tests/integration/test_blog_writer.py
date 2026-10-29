@@ -15,6 +15,7 @@ from contentblitz.core.config import DEFAULT_CONFIG_PATH
 from contentblitz.integrations import llm
 from contentblitz.workflow.brand_profiles import BrandProfileStore
 from contentblitz.workflow.graph import build_graph
+from contentblitz.workflow.workspace import Workspace
 
 # What a Revision records when the conversation's active Brand Profile is Default (#52).
 DEFAULT_RECORD = {"id": "default", "name": "Default", "updated_at": "2026-10-29T00:00:00+00:00"}
@@ -959,3 +960,34 @@ def test_refining_a_blog_whose_topic_has_no_brief_says_so_and_changes_nothing(mo
     )
     assert model.calls == []
     assert state["content_pieces"]["piece-1"]["revisions"] == [HAND_EDIT]
+
+
+def test_a_refinement_after_a_workspace_hand_edit_starts_from_the_edited_text(model):
+    model.reply = PASSING
+    graph = build_graph()
+    blog = {
+        "kind": "blog",
+        "topic_id": "topic-1",
+        "title": "AI in Healthcare: How Hospitals Read Scans Faster",
+        "revisions": [DRAFT_REVISION],
+    }
+    graph.update_state(
+        config(),
+        {
+            "topics": {"topic-1": topic() | {"piece_ids": ["piece-1"]}},
+            "active_topic_id": "topic-1",
+            "content_pieces": {"piece-1": blog},
+        },
+        as_node="query_handler",
+    )
+    Workspace(graph, "t1").edit("piece-1", HAND_EDIT_BODY, META_155)
+
+    plan = [{"agent": "blog_writer", "target": "piece-1", "instructions": "tighten it"}]
+    _, state = run_plan(plan, graph=graph)
+
+    assert HAND_EDIT_BODY in prompt_of(model.calls_to("blog_writer")[0])
+    assert [r["origin"] for r in state["content_pieces"]["piece-1"]["revisions"]] == [
+        "draft",
+        "hand_edit",
+        "refinement",
+    ]

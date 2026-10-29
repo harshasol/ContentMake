@@ -21,6 +21,7 @@ from contentblitz.workflow.export import (
     export_report,
     formats,
 )
+from contentblitz.workflow.hand_edit import hand_edit_revision
 from contentblitz.workflow.report import render_report
 from contentblitz.workflow.state import (
     ContentBlitzState,
@@ -29,7 +30,7 @@ from contentblitz.workflow.state import (
     ResearchBrief,
     Revision,
 )
-from contentblitz.workflow.topics import active_topic, find_revision
+from contentblitz.workflow.topics import active_topic, add_revision, find_revision
 
 
 @dataclass(frozen=True)
@@ -251,6 +252,18 @@ class Workspace:
         if research is None:
             return []
         return [export_report(research.topic_name, research.report, f) for f in REPORT_EXPORTS]
+    def edit(self, piece_id: str, text: str, meta_description: str | None = None) -> None:
+        """Save a hand edit of a blog (`text` and `meta_description`) or LinkedIn post (`text`)
+        as a new *hand edit* Revision (#63). Its Quality Score is the rule checks re-run, with
+        the reviewer's scores carried over as *not re-reviewed*. KeyError for an unknown piece,
+        ValueError for an image."""
+        state = self._state()
+        if piece_id not in (state.get("content_pieces") or {}):
+            raise KeyError(piece_id)
+        revision = hand_edit_revision(state, piece_id, text, meta_description)
+        self.graph.update_state(
+            self._config, add_revision(state, piece_id, revision), as_node="query_handler"
+        )
 
     def topic_bundle(self) -> Export | None:
         """The active Topic as one zip (#69): the latest Revision of every piece in its main
