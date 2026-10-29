@@ -14,7 +14,12 @@ from langchain_core.messages import AnyMessage, HumanMessage
 from contentblitz.core.config import ModelConfig, Settings, get_model_config, get_settings
 from contentblitz.workflow.brand_profiles import DEFAULT_PROFILE_ID
 from contentblitz.workflow.report import render_report
-from contentblitz.workflow.state import ContentBlitzState, ImageMetadata, ResearchBrief
+from contentblitz.workflow.state import (
+    ContentBlitzState,
+    ContentPiece,
+    ImageMetadata,
+    ResearchBrief,
+)
 from contentblitz.workflow.topics import active_topic, find_revision
 
 
@@ -36,6 +41,7 @@ class Research:
     topic_name: str
     brief: ResearchBrief
     report: str
+
 
 # The providers the Settings tab reports on, and the Settings field holding each one's key.
 PROVIDER_KEYS = {
@@ -60,6 +66,26 @@ class ConfigurationView:
 
 def _range(low: float, high: float) -> str:
     return f"{low}–{high}"
+
+
+@dataclass(frozen=True)
+class PieceRow:
+    """One Content Piece as the dashboard lists it: its latest Revision number and Quality Score
+    (None for an image, which has none)."""
+
+    piece_id: str
+    kind: str
+    title: str
+    revision: int
+    score: int | None
+
+
+@dataclass(frozen=True)
+class TopicPieces:
+    """The Content Pieces of one Topic, in the order they were made."""
+
+    topic: str
+    pieces: list[PieceRow]
 
 
 def new_thread_id() -> str:
@@ -127,6 +153,22 @@ class Workspace:
             },
         )
 
+    def dashboard(self, all_topics: bool) -> list[TopicPieces]:
+        """The Content Pieces of the active Topic, or of every Topic, grouped by Topic (#60).
+
+        Pieces come from each Topic's `piece_ids`; a Topic without pieces is left out, so an
+        empty list means the tab shows its empty state.
+        """
+        state = self._state()
+        topics = state.get("topics") or {}
+        chosen = list(topics.values()) if all_topics else [active_topic(state)]
+        pieces = state.get("content_pieces") or {}
+        return [
+            TopicPieces(topic["name"], [_row(i, pieces[i]) for i in topic["piece_ids"]])
+            for topic in chosen
+            if topic and topic.get("piece_ids")
+        ]
+
     def send(self, text: str, brand_profile_id: str = DEFAULT_PROFILE_ID) -> None:
         """Send the marketer's message and run the workflow; read the replies with `messages()`."""
         self.graph.invoke(
@@ -141,3 +183,15 @@ def _image(message: AnyMessage, state: ContentBlitzState) -> ImageMetadata | Non
         return None
     revision = find_revision(state, reference["piece_id"], reference["revision"])
     return revision.get("image") if revision else None
+
+
+def _row(piece_id: str, piece: ContentPiece) -> PieceRow:
+    latest = piece["revisions"][-1]
+    quality = latest.get("quality_score")
+    return PieceRow(
+        piece_id,
+        piece["kind"],
+        piece["title"],
+        len(piece["revisions"]),
+        quality["score"] if quality else None,
+    )

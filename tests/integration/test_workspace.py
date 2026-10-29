@@ -178,6 +178,7 @@ def test_research_is_none_without_a_brief_or_an_active_topic():
     assert _seed(None).research() is None
     assert _seed(_brief(), active=None).research() is None
 
+
 def test_the_configuration_shows_which_keys_are_set_and_never_their_values():
     from contentblitz.core.config import get_model_config
 
@@ -196,6 +197,7 @@ def test_the_configuration_shows_which_keys_are_set_and_never_their_values():
     assert "secret" not in repr(view)
 
 
+
 def test_the_configuration_describes_models_search_images_and_thresholds():
     from contentblitz.core.config import get_model_config
 
@@ -210,3 +212,81 @@ def test_the_configuration_describes_models_search_images_and_thresholds():
     assert view.image_models == config.image.models
     assert view.thresholds["Pass mark"] == "7"
     assert view.thresholds["Blog words"] == "900–1800"
+
+
+REVISION = {"origin": "draft", "created_at": "2026-10-29T00:00:00+00:00"}
+
+
+def scored(text, points):
+    quality = {"score": points, "passed": True, "checks": [], "review": None}
+    return {**REVISION, "text": text, "quality_score": {**quality, "reviewer_unavailable": False}}
+
+
+def seed(graph, thread="t1"):
+    """AI (a blog with two Revisions, an image), Yoga (a post, active) and an empty Topic."""
+    pieces = {
+        "piece-1": {
+            "kind": "blog",
+            "topic_id": "topic-1",
+            "title": "AI Blog",
+            "revisions": [scored("a", 70), scored("b", 88)],
+        },
+        "piece-2": {
+            "kind": "image",
+            "topic_id": "topic-1",
+            "title": "AI image",
+            "revisions": [{**REVISION, "text": "alt"}],
+        },
+        "piece-3": {
+            "kind": "linkedin_post",
+            "topic_id": "topic-2",
+            "title": "Yoga post",
+            "revisions": [scored("c", 91)],
+        },
+    }
+    topics = {
+        "topic-1": {"name": "AI", "piece_ids": ["piece-1", "piece-2"]},
+        "topic-2": {"name": "Yoga", "piece_ids": ["piece-3"]},
+        "topic-3": {"name": "Empty", "piece_ids": []},
+    }
+    graph.update_state(
+        {"configurable": {"thread_id": thread}},
+        {"topics": topics, "active_topic_id": "topic-2", "content_pieces": pieces},
+        as_node="query_handler",
+    )
+
+
+def test_the_active_topics_pieces_show_kind_title_latest_revision_and_score():
+    graph = build_graph()
+    seed(graph)
+
+    [group] = Workspace(graph, "t1").dashboard(all_topics=False)
+
+    assert group.topic == "Yoga"
+    [piece] = group.pieces
+    assert (piece.piece_id, piece.kind, piece.title, piece.revision, piece.score) == (
+        "piece-3",
+        "linkedin_post",
+        "Yoga post",
+        1,
+        91,
+    )
+
+
+def test_all_topics_are_grouped_by_topic_and_images_have_no_score():
+    graph = build_graph()
+    seed(graph)
+
+    groups = Workspace(graph, "t1").dashboard(all_topics=True)
+
+    assert [g.topic for g in groups] == ["AI", "Yoga"]  # a Topic without pieces is left out
+    blog, image = groups[0].pieces
+    assert (blog.revision, blog.score) == (2, 88)
+    assert (image.kind, image.revision, image.score) == ("image", 1, None)
+
+
+def test_an_empty_conversation_has_nothing_to_list():
+    workspace = Workspace(build_graph(), "fresh")
+
+    assert workspace.dashboard(all_topics=False) == []
+    assert workspace.dashboard(all_topics=True) == []
