@@ -83,3 +83,34 @@ def test_caption_format_for_small_and_cached_counts():
         format_caption(cost_usd=0.1, tokens=1000, cached=3, fallbacks=1)
         == "This run: $0.100 · 1.0k tokens · 3 cached · 1 fallback"
     )
+
+
+def run_concurrently(fn, workers=8):
+    from concurrent.futures import ThreadPoolExecutor
+
+    with ThreadPoolExecutor(workers) as pool:
+        return [f.result() for f in [pool.submit(fn) for _ in range(workers)]]
+
+
+def test_concurrent_get_ledger_calls_share_one_ledger(monkeypatch):
+    import time
+
+    from contentblitz.core import usage
+
+    real_load = UsageLedger._load
+    monkeypatch.setattr(UsageLedger, "_load", lambda self: (time.sleep(0.05), real_load(self))[1])
+
+    ledgers = run_concurrently(usage.get_ledger)
+
+    assert len({id(ledger) for ledger in ledgers}) == 1
+
+
+def test_the_event_factory_fills_ts_run_and_conversation_from_the_call_context():
+    from contentblitz.core import call_context, usage
+
+    with call_context.run("conv-9", "run-9"):
+        made = usage.event("search", agent="research", model="Tavily")
+
+    assert (made.run_id, made.conversation_id, made.kind) == ("run-9", "conv-9", "search")
+    assert datetime.fromisoformat(made.ts).utcoffset() is not None
+    assert usage.event("image", agent="a", model="m").run_id is None

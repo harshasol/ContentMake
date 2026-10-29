@@ -80,7 +80,7 @@ def test_a_run_is_one_trace_with_agent_steps_and_provider_calls_nested_under_the
     assert str(root["id"]).replace("-", "") == run_id
     assert {r["trace_id"] for r in runs} == {root["id"]}
     [step] = by_name(client, "blog_writer")
-    assert step["parent_run_id"] == root["id"]
+    assert str(root["id"]) in step["dotted_order"]  # the step is nested under the root
     calls = [r for r in runs if r["run_type"] == "llm"]
     assert len(calls) == 8  # the draft and 3 revisions, each reviewed
     assert all(str(step["id"]) in c["dotted_order"] for c in calls)
@@ -90,10 +90,7 @@ def test_the_root_carries_conversation_run_topic_and_brand_profile(monkeypatch):
     client = switch_tracing(monkeypatch)
     fake_litellm(monkeypatch)
     workspace = scripted_workspace(monkeypatch)
-    workspace.send("write a blog")  # the first run makes the Topic active
-    client.runs.clear()
-
-    run_id = workspace.send("another blog")
+    run_id = workspace.send("write a blog")
 
     [root] = roots(client)
     meta = metadata(root)
@@ -101,6 +98,32 @@ def test_the_root_carries_conversation_run_topic_and_brand_profile(monkeypatch):
     assert meta["run_id"] == run_id
     assert meta["topic"] == "AI in healthcare"
     assert meta["brand_profile_id"] == "default"
+
+
+def test_the_root_carries_the_topic_active_at_the_end_of_a_run_that_switches_topic(monkeypatch):
+    client = switch_tracing(monkeypatch)
+    fake_litellm(monkeypatch)
+    names = iter(["AI in healthcare", "Remote work"])
+
+    def query_handler(state):
+        name = next(names)
+        return {
+            "plan": blog.BLOG,
+            "completed_steps": [],
+            "abort_reason": None,
+            "topics": {name: blog.topic(name)},
+            "active_topic_id": name,
+        }
+
+    monkeypatch.setattr(workflow, "query_handler", query_handler)
+    workspace = Workspace(workflow.build_graph(), "conv-1")
+    workspace.send("write a blog")
+    client.runs.clear()
+
+    workspace.send("now about remote work")
+
+    [root] = roots(client)
+    assert metadata(root)["topic"] == "Remote work"
 
 
 def test_model_spans_carry_model_tokens_cost_and_cache_hit(monkeypatch):

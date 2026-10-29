@@ -17,6 +17,7 @@ from test_research_brief import (
 
 from contentblitz.core import cache
 from contentblitz.core import config as core_config
+from contentblitz.core.usage import get_ledger
 from contentblitz.integrations import llm
 from contentblitz.workflow import brief_cache
 
@@ -83,10 +84,40 @@ def test_different_sources_instructions_or_model_miss_the_cache(model, monkeypat
     assert len(model.calls) == 5
 
 
+def test_changing_only_the_fallback_models_still_hits(model, monkeypatch):
+    run_plan(RESEARCH_ONLY, {"topic-1": topic()})
+    strategist = core_config.get_model_config().agents["content_strategist"]
+    other = strategist.model_copy(update={"models": [strategist.models[0], "other/fallback"]})
+    with_config(monkeypatch, agents={"content_strategist": other})
+
+    run_plan(RESEARCH_ONLY, {"topic-1": topic()}, thread="t2")
+
+    assert len(model.calls) == 1
+
+
+def test_a_brief_cache_hit_is_recorded_as_a_cached_free_completion(model):
+    run_plan(RESEARCH_ONLY, {"topic-1": topic()})
+    assert get_ledger().events == []  # the fake model call records nothing, and a miss neither
+
+    run_plan(RESEARCH_ONLY, {"topic-1": topic()}, thread="t2")
+
+    [hit] = get_ledger().events
+    primary = core_config.get_model_config().for_agent("content_strategist").primary
+    assert (hit.agent, hit.kind, hit.model, hit.primary) == (
+        "content_strategist",
+        "completion",
+        primary,
+        primary,
+    )
+    assert (hit.cached, hit.cost_usd, hit.tokens_in, hit.tokens_out) == (True, 0.0, 0, 0)
+    assert get_ledger().cache_hit_rate() == 1.0
+    assert [(b.name, b.cached) for b in get_ledger().by_agent()] == [("content_strategist", 1)]
+
+
 def test_the_brief_cache_survives_a_new_process(model):
     run_plan(RESEARCH_ONLY, {"topic-1": topic()})
 
-    brief_cache.close_all()  # a new process has opened nothing yet
+    cache.close_all()  # a new process has opened nothing yet
     run_plan(RESEARCH_ONLY, {"topic-1": topic()}, thread="t2")
 
     assert len(model.calls) == 1
@@ -114,4 +145,4 @@ def test_a_failed_brief_is_not_cached(model):
 @pytest.fixture(autouse=True)
 def _close_caches():
     yield
-    brief_cache.close_all()
+    cache.close_all()

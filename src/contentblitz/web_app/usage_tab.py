@@ -5,8 +5,7 @@ from datetime import datetime
 import pandas as pd
 import streamlit as st
 
-from contentblitz.core.usage import Breakdown, Totals
-from contentblitz.workflow.workspace import UsageView, Workspace
+from contentblitz.workflow.workspace import Breakdown, Totals, UsageView, Workspace
 
 NO_USAGE = "No usage yet. Ask for something in the Chat tab and its cost will show up here."
 ESTIMATE_NOTE = (

@@ -27,7 +27,7 @@ def event(**fields) -> UsageEvent:
 def seed_usage(conversation_id: str) -> None:
     now = datetime.now(UTC)
     ledger = get_ledger()
-    ledger.record_request("old", "An older request")
+    ledger.record_run("old", "An older request", (now - timedelta(days=3)).isoformat(), 1.0)
     ledger.record(
         event(
             run_id="old",
@@ -38,7 +38,7 @@ def seed_usage(conversation_id: str) -> None:
             tokens_out=0,
         )
     )
-    ledger.record_request("mine", "Write about caching\nplease")
+    ledger.record_run("mine", "Write about caching\nplease", now.isoformat(), 1.0)
     ledger.record(
         event(run_id="mine", conversation_id=conversation_id, ts=now.isoformat(), cost_usd=0.25)
     )

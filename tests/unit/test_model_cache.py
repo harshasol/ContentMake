@@ -198,3 +198,24 @@ def test_the_cache_folder_name_is_configurable():
     assert cache.cache_dir("search", config) == (
         get_settings().contentblitz_data_dir / "elsewhere" / "search"
     )
+
+
+def test_concurrent_calls_build_the_litellm_cache_once(monkeypatch):
+    from concurrent.futures import ThreadPoolExecutor
+
+    built = []
+    real = litellm.Cache
+
+    def slow_cache(*args, **kwargs):
+        time.sleep(0.05)
+        built.append(1)
+        return real(*args, **kwargs)
+
+    monkeypatch.setattr(litellm, "Cache", slow_cache)
+    config = load_model_config(DEFAULT_CONFIG_PATH)
+
+    with ThreadPoolExecutor(8) as pool:
+        for future in [pool.submit(llm._configure_cache, config) for _ in range(8)]:
+            future.result()
+
+    assert len(built) == 1

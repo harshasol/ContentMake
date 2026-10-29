@@ -2,8 +2,9 @@
 
 Tracing is on only when `LANGSMITH_TRACING` is true and a LangSmith API key is set; otherwise the
 workspace runs inside `tracing_context(enabled=False)`, so the spans the integration modules open
-send nothing. The LangGraph run is the root trace (its id is the run id), each plan step is a
-child, and `span` is how the integration modules nest provider calls under the step.
+send nothing. The `run_trace` run is the root trace (its id is the run id), each plan step is nested
+under it (inside LangGraph's own run), and `span` is how the integration modules nest provider
+calls under the step.
 """
 
 import uuid
@@ -45,21 +46,25 @@ def tracing() -> Iterator[None]:
             yield
 
 
-def run_config(
-    run_id: str, conversation_id: str, brand_profile_id: str | None, topic: str | None
-) -> dict:
-    """LangGraph config that makes the invocation the run's root trace, tagged for finding it."""
-    return {
-        "run_id": uuid.UUID(run_id),
-        "run_name": "ContentBlitz run",
-        "tags": [f"conversation:{conversation_id}", f"run:{run_id}"],
-        "metadata": {
+@contextmanager
+def run_trace(
+    run_id: str, conversation_id: str, brand_profile_id: str | None
+) -> Iterator[langsmith.RunTree]:
+    """The run's root trace: its id is the ledger run id, tagged for finding it. The graph's
+    steps nest under it; add the `topic` metadata before leaving, once the run has settled on
+    one."""
+    with langsmith.trace(
+        "ContentBlitz run",
+        "chain",
+        run_id=uuid.UUID(run_id),
+        tags=[f"conversation:{conversation_id}", f"run:{run_id}"],
+        metadata={
             "conversation_id": conversation_id,
             "run_id": run_id,
-            "topic": topic,
             "brand_profile_id": brand_profile_id,
         },
-    }
+    ) as root:
+        yield root
 
 
 @contextmanager

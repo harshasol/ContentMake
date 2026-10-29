@@ -2,9 +2,9 @@
 
 import base64
 import io
+import threading
 import time
 from dataclasses import dataclass
-from datetime import UTC, datetime
 from typing import TypedDict
 
 import httpx
@@ -16,6 +16,7 @@ from contentblitz.core import cache, call_context, tracing, usage
 from contentblitz.core.config import Aspect, ModelConfig, get_model_config, get_settings
 
 _cache_key: tuple | None = None
+_cache_lock = threading.Lock()  # LiteLLM's cache is one global; agents call from many threads
 
 
 class StructuredOutputError(ValueError):
@@ -39,15 +40,16 @@ def _configure_cache(config: ModelConfig) -> None:
     options = cache.options("model_responses", config)
     folder = cache.cache_dir("model_responses", config)
     key = (folder, options.enabled, options.expiry_seconds)
-    if key == _cache_key and (litellm.cache is not None) == options.enabled:
-        return
-    if options.enabled:
-        litellm.cache = litellm.Cache(
-            type="disk", disk_cache_dir=str(folder), ttl=options.expiry_seconds
-        )
-    else:
-        litellm.cache = None
-    _cache_key = key
+    with _cache_lock:
+        if key == _cache_key and (litellm.cache is not None) == options.enabled:
+            return
+        if options.enabled:
+            litellm.cache = litellm.Cache(
+                type="disk", disk_cache_dir=str(folder), ttl=options.expiry_seconds
+            )
+        else:
+            litellm.cache = None
+        _cache_key = key
 
 
 def reset_cache() -> None:
@@ -55,13 +57,13 @@ def reset_cache() -> None:
 
     Clear cache (#77) calls this before deleting the folder."""
     global _cache_key
-    current = litellm.cache
-    disk = getattr(current, "cache", None)
-    handle = getattr(disk, "disk_cache", None)
-    if handle is not None:
-        handle.close()
-    litellm.cache = None
-    _cache_key = None
+    with _cache_lock:
+        disk = getattr(litellm.cache, "cache", None)
+        handle = getattr(disk, "disk_cache", None)
+        if handle is not None:
+            handle.close()
+        litellm.cache = None
+        _cache_key = None
 
 
 def _tokens(response, field: str) -> int:
@@ -86,7 +88,7 @@ def _litellm_cost(response) -> float | None:
     return float(cost) if cost is not None else None
 
 
-def _annotate(span, model: str, response, config: ModelConfig) -> None:
+def _annotate(span, model: str, response, cached: bool, cost: float) -> None:
     """Put the model, tokens, cost and cache hit on the model call's span."""
     tokens_in = _tokens(response, "prompt_tokens")
     tokens_out = _tokens(response, "completion_tokens")
@@ -96,8 +98,8 @@ def _annotate(span, model: str, response, config: ModelConfig) -> None:
             "ls_model_name": model,
             "tokens_in": tokens_in,
             "tokens_out": tokens_out,
-            "cost_usd": 0.0 if _cache_hit(response) else _cost(response, model, config)[0],
-            "cache_hit": _cache_hit(response),
+            "cost_usd": cost,
+            "cache_hit": cached,
         }
     )
     span.end(
@@ -139,26 +141,21 @@ def _record_completion(
     answered_by: str,
     response,
     started: float,
-    config: ModelConfig,
+    cached: bool,
+    cost: tuple[float, bool],
     failed: list[dict[str, str]],
 ):
     """Append the call to the usage ledger, tagged from the call context (spec #24)."""
-    context = call_context.current()
-    cached = _cache_hit(response)
-    cost, estimated = (0.0, False) if cached else _cost(response, answered_by, config)
     usage.record(
-        usage.UsageEvent(
-            ts=datetime.now(UTC).isoformat(),
-            run_id=context.run_id,
-            conversation_id=context.conversation_id,
+        usage.event(
+            "completion",
             agent=agent,
-            kind="completion",
             model=answered_by,
             primary=primary,
             tokens_in=_tokens(response, "prompt_tokens"),
             tokens_out=_tokens(response, "completion_tokens"),
-            cost_usd=cost,  # LiteLLM still prices a cache hit; the ledger doesn't
-            estimated=estimated,
+            cost_usd=cost[0],
+            estimated=cost[1],
             latency_s=round(time.perf_counter() - started, 3),
             cached=cached,
             failed=failed,
@@ -193,7 +190,10 @@ def _complete(agent: str, messages: list[dict], config: ModelConfig | None, **kw
                     timeout=config.llm.timeout_seconds,
                     **kwargs,
                 )
-                _annotate(span, model, response, config)
+                cached = _cache_hit(response)
+                # LiteLLM still prices a cache hit; the ledger and the trace don't
+                cost = (0.0, False) if cached else _cost(response, model, config)
+                _annotate(span, model, response, cached, cost[0])
         except Exception as error:  # noqa: BLE001 - any failure moves on to the next model
             failed.append(_failure(model, error))
             if index == len(models.models) - 1:
@@ -201,7 +201,7 @@ def _complete(agent: str, messages: list[dict], config: ModelConfig | None, **kw
             continue
         break
     answered_by = model
-    _record_completion(agent, models.primary, answered_by, response, started, config, failed)
+    _record_completion(agent, models.primary, answered_by, response, started, cached, cost, failed)
     return Reply(response.choices[0].message.content or "", answered_by)
 
 
@@ -412,15 +412,11 @@ def _generate(
 def _record_image(
     model: str, response, started: float, config: ModelConfig, failed: list[ModelOutcome]
 ) -> None:
-    context = call_context.current()
     cost, estimated = _image_cost(response, model, config)
     usage.record(
-        usage.UsageEvent(
-            ts=datetime.now(UTC).isoformat(),
-            run_id=context.run_id,
-            conversation_id=context.conversation_id,
-            agent=context.agent or "image_generator",
-            kind="image",
+        usage.event(
+            "image",
+            agent=call_context.current().agent or "image_generator",
             model=model,
             primary=config.image.primary,
             cost_usd=cost,

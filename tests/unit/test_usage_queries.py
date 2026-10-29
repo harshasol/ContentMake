@@ -21,7 +21,9 @@ def event(**fields) -> UsageEvent:
 
 
 def seed(ledger: UsageLedger) -> UsageLedger:
-    ledger.record_request("run-1", "Write a blog post about caching\nwith examples")
+    ledger.record_run(
+        "run-1", "Write a blog post about caching\nwith examples", "2026-11-04T09:59:58+00:00", 7.5
+    )
     ledger.record(event())
     ledger.record(
         event(
@@ -83,6 +85,16 @@ def test_by_model_and_searches_per_provider(tmp_path):
     assert [(r.name, r.calls) for r in ledger.searches_per_provider()] == [("tavily", 1)]
 
 
+def test_cache_hit_rate_leaves_images_out_because_they_are_never_cacheable(tmp_path):
+    ledger = UsageLedger(tmp_path / "usage.jsonl")
+    ledger.record(event(cached=True))
+    ledger.record(event())
+    ledger.record(event(kind="image"))
+    ledger.record(event(kind="image"))
+
+    assert ledger.cache_hit_rate() == 1 / 2
+
+
 def test_cache_hit_rate_is_none_without_calls(tmp_path):
     assert seeded(tmp_path).cache_hit_rate() == 1 / 3
     assert UsageLedger(tmp_path / "empty.jsonl").cache_hit_rate() is None
@@ -92,16 +104,19 @@ def test_recent_runs_newest_first_with_the_first_line_of_the_request(tmp_path):
     ledger = seeded(tmp_path)
 
     newest, oldest = ledger.recent_runs()
+    newest_latencies = sum(e.latency_s for e in ledger.select(run_id="run-2"))
 
     assert newest.run_id == "run-2" and newest.request is None
     assert newest.fallback is True and newest.estimated is True
     assert oldest.request == "Write a blog post about caching"
-    assert (oldest.cost_usd, oldest.tokens, oldest.duration_s) == (0.30, 1650, 2.0)
+    assert (oldest.cost_usd, oldest.tokens) == (0.30, 1650)
+    assert (oldest.ts, oldest.duration_s) == ("2026-11-04T09:59:58+00:00", 7.5)  # the run record
+    assert newest.duration_s == newest_latencies  # no record: the sum of call latencies
     assert oldest.fallback is False
     assert len(ledger.recent_runs(limit=1)) == 1
 
 
-def test_requests_survive_a_reload_and_do_not_count_as_events(tmp_path):
+def test_run_records_survive_a_reload_and_do_not_count_as_events(tmp_path):
     reloaded = UsageLedger(seeded(tmp_path).path)
 
     assert len(reloaded.events) == 3
@@ -117,3 +132,28 @@ def test_fallback_events_name_the_agent_the_failed_provider_the_one_used_and_the
         "tavily",
         "429 rate limit",
     )
+
+
+def test_run_records_live_in_their_own_file_next_to_the_events(tmp_path):
+    ledger = seeded(tmp_path)
+
+    assert all('"agent"' in line for line in ledger.path.read_text().splitlines())
+    [record] = (tmp_path / "runs.jsonl").read_text().splitlines()
+    assert '"run-1"' in record and '"duration_s": 7.5' in record
+
+
+def test_clear_empties_the_run_records_too(tmp_path):
+    ledger = seeded(tmp_path)
+
+    ledger.clear()
+
+    assert not (tmp_path / "runs.jsonl").exists()
+    assert ledger.runs == {} and UsageLedger(ledger.path).runs == {}
+
+
+def test_a_run_record_that_cannot_be_written_is_swallowed_by_the_ledger(tmp_path):
+    blocker = tmp_path / "blocked"
+    blocker.write_text("a file where the folder should be")
+    ledger = UsageLedger(blocker / "usage.jsonl")
+
+    ledger.record_run("run-1", "a request", "2026-11-04T10:00:00+00:00", 1.0)  # must not raise
