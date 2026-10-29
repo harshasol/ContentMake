@@ -5,6 +5,7 @@ from typing import Annotated, Literal, NotRequired, TypedDict
 from langchain_core.messages import AnyMessage
 from langgraph.graph.message import add_messages
 
+from contentblitz.core.config import Aspect
 from contentblitz.workflow.formats import AgentName, PieceKind
 from contentblitz.workflow.quality_score import QualityScore
 from contentblitz.workflow.routing import Intent, Template
@@ -86,6 +87,26 @@ class Topic(TypedDict):
 
 
 RevisionOrigin = Literal["draft", "refinement", "hand_edit"]
+ImageUse = Literal["blog_header", "linkedin", "general"]
+PLACEHOLDER_MODEL = "placeholder"
+
+
+class ImageMetadata(TypedDict):
+    """The fixed record an image Revision keeps about its image. See spec #21."""
+
+    request: str  # the marketer's request, as the step's instructions or their message
+    prompt: str  # the optimised prompt the image model was given
+    alt_text: str
+    use: ImageUse
+    aspect: Aspect
+    model: str  # the image model that made it, or PLACEHOLDER_MODEL
+    size: str  # the saved image's "WIDTHxHEIGHT"
+    created_at: str  # ISO 8601, UTC
+    file_path: str  # the PNG under the data folder; old Revisions' files are kept
+    provider_url: str | None  # the provider's link, if it gave one
+    provider_url_temporary: bool  # provider links expire: the file is the copy to keep
+    placeholder: bool
+    fallbacks: list[str]  # the image models tried and failed before this one
 
 
 class Revision(TypedDict):
@@ -94,7 +115,7 @@ class Revision(TypedDict):
     Only the result a writer's quality loop keeps becomes a Revision, never its Attempts.
     """
 
-    text: str  # Markdown for a blog, plain text for a LinkedIn post
+    text: str  # Markdown for a blog, plain text for a LinkedIn post, the alt text for an image
     origin: RevisionOrigin
     created_at: str  # ISO 8601, UTC
     # A blog's SEO fields, and the template any writer used; the keyword and template carry over
@@ -102,8 +123,10 @@ class Revision(TypedDict):
     meta_description: NotRequired[str]
     target_keyword: NotRequired[str]
     template: NotRequired[Template]
-    # How it measured up when it was made: the score and each check's result.
+    # How it measured up when it was made: the score and each check's result. Text formats only.
     quality_score: NotRequired[QualityScore]
+    # An image Revision's image: its file and how it was made.
+    image: NotRequired[ImageMetadata]
 
 
 class ContentPiece(TypedDict):

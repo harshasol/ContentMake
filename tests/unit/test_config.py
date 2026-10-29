@@ -147,3 +147,46 @@ def test_linkedin_ranges_are_read_from_config(tmp_path):
     assert (linkedin.max_hook_chars, linkedin.min_paragraphs) == (120, 3)
     assert linkedin.max_paragraph_chars == 250
     assert linkedin.cta_phrases == ["register", "sign up"]
+
+
+def test_shipped_config_sizes_each_image_model_for_each_aspect():
+    image = load_model_config(DEFAULT_CONFIG_PATH).image
+    assert image.models == ["openai/gpt-image-1", "openai/dall-e-3"]
+    sizes = {
+        model: [image.size_for(model, a) for a in ("landscape", "square", "portrait")]
+        for model in image.models
+    }
+    assert sizes == {
+        "openai/gpt-image-1": ["1536x1024", "1024x1024", "1024x1536"],
+        "openai/dall-e-3": ["1792x1024", "1024x1024", "1024x1792"],
+    }
+    assert [image.quality_for(m) for m in image.models] == ["medium", "standard"]
+    assert "illustration" in image.default_style
+
+
+def test_image_settings_are_read_from_config_and_default_when_missing(tmp_path):
+    def image_config(image):
+        path = tmp_path / "models.yaml"
+        path.write_text(
+            "agents:\n"
+            + "".join(f"  {a}:\n    models: [{MODELS}]\n" for a in AGENT_NAMES)
+            + image
+            + "search:\n  providers: [serpapi]\n"
+        )
+        return load_model_config(path).image
+
+    configured = image_config(
+        "image:\n  models: [openai/dall-e-2]\n"
+        "  sizes:\n    openai/dall-e-2: {landscape: 512x512}\n"
+        "  quality:\n    openai/dall-e-2: hd\n"
+        "  default_style: flat pastel vector art\n"
+    )
+    assert configured.size_for("openai/dall-e-2", "landscape") == "512x512"
+    assert configured.quality_for("openai/dall-e-2") == "hd"
+    assert configured.default_style == "flat pastel vector art"
+
+    defaults = image_config("image:\n  models: [openai/gpt-image-1]\n")
+    assert defaults.size_for("openai/gpt-image-1", "landscape") == "1536x1024"
+    assert defaults.size_for("openai/gpt-image-1", "portrait") == "1024x1536"
+    assert defaults.quality_for("openai/gpt-image-1") == "medium"
+    assert defaults.default_style

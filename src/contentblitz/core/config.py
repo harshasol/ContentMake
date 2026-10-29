@@ -108,9 +108,39 @@ class SearchOptions(BaseModel):
     text_cap_chars: int = Field(2000, ge=0)
 
 
+Aspect = Literal["landscape", "square", "portrait"]
+
+# Used for an image model the size map doesn't list (gpt-image-1's sizes).
+DEFAULT_IMAGE_SIZES: dict[Aspect, str] = {
+    "landscape": "1536x1024",
+    "square": "1024x1024",
+    "portrait": "1024x1536",
+}
+DEFAULT_IMAGE_QUALITY = "medium"
+DEFAULT_VISUAL_STYLE = (
+    "clean, modern editorial illustration with soft natural light, a calm professional "
+    "colour palette and plenty of negative space"
+)
+
+
+class ImageOptions(AgentModels):
+    """The image models in fallback order, the size each makes for an aspect, its quality, and
+    the visual style used when no Brand Profile gives one. See spec #21."""
+
+    sizes: dict[str, dict[Aspect, str]] = {}  # model -> aspect -> "WIDTHxHEIGHT"
+    quality: dict[str, str] = {}  # model -> the quality it is asked for
+    default_style: str = DEFAULT_VISUAL_STYLE
+
+    def size_for(self, model: str, aspect: Aspect) -> str:
+        return {**DEFAULT_IMAGE_SIZES, **self.sizes.get(model, {})}[aspect]
+
+    def quality_for(self, model: str) -> str:
+        return self.quality.get(model, DEFAULT_IMAGE_QUALITY)
+
+
 class ModelConfig(BaseModel):
     agents: dict[str, AgentModels]
-    image: AgentModels
+    image: ImageOptions
     search: SearchOptions
     llm: LLMOptions = LLMOptions()
     quality: QualityOptions = QualityOptions()

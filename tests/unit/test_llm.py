@@ -1,6 +1,10 @@
+import base64
+import io
 from types import SimpleNamespace
 
+import httpx
 import pytest
+from PIL import Image
 from pydantic import BaseModel
 
 from contentblitz.core.config import DEFAULT_CONFIG_PATH, load_model_config
@@ -104,3 +108,87 @@ def test_a_structured_reply_falls_back_to_the_configured_model_when_none_is_name
     )
 
     assert reply.model == "openai/gpt-4o-mini"
+
+
+def _png(size=(1536, 1024)):
+    """Image bytes as a provider would return them, made with Pillow."""
+    buffer = io.BytesIO()
+    Image.new("RGB", size, (30, 90, 160)).save(buffer, format="PNG")
+    return buffer.getvalue()
+
+
+def _image_response(b64_json=None, url=None):
+    return SimpleNamespace(data=[SimpleNamespace(b64_json=b64_json, url=url)])
+
+
+def _scripted_image_generation(monkeypatch, response):
+    calls = []
+
+    def fake_image_generation(**kwargs):
+        calls.append(kwargs)
+        return response
+
+    monkeypatch.setattr(llm.litellm, "image_generation", fake_image_generation)
+    return calls
+
+
+def test_generate_image_decodes_a_base64_result_from_the_first_image_model(monkeypatch):
+    png = _png()
+    calls = _scripted_image_generation(
+        monkeypatch, _image_response(b64_json=base64.b64encode(png).decode())
+    )
+
+    image = llm.generate_image("a robot doctor, no text", "landscape")
+
+    assert image == llm.GeneratedImage(data=png, model="openai/gpt-image-1", provider_url=None)
+    [call] = calls
+    assert call["model"] == "openai/gpt-image-1"
+    assert call["prompt"] == "a robot doctor, no text"
+    assert (call["size"], call["quality"]) == ("1536x1024", "medium")
+
+
+def test_generate_image_asks_dall_e_for_base64_at_its_own_size_and_quality(monkeypatch):
+    calls = _scripted_image_generation(
+        monkeypatch, _image_response(b64_json=base64.b64encode(_png()).decode())
+    )
+    config = load_model_config(DEFAULT_CONFIG_PATH)
+    config.image.models = ["openai/dall-e-3"]
+
+    llm.generate_image("a robot doctor", "portrait", config=config)
+
+    [call] = calls
+    assert call["model"] == "openai/dall-e-3"
+    assert call["response_format"] == "b64_json"
+    assert (call["size"], call["quality"]) == ("1024x1792", "standard")
+
+
+def test_generate_image_downloads_a_url_result_and_keeps_the_provider_url(monkeypatch):
+    png = _png((1024, 1024))
+    url = "https://images.example.com/abc.png"
+    _scripted_image_generation(monkeypatch, _image_response(url=url))
+    requested = []
+
+    def serve(request):
+        requested.append(str(request.url))
+        return httpx.Response(200, content=png, headers={"content-type": "image/png"})
+
+    client = httpx.Client(transport=httpx.MockTransport(serve))
+    image = llm.generate_image("a robot doctor", "square", client=client)
+
+    assert requested == [url]
+    assert image == llm.GeneratedImage(data=png, model="openai/gpt-image-1", provider_url=url)
+
+
+def test_generate_image_raises_when_the_download_fails(monkeypatch):
+    _scripted_image_generation(monkeypatch, _image_response(url="https://images.example.com/x"))
+    client = httpx.Client(transport=httpx.MockTransport(lambda _: httpx.Response(404)))
+
+    with pytest.raises(llm.ImageGenerationError):
+        llm.generate_image("a robot doctor", "square", client=client)
+
+
+def test_generate_image_raises_when_the_result_has_no_image(monkeypatch):
+    _scripted_image_generation(monkeypatch, SimpleNamespace(data=[]))
+
+    with pytest.raises(llm.ImageGenerationError):
+        llm.generate_image("a robot doctor", "square")

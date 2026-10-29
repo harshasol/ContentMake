@@ -1,5 +1,8 @@
+import io
+
 import pytest
 from langchain_core.messages import HumanMessage
+from PIL import Image
 
 from contentblitz.agents import query_handler as qh
 from contentblitz.core.config import Settings
@@ -44,14 +47,21 @@ LINKEDIN_DRAFT = {
     "hashtags": ["#AI"],
 }
 VERDICT = {"engagement": 8, "suggestions": []}
+IMAGE_PROMPT = {
+    "prompt": "A robot doctor in a bright clinic.",
+    "use": "general",
+    "aspect": None,
+    "alt_text": "A robot doctor",
+}
 
 
 class FakeRouter:
     """Stands in for the model: returns a scripted routing decision per message.
 
     Research query planning gets three fixed queries, the Content Strategist a scripted draft
-    Brief, the writers a scripted blog and LinkedIn post, and the reviewer a scripted verdict;
-    only routing and Content Strategist calls are recorded.
+    Brief, the writers a scripted blog and LinkedIn post, the image prompt optimiser a scripted
+    prompt, and the reviewer a scripted verdict; only routing and Content Strategist calls are
+    recorded.
     """
 
     def __init__(self, decide):
@@ -71,6 +81,8 @@ class FakeRouter:
             return schema.model_validate(LINKEDIN_DRAFT)
         if agent == "quality_judge":
             return schema.model_validate(VERDICT)
+        if agent == "image_generator":
+            return schema.model_validate(IMAGE_PROMPT)
         self.calls.append({"agent": agent, "messages": messages, "schema": schema})
         return self.decide(messages[-1]["content"])
 
@@ -94,6 +106,21 @@ def fake_web_search(monkeypatch):
     monkeypatch.setattr(search, "configured_providers", lambda: [provider])
     monkeypatch.setattr(search, "fetch_page", lambda url, timeout, max_chars: "")
     return provider
+
+
+@pytest.fixture(autouse=True)
+def fake_image_model(monkeypatch):
+    """The image model returns a square Pillow-made PNG; the prompts it was given are kept."""
+    prompts = []
+
+    def generate(prompt, aspect, config=None, client=None):
+        prompts.append(prompt)
+        buffer = io.BytesIO()
+        Image.new("RGB", (1024, 1024), (20, 120, 140)).save(buffer, format="PNG")
+        return llm.GeneratedImage(buffer.getvalue(), "openai/gpt-image-1")
+
+    monkeypatch.setattr(llm, "generate_image", generate)
+    return prompts
 
 
 @pytest.fixture
@@ -278,7 +305,7 @@ LINKEDIN = (
     "**Automatic revisions:** 3 of 3\n\n"
     "**Engagement:** 8/10"
 )
-IMAGE = "Image Generation Agent: done (stub)."
+IMAGE = "Image ready: *A robot doctor*\n\n**Model:** openai/gpt-image-1\n\n**Size:** 1024×1024"
 
 
 def test_content_request_posts_the_plan_then_runs_research_first(monkeypatch, with_api_key):
@@ -474,10 +501,34 @@ def test_any_agent_can_stop_the_rest_of_the_plan_with_a_reason(monkeypatch, with
     assert [s["agent"] for s in state["completed_steps"]] == ["research", "content_strategist"]
 
 
-def test_image_only_runs_without_research(monkeypatch, with_api_key):
+def test_image_only_runs_without_research(monkeypatch, with_api_key, fake_web_search):
     fake_router(monkeypatch, new_content("image", topic_name="a robot doctor"))
-    replies = send(build_graph(), "make an image of a robot doctor")
+    graph = build_graph()
+    replies = send(graph, "make an image of a robot doctor")
     assert replies == ["Plan for *a robot doctor*: image", IMAGE]
+    assert fake_web_search.fresh == []  # no search was run
+
+    state = graph.get_state(config()).values
+    [piece_id] = state["topics"]["topic-1"]["piece_ids"]
+    piece = state["content_pieces"][piece_id]
+    assert (piece["kind"], piece["title"]) == ("image", "A robot doctor")
+    with Image.open(piece["revisions"][0]["image"]["file_path"]) as saved:
+        assert saved.format == "PNG"
+
+
+def test_an_image_in_a_multi_step_plan_makes_one_image_beside_the_other_pieces(
+    monkeypatch, with_api_key, fake_image_model
+):
+    fake_router(monkeypatch, new_content("blog", "linkedin_post", "image"))
+    graph = build_graph()
+    replies = send(graph, "a blog, a LinkedIn post and an image about AI in healthcare")
+    assert replies[1:] == [RESEARCH, BRIEF, BLOG, LINKEDIN, IMAGE]
+
+    state = graph.get_state(config()).values
+    pieces = state["content_pieces"]
+    kinds = [pieces[p]["kind"] for p in state["topics"]["topic-1"]["piece_ids"]]
+    assert kinds == ["blog", "linkedin_post", "image"]
+    assert len(fake_image_model) == 1
 
 
 def test_duplicate_formats_are_removed_from_the_plan(monkeypatch, with_api_key):
@@ -982,7 +1033,7 @@ def test_new_topic_ids_follow_the_highest_topic_number_and_never_overwrite(
     assert state["topics"] == {
         "topic-3": healthcare,
         "notes": notes,
-        "topic-4": {"name": "AI in finance", "brief": None, "piece_ids": []},
+        "topic-4": {"name": "AI in finance", "brief": None, "piece_ids": ["piece-1"]},
     }
 
 

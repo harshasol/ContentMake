@@ -1,6 +1,19 @@
 import pytest
 
 from contentblitz.core import config
+from contentblitz.integrations import llm
+
+
+@pytest.fixture(autouse=True)
+def no_real_image_generation(monkeypatch, tmp_path):
+    """No test calls a paid image API or writes images outside a temporary data folder; tests
+    that make images fake `llm.generate_image` (or LiteLLM's image call) themselves."""
+
+    def refuse(**kwargs):
+        raise RuntimeError("tests must not call a real image model")
+
+    monkeypatch.setattr(llm.litellm, "image_generation", refuse)
+    monkeypatch.setenv("CONTENTBLITZ_DATA_DIR", str(tmp_path / "data"))
 
 
 @pytest.fixture(autouse=True)

@@ -422,11 +422,12 @@ def test_a_failed_draft_posts_an_error_saves_nothing_and_the_plan_carries_on(mod
     plan = [*BLOG, {"agent": "image_generator", "instructions": None}]
     replies, state = run_plan(plan, {"topic-1": topic()})
 
-    assert replies == [
+    # The second reply is the image step's.
+    assert len(replies) == 2
+    assert replies[0] == (
         "I couldn't write the blog on *AI in healthcare*: the model didn't give a usable reply. "
-        "The rest of the plan carries on, so ask again to retry the blog.",
-        "Image Generation Agent: done (stub).",
-    ]
+        "The rest of the plan carries on, so ask again to retry the blog."
+    )
     assert state["topics"]["topic-1"]["piece_ids"] == []
     assert not state.get("content_pieces")
     assert not state["abort_reason"]

@@ -1,11 +1,13 @@
 """The only module that talks to model providers. See docs/adr/0002."""
 
+import base64
 from dataclasses import dataclass
 
+import httpx
 import litellm
 from pydantic import BaseModel, ValidationError
 
-from contentblitz.core.config import ModelConfig, get_model_config, get_settings
+from contentblitz.core.config import Aspect, ModelConfig, get_model_config, get_settings
 
 _callbacks_configured = False
 
@@ -82,3 +84,71 @@ def complete_structured_reply[T: BaseModel](
         return Reply(schema.model_validate_json(reply.value), reply.model)
     except ValidationError as error:
         raise StructuredOutputError(str(error)) from error
+
+
+class ImageGenerationError(RuntimeError):
+    """An image model gave no usable image: no data, or a URL that couldn't be downloaded."""
+
+
+@dataclass(frozen=True)
+class GeneratedImage:
+    """An image model's result: the image bytes, the model that made it, and the provider's
+    URL when it returned one (provider URLs expire, so the bytes are what gets kept)."""
+
+    data: bytes
+    model: str
+    provider_url: str | None = None
+
+
+def generate_image(
+    prompt: str,
+    aspect: Aspect,
+    config: ModelConfig | None = None,
+    client: httpx.Client | None = None,
+) -> GeneratedImage:
+    """Generate one image with the first configured image model, at that model's size for
+    `aspect`. Raises ImageGenerationError for an unusable result; provider errors propagate."""
+    config = config or get_model_config()
+    return generate_image_with(config.image.primary, prompt, aspect, config, client)
+
+
+def generate_image_with(
+    model: str,
+    prompt: str,
+    aspect: Aspect,
+    config: ModelConfig | None = None,
+    client: httpx.Client | None = None,
+) -> GeneratedImage:
+    """Generate one image with `model`. Asks for base64 output, and downloads the image when
+    the model returns a URL instead."""
+    _configure_callbacks()
+    config = config or get_model_config()
+    # gpt-image models always return base64 and reject response_format; DALL·E needs asking.
+    base64_format = {} if "gpt-image" in model else {"response_format": "b64_json"}
+    response = litellm.image_generation(
+        model=model,
+        prompt=prompt,
+        n=1,
+        size=config.image.size_for(model, aspect),
+        quality=config.image.quality_for(model),
+        timeout=config.llm.timeout_seconds,
+        **base64_format,
+    )
+    result = next(iter(getattr(response, "data", None) or []), None)
+    if b64 := getattr(result, "b64_json", None):
+        return GeneratedImage(base64.b64decode(b64), model)
+    if url := getattr(result, "url", None):
+        return GeneratedImage(_download(url, config.llm.timeout_seconds, client), model, url)
+    raise ImageGenerationError(f"{model} returned no image")
+
+
+def _download(url: str, timeout: float, client: httpx.Client | None) -> bytes:
+    try:
+        if client is not None:
+            response = client.get(url, timeout=timeout)
+        else:
+            response = httpx.get(url, timeout=timeout, follow_redirects=True)
+        response.raise_for_status()
+    except httpx.HTTPError as error:
+        raise ImageGenerationError(f"couldn't download the image: {error}") from error
+    return response.content
