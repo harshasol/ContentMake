@@ -8,6 +8,7 @@ from streamlit.testing.v1 import AppTest
 from contentblitz.agents import query_handler as qh
 from contentblitz.core.config import Settings
 from contentblitz.workflow import graph
+from contentblitz.workflow.brand_profiles import BrandProfileStore
 
 APP = str(Path(__file__).parents[2] / "src/contentblitz/web_app/streamlit_app.py")
 
@@ -53,6 +54,50 @@ def test_chat_shows_every_assistant_message_from_a_run_in_order(monkeypatch):
         ("assistant", "plan 4"),
         ("assistant", "step 4"),
     ]
+
+
+def test_the_brand_profile_picker_passes_the_chosen_profile_into_the_next_run(monkeypatch):
+    store = BrandProfileStore()
+    store.create({"name": "Zen Yoga", "tone": ["calm"]})
+    store.create({"name": "Acme Health", "tone": ["confident"]})
+    seen = []
+
+    def recording_handler(state):
+        seen.append((state.get("brand_profile_id"), state["brand_profile"]["name"]))
+        return {"messages": [AIMessage(content="ok")]}
+
+    st.cache_resource.clear()
+    monkeypatch.setattr(graph, "query_handler", recording_handler)
+    at = AppTest.from_file(APP, default_timeout=30).run()
+
+    picker = at.sidebar.selectbox[0]
+    assert picker.label == "Brand Profile"
+    assert picker.options == ["Default", "Acme Health", "Zen Yoga"]
+    assert picker.value == "default"  # a new conversation starts with Default
+    at.chat_input[0].set_value("first").run()
+
+    at.sidebar.selectbox[0].set_value("acme-health").run()
+    assert "Acme Health" in at.sidebar.markdown[0].value  # the active profile is shown
+    at.chat_input[0].set_value("second").run()
+
+    assert seen == [("default", "Default"), ("acme-health", "Acme Health")]
+
+
+def test_a_deleted_active_profile_gets_the_workflows_notice(monkeypatch):
+    store = BrandProfileStore()
+    profile = store.create({"name": "Acme Health", "tone": ["confident"]})
+    monkeypatch.setattr(graph, "query_handler", lambda s: {"messages": [AIMessage("ok")]})
+    st.cache_resource.clear()
+    at = AppTest.from_file(APP, default_timeout=30).run()
+    at.sidebar.selectbox[0].set_value(profile.id).run()
+
+    store.delete(profile.id)
+    at.chat_input[0].set_value("hello").run()
+
+    assert at.sidebar.selectbox[0].value == "default"
+    # No run loaded it before it was deleted, so the notice can only name its id.
+    notice = "Brand Profile *acme-health* no longer exists, so this conversation uses Default."
+    assert chat_messages(at)[1:] == [("assistant", notice), ("assistant", "ok")]
 
 
 def _image_run(monkeypatch, tmp_path, *, placeholder=False, write_file=True):

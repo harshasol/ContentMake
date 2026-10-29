@@ -1,8 +1,12 @@
-"""Finding and creating Topics, and adding Content Pieces and Revisions, in the workflow state."""
+"""Finding and creating Topics, and adding Content Pieces and Revisions, in the workflow state.
+
+New Revisions record the active Brand Profile here (spec #22), so every format gets it.
+"""
 
 import re
 from collections.abc import Iterable
 
+from contentblitz.workflow.active_brand_profile import brand_profile_record
 from contentblitz.workflow.state import ContentBlitzState, ContentPiece, Revision, Topic
 
 UNTITLED_TOPIC = "Untitled Topic"
@@ -47,8 +51,17 @@ def new_piece_id(state: ContentBlitzState) -> str:
     return _next_id("piece", state.get("content_pieces") or {})
 
 
+def _with_brand_profile(state: ContentBlitzState, revision: Revision) -> Revision:
+    """The Revision recording the active Brand Profile, unless it already names one."""
+    return {"brand_profile": brand_profile_record(state), **revision}
+
+
 def add_piece(state: ContentBlitzState, piece_id: str, piece: ContentPiece) -> ContentBlitzState:
-    """The state update that saves a Content Piece and records it on its Topic's piece_ids."""
+    """The state update that saves a Content Piece and records it on its Topic's piece_ids.
+
+    Its Revisions record the active Brand Profile, unless they already name one.
+    """
+    piece = {**piece, "revisions": [_with_brand_profile(state, r) for r in piece["revisions"]]}
     topics = dict(state.get("topics") or {})
     topic = topics[piece["topic_id"]]
     topics[piece["topic_id"]] = {**topic, "piece_ids": [*topic.get("piece_ids", []), piece_id]}
@@ -57,7 +70,11 @@ def add_piece(state: ContentBlitzState, piece_id: str, piece: ContentPiece) -> C
 
 
 def add_revision(state: ContentBlitzState, piece_id: str, revision: Revision) -> ContentBlitzState:
-    """The state update that adds a Revision to a Content Piece, after its earlier ones."""
+    """The state update that adds a Revision to a Content Piece, after its earlier ones.
+
+    The Revision records the active Brand Profile, unless it already names one.
+    """
+    revision = _with_brand_profile(state, revision)
     pieces = dict(state["content_pieces"])
     piece = pieces[piece_id]
     pieces[piece_id] = {**piece, "revisions": [*piece["revisions"], revision]}

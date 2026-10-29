@@ -15,6 +15,9 @@ from contentblitz.core.config import DEFAULT_CONFIG_PATH
 from contentblitz.integrations import llm
 from contentblitz.workflow.graph import build_graph
 
+# What a Revision records when the conversation's active Brand Profile is Default (#52).
+DEFAULT_RECORD = {"id": "default", "name": "Default", "updated_at": "2026-10-29T00:00:00+00:00"}
+
 BRIEF_CREATED_AT = "2026-10-20T10:00:00+00:00"
 
 
@@ -203,6 +206,7 @@ def test_the_blog_is_saved_as_a_content_piece_on_the_topic_with_its_first_revisi
         "target_keyword": "AI in healthcare",
         "template": "thought leadership",
         "origin": "draft",
+        "brand_profile": DEFAULT_RECORD,
     }
 
 
@@ -737,6 +741,7 @@ def test_a_refined_blog_is_added_as_a_new_refinement_revision_on_the_same_piece(
         "target_keyword": "AI in healthcare",
         "template": "thought leadership",
         "origin": "refinement",
+        "brand_profile": DEFAULT_RECORD,
     }
 
 

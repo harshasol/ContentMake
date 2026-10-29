@@ -43,5 +43,5 @@ _Avoid_: Grade, rating, eval score
 ### Brand
 
 **Brand Profile**:
-The user-defined description of a brand's name, audience, tone, words to avoid, sample content and visual style, which every Content Piece must follow. A user may keep several and pick one at a time.
+The user-defined description of a brand's name, audience, tone, words to avoid, sample content and visual style, which every Content Piece must follow. A user may keep several; exactly one is active per conversation, chosen in the sidebar, and each Revision records the one it was made with. A built-in, read-only **Default** profile always exists, and a new conversation starts with it.
 _Avoid_: Brand voice settings, persona, style guide
