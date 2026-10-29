@@ -31,6 +31,8 @@ class Settings(BaseSettings):
     serpapi_api_key: str | None = None
     tavily_api_key: str | None = None
     langsmith_tracing: bool = False
+    langsmith_api_key: str | None = None
+    langsmith_project: str = "contentblitz"
 
     contentblitz_config: Path = DEFAULT_CONFIG_PATH
     contentblitz_data_dir: Path = Path("data")

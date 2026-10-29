@@ -13,6 +13,7 @@ import httpx
 import trafilatura
 from pydantic import BaseModel
 
+from contentblitz.core import tracing
 from contentblitz.core.config import ModelConfig, Settings, get_model_config, get_settings
 
 REQUEST_TIMEOUT_SECONDS = 10  # per search request; queries run in parallel, providers in turn
@@ -190,7 +191,14 @@ def search_with_fallback(
     failures: dict[str, str] = {}
     for provider in providers:
         try:
-            results = provider.search(query, max_results, fresh=fresh)
+            with tracing.span(
+                f"search: {provider.name}",
+                "retriever",
+                inputs={"query": query},
+                metadata={"provider": provider.name, "query": query, "fresh": fresh},
+            ) as span:
+                results = provider.search(query, max_results, fresh=fresh)
+                span.end(outputs={"results": len(results)})
         except Exception as exc:  # noqa: BLE001 - any provider failure moves to the next one
             failures[provider.name] = str(exc)
             continue
@@ -204,13 +212,16 @@ def fetch_page(url: str, timeout: float, max_chars: int, client: httpx.Client | 
     Returns "" instead of raising when the page fails, takes longer than timeout seconds in
     all, isn't HTML, or has nothing readable. Only the first MAX_PAGE_BYTES are read.
     """
-    try:
-        with _http_client(client, timeout) as http_client:
-            html = _read_html(http_client, url, timeout)
-        text = trafilatura.extract(html, include_comments=False) if html else None
-    except Exception:  # noqa: BLE001 - an unreadable page falls back to its snippet
-        return ""
-    return (text or "").strip()[:max_chars].rstrip()
+    with tracing.span("fetch page", "tool", inputs={"url": url}) as span:
+        try:
+            with _http_client(client, timeout) as http_client:
+                html = _read_html(http_client, url, timeout)
+            text = trafilatura.extract(html, include_comments=False) if html else None
+        except Exception:  # noqa: BLE001 - an unreadable page falls back to its snippet
+            text = None
+        page = (text or "").strip()[:max_chars].rstrip()
+        span.end(outputs={"chars": len(page)})
+    return page
 
 
 def _read_html(client: httpx.Client, url: str, timeout: float) -> str:

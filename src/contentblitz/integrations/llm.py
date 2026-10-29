@@ -12,10 +12,8 @@ import litellm
 from PIL import Image, ImageStat
 from pydantic import BaseModel, ValidationError
 
-from contentblitz.core import call_context, usage
+from contentblitz.core import call_context, tracing, usage
 from contentblitz.core.config import Aspect, ModelConfig, get_model_config, get_settings
-
-_callbacks_configured = False
 
 
 class StructuredOutputError(ValueError):
@@ -28,13 +26,6 @@ class Reply[T]:
 
     value: T
     model: str
-
-
-def _configure_callbacks() -> None:
-    global _callbacks_configured
-    if not _callbacks_configured and get_settings().langsmith_tracing:
-        litellm.success_callback = [*litellm.success_callback, "langsmith"]
-    _callbacks_configured = True
 
 
 def _tokens(response, field: str) -> int:
@@ -50,6 +41,32 @@ def _cost(response) -> float:
         except Exception:  # noqa: BLE001 - an unpriced model must not fail the call
             cost = 0.0
     return float(cost or 0.0)
+
+
+def _annotate(span, model: str, response) -> None:
+    """Put the model, tokens, cost and cache hit on the model call's span."""
+    tokens_in = _tokens(response, "prompt_tokens")
+    tokens_out = _tokens(response, "completion_tokens")
+    hidden = getattr(response, "_hidden_params", None) or {}
+    span.add_metadata(
+        {
+            "model": model,
+            "ls_model_name": model,
+            "tokens_in": tokens_in,
+            "tokens_out": tokens_out,
+            "cost_usd": _cost(response),
+            "cache_hit": bool(hidden.get("cache_hit")),
+        }
+    )
+    span.end(
+        outputs={
+            "usage_metadata": {
+                "input_tokens": tokens_in,
+                "output_tokens": tokens_out,
+                "total_tokens": tokens_in + tokens_out,
+            }
+        }
+    )
 
 
 def _record_completion(agent: str, primary: str, answered_by: str, response, started: float):
@@ -78,19 +95,22 @@ def complete(agent: str, messages: list[dict], config: ModelConfig | None = None
 
 
 def _complete(agent: str, messages: list[dict], config: ModelConfig | None, **kwargs) -> Reply[str]:
-    _configure_callbacks()
     config = config or get_model_config()
     models = config.for_agent(agent)
     started = time.perf_counter()
-    response = litellm.completion(
-        model=models.primary,
-        fallbacks=models.fallbacks or None,
-        messages=messages,
-        num_retries=config.llm.num_retries,
-        timeout=config.llm.timeout_seconds,
-        **kwargs,
-    )
-    answered_by = getattr(response, "model", None) or models.primary
+    with tracing.span(
+        f"{agent} model call", "llm", inputs={"messages": messages}, metadata={"agent": agent}
+    ) as span:
+        response = litellm.completion(
+            model=models.primary,
+            fallbacks=models.fallbacks or None,
+            messages=messages,
+            num_retries=config.llm.num_retries,
+            timeout=config.llm.timeout_seconds,
+            **kwargs,
+        )
+        answered_by = getattr(response, "model", None) or models.primary
+        _annotate(span, answered_by, response)
     _record_completion(agent, models.primary, answered_by, response, started)
     return Reply(response.choices[0].message.content or "", answered_by)
 
@@ -250,19 +270,21 @@ def generate_image_with(
 ) -> GeneratedImage:
     """Generate one image with `model`, unchecked. Asks for base64 output, and downloads the
     image when the model returns a URL instead. Raises ImageGenerationError for no image."""
-    _configure_callbacks()
     config = config or get_model_config()
     # gpt-image models always return base64 and reject response_format; DALL·E needs asking.
     base64_format = {} if "gpt-image" in model else {"response_format": "b64_json"}
-    response = litellm.image_generation(
-        model=model,
-        prompt=prompt,
-        n=1,
-        size=config.image.size_for(model, aspect),
-        quality=config.image.quality_for(model),
-        timeout=config.llm.timeout_seconds,
-        **base64_format,
-    )
+    with tracing.span(
+        "image model call", "llm", inputs={"prompt": prompt}, metadata={"model": model}
+    ):
+        response = litellm.image_generation(
+            model=model,
+            prompt=prompt,
+            n=1,
+            size=config.image.size_for(model, aspect),
+            quality=config.image.quality_for(model),
+            timeout=config.llm.timeout_seconds,
+            **base64_format,
+        )
     result = next(iter(getattr(response, "data", None) or []), None)
     if b64 := getattr(result, "b64_json", None):
         return GeneratedImage(base64.b64decode(b64), model)

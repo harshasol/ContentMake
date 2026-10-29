@@ -13,7 +13,7 @@ from typing import Any, Literal
 
 from langchain_core.messages import AnyMessage, HumanMessage
 
-from contentblitz.core import call_context
+from contentblitz.core import call_context, tracing
 from contentblitz.core.config import ModelConfig, Settings, get_model_config, get_settings
 from contentblitz.core.usage import get_ledger
 from contentblitz.workflow.brand_profiles import DEFAULT_PROFILE_ID
@@ -320,8 +320,13 @@ class Workspace:
 
     def _run(self, inputs: dict) -> str:
         """One workflow invocation is one Run: every call it makes is tagged with its id."""
-        with call_context.run(self.thread_id) as run_id:
-            self.graph.invoke(inputs, config=self._config)
+        profile_id = inputs.get("brand_profile_id")
+        topic = active_topic(self._state())
+        with call_context.run(self.thread_id) as run_id, tracing.tracing():
+            trace = tracing.run_config(
+                run_id, self.thread_id, profile_id, topic["name"] if topic else None
+            )
+            self.graph.invoke(inputs, config={**self._config, **trace})
         return run_id
 
     def run_caption(self, run_id: str) -> str | None:
