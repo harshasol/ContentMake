@@ -37,7 +37,7 @@ One draft made inside a writer's automatic quality loop. Attempts are not Revisi
 _Avoid_: Revision, iteration
 
 **Quality Score**:
-The rating a Content Piece receives against its format's rules and its Brand Profile, together with the suggestions for improving it.
+The rating a text Content Piece (an SEO Blog or a LinkedIn Post) receives against its format's rules and its Brand Profile, together with the suggestions for improving it. Images have no Quality Score.
 _Avoid_: Grade, rating, eval score
 
 ### Brand

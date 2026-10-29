@@ -5,7 +5,9 @@ from typing import Annotated, Literal, NotRequired, TypedDict
 from langchain_core.messages import AnyMessage
 from langgraph.graph.message import add_messages
 
-from contentblitz.workflow.formats import AgentName, PieceKind
+from contentblitz.core.config import Aspect
+from contentblitz.integrations.llm import ModelOutcome
+from contentblitz.workflow.formats import AgentName, ImageUse, PieceKind
 from contentblitz.workflow.quality_score import QualityScore
 from contentblitz.workflow.routing import Intent, Template
 
@@ -86,6 +88,26 @@ class Topic(TypedDict):
 
 
 RevisionOrigin = Literal["draft", "refinement", "hand_edit"]
+PLACEHOLDER_MODEL = "placeholder"
+
+
+class ImageMetadata(TypedDict):
+    """The fixed record an image Revision keeps about its image. See spec #21."""
+
+    request: str  # the marketer's request, as the step's instructions or their message
+    prompt: str  # the optimised prompt the image model was given
+    alt_text: str
+    use: ImageUse
+    aspect: Aspect
+    model: str  # the image model that made it, or PLACEHOLDER_MODEL
+    size: str  # the saved image's "WIDTHxHEIGHT"
+    created_at: str  # ISO 8601, UTC
+    file_path: str  # the PNG under the data folder; old Revisions' files are kept
+    provider_url: str | None  # the provider's link, if it gave one
+    provider_url_temporary: bool  # provider links expire: the file is the copy to keep
+    placeholder: bool
+    fallbacks: list[ModelOutcome]  # each image model tried and failed before this one
+    source_piece: NotRequired[str]  # the Content Piece it was made for ("an image for the blog")
 
 
 class Revision(TypedDict):
@@ -94,7 +116,7 @@ class Revision(TypedDict):
     Only the result a writer's quality loop keeps becomes a Revision, never its Attempts.
     """
 
-    text: str  # Markdown for a blog, plain text for a LinkedIn post
+    text: str  # Markdown for a blog, plain text for a LinkedIn post, the alt text for an image
     origin: RevisionOrigin
     created_at: str  # ISO 8601, UTC
     # A blog's SEO fields, and the template any writer used; the keyword and template carry over
@@ -102,8 +124,10 @@ class Revision(TypedDict):
     meta_description: NotRequired[str]
     target_keyword: NotRequired[str]
     template: NotRequired[Template]
-    # How it measured up when it was made: the score and each check's result.
+    # How it measured up when it was made: the score and each check's result. Text formats only.
     quality_score: NotRequired[QualityScore]
+    # An image Revision's image: its file and how it was made.
+    image: NotRequired[ImageMetadata]
 
 
 class ContentPiece(TypedDict):
@@ -127,6 +151,7 @@ class PlanStep(TypedDict):
     # in characters, the most it may have.
     length: NotRequired[int]
     # On a LinkedIn step: the Content Piece the post builds on ("turn that blog into a post").
+    # On an image step: the Content Piece the image is for ("an image for the blog").
     source_piece: NotRequired[str]
 
 

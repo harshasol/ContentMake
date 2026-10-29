@@ -15,6 +15,7 @@ AgentName = Literal[
 BlogTemplate = Literal["how-to", "listicle", "comparison", "thought leadership"]
 LinkedInTemplate = Literal["industry insights", "personal story", "tips", "announcement"]
 LengthUnit = Literal["words", "characters"]
+ImageUse = Literal["blog_header", "linkedin", "general"]
 
 
 class FormatSpec(NamedTuple):
@@ -25,6 +26,7 @@ class FormatSpec(NamedTuple):
     options: tuple[str, ...] = ()
     templates: tuple[str, ...] = ()  # the templates its writer follows
     length_unit: LengthUnit | None = None  # the unit a length for it is asked in
+    image_use: ImageUse | None = None  # how an image made for a piece of this kind is used
 
 
 FORMATS: dict[str, FormatSpec] = {
@@ -36,6 +38,7 @@ FORMATS: dict[str, FormatSpec] = {
         options=("target_keyword", "length"),
         templates=get_args(BlogTemplate),
         length_unit="words",
+        image_use="blog_header",
     ),
     "linkedin_post": FormatSpec(
         "linkedin_writer",
@@ -44,8 +47,9 @@ FORMATS: dict[str, FormatSpec] = {
         options=("length", "source_piece"),
         templates=get_args(LinkedInTemplate),
         length_unit="characters",
+        image_use="linkedin",
     ),
-    "image": FormatSpec("image_generator", "image", "image"),
+    "image": FormatSpec("image_generator", "image", "image", options=("source_piece",)),
 }
 PIECE_FORMATS = {kind: spec for spec in FORMATS.values() if (kind := spec.kind)}
 

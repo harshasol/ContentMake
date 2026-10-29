@@ -307,7 +307,8 @@ def test_the_one_line_summary_counts_the_verified_statistics(model):
 def test_an_image_after_the_brief_still_gets_the_full_report(model):
     plan = [*RESEARCH_ONLY, {"agent": "image_generator", "instructions": None}]
     replies, _ = run_plan(plan, {"topic-1": topic()})
-    assert replies == [REPORT, "Image Generation Agent: done (stub)."]
+    assert len(replies) == 2  # the second is the image step's
+    assert replies[0] == REPORT
 
 
 def test_a_report_with_no_statistics_says_so_instead_of_an_empty_table(model):
