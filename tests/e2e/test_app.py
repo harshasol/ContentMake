@@ -197,3 +197,27 @@ def test_chat_shows_a_notice_when_the_image_file_is_missing(monkeypatch, tmp_pat
     message = at.chat_message[-1]
     assert not message.image
     assert "missing" in message.warning[0].value
+
+
+def test_a_new_thread_id_is_put_in_the_url(monkeypatch):
+    monkeypatch.setattr(graph, "query_handler", lambda s: {"messages": [AIMessage("ok")]})
+    st.cache_resource.clear()
+    at = AppTest.from_file(APP, default_timeout=30).run()
+
+    assert at.query_params["thread"]
+    assert chat_messages(at) == []
+
+
+def test_opening_the_url_with_a_thread_id_shows_the_same_conversation(monkeypatch):
+    monkeypatch.setattr(graph, "query_handler", lambda s: {"messages": [AIMessage("ok")]})
+    st.cache_resource.clear()
+    first = AppTest.from_file(APP, default_timeout=30).run()
+    first.chat_input[0].set_value("hello").run()
+    thread = first.query_params["thread"]
+
+    reloaded = AppTest.from_file(APP, default_timeout=30)
+    reloaded.query_params["thread"] = thread
+    reloaded.run()
+
+    assert reloaded.query_params["thread"] == thread
+    assert chat_messages(reloaded) == [("user", "hello"), ("assistant", "ok")]
