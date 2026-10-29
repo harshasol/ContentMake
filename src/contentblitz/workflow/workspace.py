@@ -8,6 +8,7 @@ UI stays thin and every action can be tested against the real graph.
 import uuid
 from dataclasses import dataclass
 from datetime import UTC, datetime
+from pathlib import Path
 from typing import Any, Literal
 
 from langchain_core.messages import AnyMessage, HumanMessage
@@ -208,6 +209,10 @@ class Workspace:
     def active_topic_id(self) -> str | None:
         return self._state().get("active_topic_id")
 
+    def active_topic_name(self) -> str | None:
+        topic = active_topic(self._state())
+        return topic["name"] if topic else None
+
     def select_topic(self, topic_id: str | None) -> None:
         """Make a Topic active, or clear the active Topic with None ("New Topic"), so the next
         content request creates a Topic without the new-or-continue question (#66)."""
@@ -222,14 +227,7 @@ class Workspace:
     def piece(self, piece_id: str) -> PieceDetail | None:
         """A Content Piece with all its Revisions, or None when this conversation has no such
         piece (#61)."""
-        state = self._state()
-        piece = (state.get("content_pieces") or {}).get(piece_id)
-        if not piece:
-            return None
-        topic = (state.get("topics") or {}).get(piece["topic_id"]) or {}
-        return PieceDetail(
-            piece_id, piece["kind"], piece["title"], topic.get("name", ""), piece["revisions"]
-        )
+        return _piece_detail(self._state(), piece_id)
 
     def restore(self, piece_id: str, revision_number: int) -> None:
         """Restore Revision `revision_number` (from 1) of a piece: add a new latest Revision with
@@ -259,19 +257,16 @@ class Workspace:
 
     def piece_exports(self, piece_id: str, revision_number: int | None = None) -> list[Export]:
         """Every export of Revision `revision_number` of a piece (the latest by default), built
-        in memory (#68); `[]` for an unknown piece or an image whose file is missing."""
+        in memory (#68); `[]` for an unknown piece or Revision number, or an image whose file is
+        missing."""
         piece = self.piece(piece_id)
         if piece is None:
             return []
-        number = revision_number or len(piece.revisions)
-        revision = piece.revision(number)
-        try:
-            return [
-                export_piece(piece.topic, piece.kind, piece.title, revision, number, fmt)
-                for fmt in formats(piece.kind)
-            ]
-        except OSError:
+        number = len(piece.revisions) if revision_number is None else revision_number
+        if not 1 <= number <= len(piece.revisions):
             return []
+        exports = [_export(piece, number, fmt) for fmt in formats(piece.kind)]
+        return [] if None in exports else exports
 
     def research_exports(self) -> list[Export]:
         """The active Topic's research report as Markdown and HTML (#68); `[]` without research."""
@@ -279,6 +274,7 @@ class Workspace:
         if research is None:
             return []
         return [export_report(research.topic_name, research.report, f) for f in REPORT_EXPORTS]
+
     def edit(self, piece_id: str, text: str, meta_description: str | None = None) -> None:
         """Save a hand edit of a blog (`text` and `meta_description`) or LinkedIn post (`text`)
         as a new *hand edit* Revision (#63). Its Quality Score is the rule checks re-run, with
@@ -302,23 +298,12 @@ class Workspace:
             return None
         exports: list[Export] = []
         for piece_id in topic.get("piece_ids", []):
-            piece = self.piece(piece_id)
+            piece = _piece_detail(state, piece_id)
             if piece is None:
                 continue
-            number = len(piece.revisions)
-            try:
-                exports.append(
-                    export_piece(
-                        piece.topic,
-                        piece.kind,
-                        piece.title,
-                        piece.revision(number),
-                        number,
-                        formats(piece.kind)[0],
-                    )
-                )
-            except (OSError, KeyError):
-                continue
+            export = _export(piece, len(piece.revisions), formats(piece.kind)[0])
+            if export is not None:
+                exports.append(export)
         research = self.research()
         if research is not None:
             exports.append(export_report(research.topic_name, research.report, REPORT_EXPORTS[0]))
@@ -342,6 +327,27 @@ class Workspace:
             {"command": "refresh_research", "brand_profile_id": brand_profile_id},
             config=self._config,
         )
+
+
+def _piece_detail(state: ContentBlitzState, piece_id: str) -> PieceDetail | None:
+    piece = (state.get("content_pieces") or {}).get(piece_id)
+    if not piece:
+        return None
+    topic = (state.get("topics") or {}).get(piece["topic_id"]) or {}
+    return PieceDetail(
+        piece_id, piece["kind"], piece["title"], topic.get("name", ""), piece["revisions"]
+    )
+
+
+def _export(piece: PieceDetail, number: int, fmt: str) -> Export | None:
+    """Revision `number` of the piece as `fmt`, or None for an image whose image data or file is
+    missing (so there is nothing to export). Any other error is a bug and surfaces."""
+    revision = piece.revision(number)
+    if piece.kind == "image":
+        image = revision.get("image")
+        if not image or not Path(image["file_path"]).is_file():
+            return None
+    return export_piece(piece.topic, piece.kind, piece.title, revision, number, fmt)
 
 
 def _image(message: AnyMessage, state: ContentBlitzState) -> ImageMetadata | None:

@@ -23,12 +23,13 @@ def export_buttons(exports: list[Export], key: str) -> None:
         )
 
 
-def bundle_button(bundle: Export | None, key: str = "topic_bundle") -> None:
-    """The Topic bundle download (#69); nothing when the Topic has no bundle."""
+def bundle_button(bundle: Export | None, topic: str, key: str = "topic_bundle") -> None:
+    """The Topic bundle download (#69), labelled with the Topic's name so it is clear which
+    Topic it holds, also in the All Topics view; nothing when the Topic has no bundle."""
     if bundle is None:
         return
     st.download_button(
-        "Download Topic bundle",
+        f"Download {topic} bundle",
         bundle.data,
         file_name=bundle.file_name,
         mime=bundle.mime,

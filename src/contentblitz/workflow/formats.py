@@ -27,10 +27,12 @@ class FormatSpec(NamedTuple):
     templates: tuple[str, ...] = ()  # the templates its writer follows
     length_unit: LengthUnit | None = None  # the unit a length for it is asked in
     image_use: ImageUse | None = None  # how an image made for a piece of this kind is used
+    exports: tuple[str, ...] = ()  # the export file extensions offered, the main one first
+    icon: str = "📄"  # shown beside the format in the Content Dashboard
 
 
 FORMATS: dict[str, FormatSpec] = {
-    "research": FormatSpec("research", "research", None),
+    "research": FormatSpec("research", "research", None, exports=("md", "html")),
     "blog": FormatSpec(
         "blog_writer",
         "blog",
@@ -39,6 +41,8 @@ FORMATS: dict[str, FormatSpec] = {
         templates=get_args(BlogTemplate),
         length_unit="words",
         image_use="blog_header",
+        exports=("md", "html"),
+        icon="📝",
     ),
     "linkedin_post": FormatSpec(
         "linkedin_writer",
@@ -48,8 +52,17 @@ FORMATS: dict[str, FormatSpec] = {
         templates=get_args(LinkedInTemplate),
         length_unit="characters",
         image_use="linkedin",
+        exports=("txt", "md"),
+        icon="💼",
     ),
-    "image": FormatSpec("image_generator", "image", "image", options=("source_piece",)),
+    "image": FormatSpec(
+        "image_generator",
+        "image",
+        "image",
+        options=("source_piece",),
+        exports=("png",),
+        icon="🖼️",
+    ),
 }
 PIECE_FORMATS = {kind: spec for spec in FORMATS.values() if (kind := spec.kind)}
 

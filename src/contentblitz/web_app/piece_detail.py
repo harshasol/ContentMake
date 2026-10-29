@@ -5,26 +5,24 @@ Revision (#62), hand edit (#63) and restore (#64) add their controls around `sho
 """
 
 from datetime import datetime
-from pathlib import Path
 
 import pandas as pd
 import streamlit as st
 
-from contentblitz.workflow.image_files import image_caption
+from contentblitz.web_app.image_view import show_image
 from contentblitz.workflow.quality_score import QualityScore
 from contentblitz.workflow.report import display_date
 from contentblitz.workflow.state import Revision
 from contentblitz.workflow.workspace import PieceDetail, Workspace
 
-MISSING_IMAGE = "The image file for this Revision is missing, so it can't be shown."
 ORIGIN_LABELS = {
     "draft": "Draft",
     "refinement": "Refinement",
     "hand_edit": "Hand edit",
     "restore": "Restore",
 }
-NONE = "—"
-NO_REVIEW = "The AI reviewer was unavailable, so this draft could not pass."
+NONE = "—"  # shown where a Revision has no value (also used by the dashboard)
+NO_REVIEW = "The AI reviewer was unavailable, so this Revision could not pass."
 
 
 def piece_detail(piece: PieceDetail, revision_number: int | None = None) -> None:
@@ -84,14 +82,14 @@ def _view_buttons(piece: PieceDetail, workspace: Workspace) -> None:
     for number, column in enumerate(st.columns(latest), start=1):
         column.button(
             f"View {number}",
-            key=f"view_revision_{number}",
+            key=f"view_revision_{piece.piece_id}_{number}",
             on_click=st.session_state.__setitem__,
             args=(viewed_key(piece.piece_id), number),
         )
         if number != latest:
             column.button(
                 f"Restore {number}",
-                key=f"restore_revision_{number}",
+                key=f"restore_revision_{piece.piece_id}_{number}",
                 on_click=_restore,
                 args=(workspace, piece.piece_id, number),
             )
@@ -130,10 +128,7 @@ def _blog_fields(revision: Revision) -> None:
 
 def _image(revision: Revision) -> None:
     image = revision.get("image")
-    if image is not None and Path(image["file_path"]).is_file():
-        st.image(image["file_path"], caption=image_caption(image))
-    else:
-        st.warning(MISSING_IMAGE)
+    show_image(image)
     if image is None:
         return
     st.caption(f"Alt text: {image['alt_text']}")

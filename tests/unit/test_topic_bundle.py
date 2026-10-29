@@ -4,6 +4,8 @@ import io
 import zipfile
 from types import SimpleNamespace
 
+import pytest
+
 from contentblitz.workflow.workspace import Workspace
 
 BRIEF = {
@@ -114,3 +116,34 @@ def test_research_alone_makes_a_bundle(tmp_path):
     state["topics"]["topic-1"]["piece_ids"] = []
 
     assert _zip(_workspace(state).topic_bundle()).namelist() == ["ai-health-research-report.md"]
+
+
+def test_an_image_revision_without_image_data_is_left_out(tmp_path):
+    state = _state(tmp_path)
+    del state["content_pieces"]["p3"]["revisions"][0]["image"]
+
+    names = _zip(_workspace(state).topic_bundle()).namelist()
+
+    assert not any(n.endswith(".png") for n in names)
+    assert len(names) == 3
+
+
+def test_other_errors_are_not_swallowed(tmp_path):
+    state = _state(tmp_path)
+    del state["content_pieces"]["p1"]["revisions"][1]["text"]
+
+    with pytest.raises(KeyError):
+        _workspace(state).topic_bundle()
+
+
+def test_the_bundle_reads_the_state_once(tmp_path):
+    reads = []
+    values = _state(tmp_path)
+
+    def get_state(config):
+        reads.append(config)
+        return SimpleNamespace(values=values)
+
+    Workspace(SimpleNamespace(get_state=get_state), "t").topic_bundle()
+
+    assert len(reads) == 2  # one for the pieces, one for the research (not one per piece)

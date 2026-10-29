@@ -82,3 +82,11 @@ def test_research_exports_markdown_and_html():
 
 def test_no_research_means_no_exports():
     assert _workspace({}).research_exports() == []
+
+
+def test_a_revision_number_out_of_range_has_no_exports_and_zero_is_not_the_latest():
+    workspace = _workspace(_state())
+
+    assert workspace.piece_exports("p1", 3) == []
+    assert workspace.piece_exports("p1", 0) == []
+    assert workspace.piece_exports("p1", -1) == []

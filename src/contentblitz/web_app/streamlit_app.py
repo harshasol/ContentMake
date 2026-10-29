@@ -1,21 +1,17 @@
 """ContentBlitz web UI. Run with: streamlit run src/contentblitz/web_app/streamlit_app.py"""
 
-from pathlib import Path
-
 import streamlit as st
 
 from contentblitz.web_app.brand_profiles_tab import brand_profiles_tab
 from contentblitz.web_app.content_dashboard_tab import content_dashboard_tab
-from contentblitz.web_app.research_tab import research_tab as show_research_tab
+from contentblitz.web_app.image_view import show_image
+from contentblitz.web_app.research_tab import research_tab
 from contentblitz.web_app.settings_tab import settings_tab
 from contentblitz.workflow.brand_profiles import DEFAULT_PROFILE_ID, BrandProfileStore
 from contentblitz.workflow.graph import build_graph
-from contentblitz.workflow.image_files import image_caption
 from contentblitz.workflow.workspace import ChatMessage, Workspace, new_thread_id
 
 st.set_page_config(page_title="ContentBlitz", page_icon="⚡", layout="wide")
-
-MISSING_IMAGE = "The image file for this message is missing, so it can't be shown."
 
 
 @st.cache_resource
@@ -83,11 +79,7 @@ def show_message(message: ChatMessage) -> None:
         st.markdown(text)
         if image is None:
             return
-        path = Path(image["file_path"])
-        if path.is_file():
-            st.image(str(path), caption=image_caption(image))
-        else:
-            st.warning(MISSING_IMAGE)
+        show_image(image)
         with st.expander("Optimised prompt"):
             st.code(image["prompt"], language=None, wrap_lines=True)
 
@@ -112,7 +104,7 @@ with st.sidebar:
     topic_selector()
     refresh_slot = st.container()  # filled after the chat runs, so it sees a new Topic
 
-chat_tab, dashboard_tab, research_tab, brands_tab, usage_tab, settings_pane = st.tabs(
+chat_tab, dashboard_tab, research_pane, brands_tab, usage_tab, settings_pane = st.tabs(
     ["Chat", "Content Dashboard", "Research", "Brand Profiles", "Usage", "Settings"]
 )
 
@@ -133,8 +125,8 @@ with chat_tab:
 with dashboard_tab:
     content_dashboard_tab(workspace)
 
-with research_tab:
-    show_research_tab(workspace)
+with research_pane:
+    research_tab(workspace)
 
 with brands_tab:
     brand_profiles_tab()

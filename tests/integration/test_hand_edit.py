@@ -152,3 +152,84 @@ def test_an_image_cannot_be_hand_edited():
 def test_an_unknown_piece_is_rejected():
     with pytest.raises(KeyError):
         workspace().edit("nope", "x")
+
+
+def test_a_blog_edit_is_checked_against_the_length_the_edited_revision_was(monkeypatch):
+    ws = workspace()
+    ws.graph.update_state(
+        CONFIG,
+        {
+            "content_pieces": {
+                "p1": {
+                    "kind": "blog",
+                    "topic_id": "topic-1",
+                    "title": "B",
+                    "revisions": [{**BLOG, "check_targets": {"length": 40}}],
+                }
+            }
+        },
+        as_node="query_handler",
+    )
+    body = "# T\n\n" + "word " * 40 + "[1]."
+
+    ws.edit("p1", body, "Meta.")
+
+    latest = ws.piece("p1").latest
+    assert latest["check_targets"] == {"length": 40}
+    assert check(latest, "length")["passed"]
+
+
+def test_a_linkedin_edit_is_checked_against_the_hashtags_the_edited_revision_was():
+    ws = workspace()
+    post = {**POST, "check_targets": {"hashtags": [0, 0]}}
+    ws.graph.update_state(
+        CONFIG,
+        {
+            "content_pieces": {
+                "p2": {
+                    "kind": "linkedin_post",
+                    "topic_id": "topic-1",
+                    "title": "P",
+                    "revisions": [post],
+                }
+            }
+        },
+        as_node="query_handler",
+    )
+
+    ws.edit("p2", "A post with no tags at all.")
+
+    latest = ws.piece("p2").latest
+    assert latest["check_targets"] == {"hashtags": [0, 0]}
+    assert check(latest, "hashtags")["passed"]
+
+
+def test_a_revision_without_targets_is_checked_with_the_defaults():
+    ws = workspace()
+
+    ws.edit("p2", "Edited.\n\n#ai")
+
+    assert "check_targets" not in ws.piece("p2").latest
+
+
+def test_a_restore_carries_the_check_targets_over():
+    ws = workspace()
+    ws.graph.update_state(
+        CONFIG,
+        {
+            "content_pieces": {
+                "p1": {
+                    "kind": "blog",
+                    "topic_id": "topic-1",
+                    "title": "B",
+                    "revisions": [{**BLOG, "check_targets": {"length": 40}}],
+                }
+            }
+        },
+        as_node="query_handler",
+    )
+    ws.edit("p1", "# T\n\nBody [1].", "Meta.")
+
+    ws.restore("p1", 1)
+
+    assert ws.piece("p1").latest["check_targets"] == {"length": 40}

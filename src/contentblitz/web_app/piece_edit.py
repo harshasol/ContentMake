@@ -13,7 +13,11 @@ from contentblitz.workflow.workspace import PieceDetail, Workspace
 EDITING = "editing_piece"  # session state: the id of the piece being edited, if any
 
 
-def piece_edit(workspace: Workspace, piece: PieceDetail) -> None:
+def piece_edit(
+    workspace: Workspace, piece: PieceDetail, viewed_revision: int | None = None
+) -> None:
+    """The Edit button and form; `viewed_revision` is the Revision shown above (None = latest),
+    named in the form when it is an older one because editing always starts from the latest."""
     if piece.kind == "image":
         return
     if st.session_state.get(EDITING) != piece.piece_id:
@@ -22,6 +26,8 @@ def piece_edit(workspace: Workspace, piece: PieceDetail) -> None:
             st.rerun()
         return
     latest = piece.latest
+    if viewed_revision is not None and viewed_revision != len(piece.revisions):
+        st.info(f"Editing starts from the latest Revision {len(piece.revisions)}.")
     with st.form(f"edit_form_{piece.piece_id}"):
         text = st.text_area("Text", value=latest["text"], height=400, key="edit_text")
         meta = None
