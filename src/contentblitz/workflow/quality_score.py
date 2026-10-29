@@ -33,6 +33,8 @@ class QualityScore(TypedDict):
     reviewer_unavailable: bool  # the reviewer gave no verdict, so the draft couldn't pass
     # How many automatic revisions the quality loop made, set on the Attempt it keeps.
     revisions_used: NotRequired[int]
+    # A hand edit re-ran the rule checks only: `review` is carried over from the Revision edited.
+    not_re_reviewed: NotRequired[bool]
 
 
 def review_average(review: Review) -> float:
