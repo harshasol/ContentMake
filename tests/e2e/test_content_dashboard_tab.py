@@ -187,3 +187,50 @@ def test_an_image_whose_file_is_missing_shows_a_warning(monkeypatch, tmp_path):
     at.tabs[1].selectbox[0].select("piece-1").run()
 
     assert "image file" in at.tabs[1].warning[0].value
+
+
+def _refined_blog():
+    first = _blog()["revisions"][0]
+    brand = {"id": "default", "name": "Acme", "updated_at": "2026-10-28T00:00:00+00:00"}
+    second = {
+        **first,
+        "origin": "refinement",
+        "text": "Second version",
+        "brand_profile": brand,
+        "quality_score": {**BLOG_SCORE, "score": 80},
+    }
+    return {**_blog(), "revisions": [{**first, "text": "First version"}, second]}
+
+
+def test_the_history_lists_every_revision_and_view_opens_an_older_one(monkeypatch):
+    at = _scripted(monkeypatch, {"piece-1": _refined_blog()})
+    at.tabs[1].selectbox[0].select("piece-1").run()
+
+    tab = at.tabs[1]
+    [history] = [d.value for d in tab.dataframe if "Origin" in d.value.columns]
+    assert list(history["Revision"]) == [1, 2]
+    assert list(history["Origin"]) == ["Draft", "Refinement"]
+    assert list(history["Brand Profile"]) == ["—", "Acme"]
+    assert list(history["Quality Score"]) == ["62", "80"]
+    assert "Second version" in _markdown(tab)
+    assert not [i for i in tab.info if "older Revision" in i.value]
+
+    at.tabs[1].button(key="view_revision_1").click().run()
+
+    tab = at.tabs[1]
+    assert "First version" in _markdown(tab)
+    assert "Second version" not in _markdown(tab)
+    assert any("older Revision 1" in i.value for i in tab.info)
+    assert [d for d in tab.dataframe if "Check" in d.value.columns]  # its score, too
+
+    at.tabs[1].button(key="view_revision_2").click().run()
+    assert "Second version" in _markdown(at.tabs[1])
+
+
+def test_viewing_an_older_revision_does_not_change_the_state(monkeypatch):
+    at = _scripted(monkeypatch, {"piece-1": _refined_blog()})
+    at.tabs[1].selectbox[0].select("piece-1").run()
+    at.tabs[1].button(key="view_revision_1").click().run()
+
+    [table] = [d.value for d in at.tabs[1].dataframe if "Kind" in d.value.columns]
+    assert table.iloc[0]["Revision"] == 2

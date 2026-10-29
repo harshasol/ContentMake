@@ -4,6 +4,7 @@
 Revision (#62), hand edit (#63) and restore (#64) add their controls around `show_revision`.
 """
 
+from datetime import datetime
 from pathlib import Path
 
 import pandas as pd
@@ -11,10 +12,18 @@ import streamlit as st
 
 from contentblitz.workflow.image_files import image_caption
 from contentblitz.workflow.quality_score import QualityScore
+from contentblitz.workflow.report import display_date
 from contentblitz.workflow.state import Revision
 from contentblitz.workflow.workspace import PieceDetail
 
 MISSING_IMAGE = "The image file for this Revision is missing, so it can't be shown."
+ORIGIN_LABELS = {
+    "draft": "Draft",
+    "refinement": "Refinement",
+    "hand_edit": "Hand edit",
+    "restore": "Restore",
+}
+NONE = "—"
 NO_REVIEW = "The AI reviewer was unavailable, so this draft could not pass."
 
 
@@ -23,7 +32,61 @@ def piece_detail(piece: PieceDetail, revision_number: int | None = None) -> None
     number = revision_number or len(piece.revisions)
     st.subheader(piece.title)
     st.caption(f"{piece.topic} · Revision {number} of {len(piece.revisions)}")
+    if number != len(piece.revisions):
+        latest = len(piece.revisions)
+        st.info(f"You are viewing an older Revision {number}. The latest is {latest}.")
     show_revision(piece.kind, piece.revision(number))
+
+
+def viewed_key(piece_id: str) -> str:
+    """Session-state key holding the Revision number chosen with View for `piece_id`."""
+    return f"viewed_revision_{piece_id}"
+
+
+def revision_history(piece: PieceDetail) -> int | None:
+    """The Revision history (#62): a table of every Revision, then a View button for each.
+
+    Returns the number to show in `piece_detail`: the one chosen with View (kept in session
+    state, so it survives reruns), or None for the latest. Viewing never touches the Workspace.
+    The Restore action (#64) belongs next to each View button in `_view_buttons`.
+    """
+    st.markdown("**Revision history**")
+    st.dataframe(_history_table(piece), hide_index=True, use_container_width=True)
+    _view_buttons(piece)
+    chosen = st.session_state.get(viewed_key(piece.piece_id))
+    return chosen if chosen and chosen <= len(piece.revisions) else None
+
+
+def _history_table(piece: PieceDetail) -> pd.DataFrame:
+    return pd.DataFrame(
+        {
+            "Revision": number,
+            "Origin": ORIGIN_LABELS.get(revision["origin"], revision["origin"]),
+            "Time": _time(revision["created_at"]),
+            "Brand Profile": (revision.get("brand_profile") or {}).get("name", NONE),
+            "Quality Score": _score(piece.kind, revision),
+        }
+        for number, revision in enumerate(piece.revisions, start=1)
+    )
+
+
+def _time(iso: str) -> str:
+    return f"{display_date(iso)} {datetime.fromisoformat(iso):%H:%M} UTC"
+
+
+def _score(kind: str, revision: Revision) -> str:
+    score = revision.get("quality_score")
+    return NONE if kind == "image" or not score else str(score["score"])
+
+
+def _view_buttons(piece: PieceDetail) -> None:
+    for number, column in enumerate(st.columns(len(piece.revisions)), start=1):
+        column.button(
+            f"View {number}",
+            key=f"view_revision_{number}",
+            on_click=st.session_state.__setitem__,
+            args=(viewed_key(piece.piece_id), number),
+        )
 
 
 def show_revision(kind: str, revision: Revision) -> None:
