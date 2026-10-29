@@ -84,6 +84,17 @@ def show_message(message: ChatMessage) -> None:
             st.code(image["prompt"], language=None, wrap_lines=True)
 
 
+def show_run_caption(thread_id: str) -> None:
+    """The last run's cost and tokens, under the chat. It is not a chat message."""
+    caption = st.session_state.get("run_caption")
+    if caption and caption[0] == thread_id:
+        st.caption(caption[1])
+
+
+def remember_run_caption(workspace: Workspace, run_id: str) -> None:
+    st.session_state.run_caption = (workspace.thread_id, workspace.run_caption(run_id))
+
+
 def connect_workspace() -> Workspace:
     """The conversation named by the URL's `thread` parameter; a URL without one starts a new
     conversation and writes its id to the URL, so a reload reconnects to it (ADR 0003)."""
@@ -116,11 +127,13 @@ with chat_tab:
         shown, topics_before = len(workspace.messages()), workspace.topics()
         show_message(ChatMessage("user", prompt))
         with st.spinner("Thinking..."):
-            workspace.send(prompt, st.session_state.brand_profile_id)
+            run_id = workspace.send(prompt, st.session_state.brand_profile_id)
+        remember_run_caption(workspace, run_id)
         for message in workspace.messages()[shown + 1 :]:
             show_message(message)
         if workspace.topics() != topics_before:
             st.rerun()  # the sidebar selector was drawn before this run made a Topic
+    show_run_caption(workspace.thread_id)
 
 with dashboard_tab:
     content_dashboard_tab(workspace)
@@ -140,5 +153,6 @@ with settings_pane:
 with refresh_slot:
     if st.button("Refresh research", disabled=not workspace.has_active_topic()):
         with st.spinner("Refreshing research..."):
-            workspace.refresh_research(st.session_state.brand_profile_id)
+            run_id = workspace.refresh_research(st.session_state.brand_profile_id)
+        remember_run_caption(workspace, run_id)
         st.rerun()  # the Chat tab shows the run's messages like any other run

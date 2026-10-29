@@ -19,6 +19,7 @@ from contentblitz.agents.image_generator import image_generator
 from contentblitz.agents.linkedin_writer import linkedin_writer
 from contentblitz.agents.query_handler import query_handler
 from contentblitz.agents.research import research
+from contentblitz.core import call_context
 from contentblitz.workflow.active_brand_profile import load_brand_profile
 from contentblitz.workflow.plan import current_step
 from contentblitz.workflow.progress import progress_message
@@ -55,7 +56,8 @@ def _as_step(agent: AgentNode) -> AgentNode:
 
     def run(state: ContentBlitzState) -> ContentBlitzState:
         step = current_step(state)
-        update = agent(state)
+        with call_context.agent(step["agent"]):
+            update = agent(state)
         if reason := update.get("abort_reason"):
             update = {**update, "messages": [*update.get("messages", []), progress_message(reason)]}
         return {**update, "completed_steps": [*state.get("completed_steps", []), step]}
@@ -63,10 +65,20 @@ def _as_step(agent: AgentNode) -> AgentNode:
     return run
 
 
+def _in_agent(name: str, agent: AgentNode) -> AgentNode:
+    """Run `agent` with `name` as the current agent in the call context (spec #24)."""
+
+    def run(state: ContentBlitzState) -> ContentBlitzState:
+        with call_context.agent(name):
+            return agent(state)
+
+    return run
+
+
 def build_graph(checkpointer: BaseCheckpointSaver | None = None):
     builder = StateGraph(ContentBlitzState)
     builder.add_node("brand_profile", load_brand_profile)
-    builder.add_node("query_handler", query_handler)
+    builder.add_node("query_handler", _in_agent("query_handler", query_handler))
     builder.add_node("dispatcher", dispatcher)
     for name, agent in AGENT_NODES.items():
         builder.add_node(name, _as_step(agent))

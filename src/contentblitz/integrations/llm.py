@@ -2,7 +2,9 @@
 
 import base64
 import io
+import time
 from dataclasses import dataclass
+from datetime import UTC, datetime
 from typing import TypedDict
 
 import httpx
@@ -10,6 +12,7 @@ import litellm
 from PIL import Image, ImageStat
 from pydantic import BaseModel, ValidationError
 
+from contentblitz.core import call_context, usage
 from contentblitz.core.config import Aspect, ModelConfig, get_model_config, get_settings
 
 _callbacks_configured = False
@@ -34,6 +37,41 @@ def _configure_callbacks() -> None:
     _callbacks_configured = True
 
 
+def _tokens(response, field: str) -> int:
+    return int(getattr(getattr(response, "usage", None), field, 0) or 0)
+
+
+def _cost(response) -> float:
+    """LiteLLM's cost for the response; 0 when it has none or can't price the model."""
+    cost = (getattr(response, "_hidden_params", None) or {}).get("response_cost")
+    if cost is None:
+        try:
+            cost = litellm.completion_cost(completion_response=response)
+        except Exception:  # noqa: BLE001 - an unpriced model must not fail the call
+            cost = 0.0
+    return float(cost or 0.0)
+
+
+def _record_completion(agent: str, primary: str, answered_by: str, response, started: float):
+    """Append the call to the usage ledger, tagged from the call context (spec #24)."""
+    context = call_context.current()
+    usage.record(
+        usage.UsageEvent(
+            ts=datetime.now(UTC).isoformat(),
+            run_id=context.run_id,
+            conversation_id=context.conversation_id,
+            agent=agent,
+            kind="completion",
+            model=answered_by,
+            primary=primary,
+            tokens_in=_tokens(response, "prompt_tokens"),
+            tokens_out=_tokens(response, "completion_tokens"),
+            cost_usd=_cost(response),
+            latency_s=round(time.perf_counter() - started, 3),
+        )
+    )
+
+
 def complete(agent: str, messages: list[dict], config: ModelConfig | None = None, **kwargs) -> str:
     """Run a chat completion for `agent`, falling back through its configured models."""
     return _complete(agent, messages, config, **kwargs).value
@@ -43,6 +81,7 @@ def _complete(agent: str, messages: list[dict], config: ModelConfig | None, **kw
     _configure_callbacks()
     config = config or get_model_config()
     models = config.for_agent(agent)
+    started = time.perf_counter()
     response = litellm.completion(
         model=models.primary,
         fallbacks=models.fallbacks or None,
@@ -52,6 +91,7 @@ def _complete(agent: str, messages: list[dict], config: ModelConfig | None, **kw
         **kwargs,
     )
     answered_by = getattr(response, "model", None) or models.primary
+    _record_completion(agent, models.primary, answered_by, response, started)
     return Reply(response.choices[0].message.content or "", answered_by)
 
 
