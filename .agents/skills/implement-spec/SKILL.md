@@ -16,6 +16,13 @@ Communication to and from subagents should be sparse. Communicate primarily thro
 
 **Implementer subagents** should be run in the background where possible for maximum concurrency.
 
+**Model per subagent**: always pass `model` on the Agent call, so subagents don't inherit the session's model:
+- **exploration subagent** (step 2): `model: sonnet`
+- **implementer subagents** (step 4) and the review-fix implementer (step 7): `model: sonnet`
+- **merger subagents** (step 5): `model: haiku`
+
+The code review in step 7 keeps the session's model.
+
 ## Steps
 
 1. Read the spec and tickets to understand the task graph.

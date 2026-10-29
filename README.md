@@ -2,22 +2,23 @@
 
 A multi-agent content marketing assistant. Give it a Topic and it researches the web, builds a source-cited Research Brief, and turns it into SEO blogs, LinkedIn posts and images in your Brand Profile's voice.
 
-> **Status:** skeleton. The LangGraph workflow, LiteLLM model layer, search fallback interface, Streamlit UI shell, tests, Docker and CI are in place. The Query Handler currently answers every message directly; the other five agents are stubs.
+> **Status:** routing, deep research, the Research Brief, SEO blogs, LinkedIn posts, images and Brand Profiles are built. Still to come: the content workspace UI (dashboard, Revisions, Research tab, export, Settings; #23) and cost and observability (usage ledger, caching, nested traces; #24).
 
 Vocabulary is defined in [GLOSSARY.md](GLOSSARY.md); key decisions are in [docs/adr/](docs/adr/).
 
 ## Architecture
 
 ```
-            ┌──────────────────┐
- user ──▶   │  Query Handler   │  classifies intent, builds a plan
-            └────────┬─────────┘
-       ┌─────────────┼───────────────┬──────────────────┐
-       ▼             ▼               ▼                  ▼
- Deep Research ─▶ Content       SEO Blog Writer   Image Generation
-                  Strategist ─▶ LinkedIn Writer
-                (Research Brief)  (draft → validate → revise ≤3)
+ user ─▶ Streamlit UI ─▶ Load Brand Profile ─▶ Query Handler ─▶ Dispatcher
+                                          (routing decision, plan)  │ runs each plan step
+            ┌───────────────────┬─────────────────────┬─────────────┤
+            ▼                   ▼                     ▼             ▼
+      Deep Research ─▶ Content Strategist ─▶ Blog & LinkedIn    Image Generator
+      (web Sources)     (Research Brief)     Writers            (image or placeholder)
+                                             draft → check → Quality Judge → revise ≤3
 ```
+
+The interactive diagram, with source links for each component, is [docs/architecture/contentblitz-architecture.html](docs/architecture/contentblitz-architecture.html). Its source is [candidate.json](docs/architecture/candidate.json), rendered with Archify.
 
 | Concern | Choice |
 |---|---|
