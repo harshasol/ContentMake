@@ -52,6 +52,7 @@ def test_the_checks_are_listed_in_the_order_the_chat_shows_them():
         "paragraphs",
         "call to action",
         "plain text",
+        "grounded figures",
     ]
     assert all(set(r) == {"name", "passed", "measured", "reason"} for r in results)
 
@@ -304,3 +305,76 @@ def test_plain_text_allows_snake_case_asterisk_footnotes_and_bare_links():
         "Hospitals use model_v2 at 2*3 sites. Read more at https://example.com/a_b_c.",
     )
     assert check("plain text", with_tags(TAGS, body))["passed"]
+
+
+# Grounded figures
+
+FACTS = (
+    "AI reads scans 30% faster than radiologists.\n"
+    "The FDA has cleared 1,250 AI devices.\n"
+    "$4.5 billion: spent on medical AI in 2024\n"
+    "7 percent: fewer missed findings"
+)
+
+
+def figures(sentence, facts=FACTS):
+    body = BODY.replace("Hospitals are adopting it quickly.", sentence)
+    return check("grounded figures", with_tags(TAGS, body), facts=facts)
+
+
+def test_figures_from_the_brief_pass():
+    result = figures("Scans are read 30% faster, and 1,250 devices are cleared.")
+    assert result["passed"]
+    assert result["measured"] == "2 figures, all in the Brief"
+
+
+def test_a_figure_not_in_the_brief_fails_and_is_named():
+    result = figures("Scans are read 45% faster, across 1,250 devices and 80 hospitals.")
+    assert not result["passed"]
+    assert result["measured"] == "45%, 80 not in the Brief"
+    assert "45%" in result["reason"] and "80" in result["reason"]
+
+
+@pytest.mark.parametrize(
+    "sentence",
+    [
+        "The FDA has cleared 1250 AI devices.",  # no thousands separator
+        "Scans are read 30 percent faster.",  # percent spelled out
+        "Spending reached $4.5 billion.",  # a currency amount
+        "Missed findings fell 7%.",  # a single-digit percentage matches "7 percent"
+    ],
+)
+def test_differently_formatted_forms_of_a_brief_figure_are_grounded(sentence):
+    assert figures(sentence)["passed"]
+
+
+@pytest.mark.parametrize(
+    ("sentence", "ungrounded"),
+    [
+        ("Spending reached $9 billion.", "$9"),  # a currency amount, even of one digit
+        ("Missed findings fell 3%.", "3%"),  # a percentage, even of one digit
+        ("It took 12 months.", "12"),  # two digits or more
+        ("Accuracy rose 2.5 points.", "2.5"),
+    ],
+)
+def test_percentages_currency_and_numbers_of_two_or_more_digits_are_figures(sentence, ungrounded):
+    result = figures(sentence)
+    assert not result["passed"]
+    assert result["measured"] == f"{ungrounded} not in the Brief"
+
+
+def test_years_and_single_digits_are_not_figures():
+    result = figures("Since 2019, and again in 2025, 3 hospitals in 1 region joined.")
+    assert result["passed"]
+    assert result["measured"] == "no figures"
+
+
+def test_a_brief_percentage_does_not_ground_the_bare_number():
+    # "30%" in the post needs a 30% in the Brief; a bare 30 doesn't ground it.
+    assert not figures("Scans are read 30% faster.", facts="30 hospitals use AI.")["passed"]
+    assert figures("30 hospitals use AI.", facts="AI is 30% faster.")["passed"]
+
+
+def test_the_hashtag_line_is_not_searched_for_figures():
+    text = with_tags(f"{TAGS} #Health2030 #Top50", BODY)
+    assert check("grounded figures", text, facts=FACTS)["passed"]

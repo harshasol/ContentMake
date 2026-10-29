@@ -5,17 +5,22 @@ or snippet of a Source it cites. A year standing alone (1900-2099) isn't signifi
 is the only number in the figure: in "In 2024, 45% of clinics" only 45% is checked, and
 "3 in 4 patients" needs both 3 and 4. Matching ignores thousands separators, `%` versus
 "percent", and spacing; it never asks a model.
+
+The same matching tells whether a LinkedIn post's figures come from its Brief (spec #20).
 """
 
 import re
+from typing import TYPE_CHECKING
 
-from contentblitz.workflow.state import ResearchSource
+if TYPE_CHECKING:  # state imports the content checks, which import this module
+    from contentblitz.workflow.state import ResearchSource
 
 # A number, with any thousands separators (a comma or a space between groups of three digits)
 # kept so it can be told apart from a year.
 _NUMBER = re.compile(r"(?<![\d.])(?:\d{1,3}(?:[, ]\d{3})+(?!\d)|\d+)(?:\.\d+)?%?")
 _PERCENT = re.compile(r"(?<=\d)[\s-]*per\s*cent\b", re.IGNORECASE)
 _YEAR = re.compile(r"(?:19|20)\d{2}")
+_CURRENCY = re.compile(r"[$€£¥]\s?$")
 
 
 def _normalised(text: str) -> str:
@@ -43,10 +48,30 @@ def _found(number: str, text_numbers: set[str]) -> bool:
     return number in text_numbers or f"{number}%" in text_numbers
 
 
-def is_verified(figure: str, sources: list[ResearchSource]) -> bool:
+def is_verified(figure: str, sources: list["ResearchSource"]) -> bool:
     """Whether every significant number in the figure appears in one of these Sources."""
     wanted = _significant(figure)
     if not wanted:
         return False
     found = [{plain for _, plain in _numbers(f"{s['snippet']}\n{s['page_text']}")} for s in sources]
     return all(any(_found(n, numbers) for numbers in found) for n in wanted)
+
+
+def figures(text: str) -> list[str]:
+    """The figures in the text, as written: percentages, currency amounts, and other numbers
+    of 2 or more digits, leaving out years (1900-2099)."""
+    text = _normalised(text)
+    found = []
+    for match in _NUMBER.finditer(text):
+        written = match[0]
+        currency = _CURRENCY.search(text[: match.start()])
+        digits = sum(c.isdigit() for c in written)
+        if written.endswith("%") or currency or (digits >= 2 and not _YEAR.fullmatch(written)):
+            found.append(f"{currency[0].strip()}{written}" if currency else written)
+    return found
+
+
+def is_grounded(figure: str, text: str) -> bool:
+    """Whether the figure's number appears in the text, matched as `is_verified` matches."""
+    plain = re.sub(r"[$€£¥, ]", "", figure)
+    return _found(plain, {p for _, p in _numbers(text)})

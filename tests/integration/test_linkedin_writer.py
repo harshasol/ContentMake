@@ -238,6 +238,7 @@ def test_the_post_is_checked_and_its_quality_score_is_posted_and_saved(model):
         "paragraphs 8 paragraphs ✓",
         'call to action "comment" ✓',
         "plain text no Markdown ✓",
+        "grounded figures 2 figures, all in the Brief ✓",
     ]:
         assert line in after_post, line
     assert "Automatic revisions: 0 of 3" in after_post
@@ -412,3 +413,23 @@ def test_a_draft_failing_a_feed_convention_is_revised_to_a_pass(model):
     assert "plain text (bold)" in revise
     assert "Automatic revisions: 1 of 3" in plain(reply)
     assert revision_of(state)["text"] == POST
+
+
+def test_a_draft_with_a_figure_not_in_the_brief_is_revised_to_a_pass(model):
+    ungrounded = linkedin_draft(text=TEXT.replace("30% faster", "45% faster"))
+    model.reply = [ungrounded, linkedin_draft()]
+    [reply], state = run_plan(LINKEDIN, {"topic-1": topic()})
+
+    revise = prompt_of(model.calls_to("linkedin_writer")[1])
+    assert "grounded figures (45% not in the Brief)" in revise
+    assert "Automatic revisions: 1 of 3" in plain(reply)
+    assert revision_of(state)["text"] == POST
+
+
+def test_figures_are_checked_against_the_briefs_findings_and_statistics(model):
+    # 950 is only in the Brief's statistics, and 900 only in its findings.
+    model.reply = linkedin_draft(text=TEXT.replace("over 900", "950"))
+    _, state = run_plan(LINKEDIN, {"topic-1": topic()})
+
+    checks = revision_of(state)["quality_score"]["checks"]
+    assert checks[-1]["name"] == "grounded figures" and checks[-1]["passed"]

@@ -17,6 +17,7 @@ from typing import TypedDict
 import textstat
 
 from contentblitz.core.config import BlogQuality, LinkedInQuality
+from contentblitz.workflow.statistics import figures, is_grounded
 
 
 @dataclass(frozen=True)
@@ -504,6 +505,31 @@ def plain_text(post: Post) -> CheckResult:
     }
 
 
+def grounded_figures(post: Post) -> CheckResult:
+    """Every figure in the post before its hashtags appears in the Brief's findings or
+    statistics, matched as #16 matches a statistic to its Sources."""
+    body, _ = _split_hashtags(post.text)
+    found = figures("\n\n".join(body))
+    ungrounded = list(dict.fromkeys(f for f in found if not is_grounded(f, post.brief_facts)))
+    if ungrounded:
+        listed = ", ".join(ungrounded)
+        measured = f"{listed} not in the Brief"
+        reason = (
+            f"{listed} not in the Brief's findings or statistics: use its figures or drop these"
+        )
+    elif found:
+        measured = f"{len(found)} figure{'' if len(found) == 1 else 's'}, all in the Brief"
+        reason = f"every figure ({', '.join(found)}) is in the Brief"
+    else:
+        measured = reason = "no figures"
+    return {
+        "name": "grounded figures",
+        "passed": not ungrounded,
+        "measured": measured,
+        "reason": reason,
+    }
+
+
 def char_range(rules: LinkedInQuality, chars: int | None = None) -> tuple[int, int]:
     """The character range a post is written to: when the request sets a length, it is the
     most, with 15% below it; otherwise the configured range."""
@@ -532,4 +558,5 @@ def check_linkedin(
         paragraphs(post, rules.min_paragraphs, rules.max_paragraph_chars),
         call_to_action(post, rules.cta_phrases),
         plain_text(post),
+        grounded_figures(post),
     ]
