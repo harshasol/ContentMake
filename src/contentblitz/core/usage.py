@@ -6,17 +6,20 @@ with an in-memory index. The Usage tab and the per-run caption read the same que
 
 import json
 import logging
+import threading
 from collections import defaultdict
-from dataclasses import dataclass
-from datetime import date, datetime
+from dataclasses import asdict, dataclass
+from datetime import UTC, date, datetime
 from pathlib import Path
 from typing import Literal
 
 from pydantic import BaseModel, Field, ValidationError
 
+from contentblitz.core import call_context
 from contentblitz.core.config import get_settings
 
 LEDGER_FILE = "usage.jsonl"
+RUNS_FILE = "runs.jsonl"  # per-run records, next to the ledger
 logger = logging.getLogger(__name__)
 
 EventKind = Literal["completion", "image", "search"]
@@ -49,6 +52,29 @@ class UsageEvent(BaseModel):
     @property
     def day(self) -> date:
         return datetime.fromisoformat(self.ts).date()
+
+
+def event(kind: EventKind, **fields) -> UsageEvent:
+    """A `UsageEvent` of `kind` stamped now and tagged with the current run and conversation."""
+    context = call_context.current()
+    return UsageEvent(
+        ts=datetime.now(UTC).isoformat(),
+        run_id=context.run_id,
+        conversation_id=context.conversation_id,
+        kind=kind,
+        **fields,
+    )
+
+
+@dataclass(frozen=True)
+class RunRecord:
+    """What the workspace knows about a run that its events don't: the marketer's request, when
+    it started (ISO 8601) and how long it took."""
+
+    run_id: str
+    request: str
+    started: str
+    duration_s: float
 
 
 @dataclass(frozen=True)
@@ -151,41 +177,68 @@ def format_caption(cost_usd: float, tokens: int, cached: int = 0, fallbacks: int
 class UsageLedger:
     def __init__(self, path: Path):
         self.path = path
+        self.runs_path = path.with_name(RUNS_FILE)
         self.events: list[UsageEvent] = []
-        self.requests: dict[str, str] = {}  # run id -> the marketer's request
+        self.runs: dict[str, RunRecord] = {}
         self._load()
 
-    def _load(self) -> None:
-        if not self.path.exists():
-            return
-        for line in self.path.read_text(encoding="utf-8").splitlines():
+    @staticmethod
+    def _lines(path: Path) -> list[dict]:
+        if not path.exists():
+            return []
+        records = []
+        for line in path.read_text(encoding="utf-8").splitlines():
             try:
                 data = json.loads(line)
-                if isinstance(data, dict) and "request" in data and "agent" not in data:
-                    self.requests[str(data["run_id"])] = str(data["request"])
-                else:
-                    self.events.append(UsageEvent.model_validate(data))
-            except (ValidationError, ValueError, KeyError):
-                continue  # a torn or foreign line must not hide the rest
+            except ValueError:
+                continue  # a torn line must not hide the rest
+            if isinstance(data, dict):
+                records.append(data)
+        return records
 
-    def _append(self, record: dict) -> None:
-        self.path.parent.mkdir(parents=True, exist_ok=True)
-        with self.path.open("a", encoding="utf-8") as file:
+    def _load(self) -> None:
+        for data in self._lines(self.path):
+            try:
+                self.events.append(UsageEvent.model_validate(data))
+            except ValidationError:
+                continue
+        for data in self._lines(self.runs_path):
+            try:
+                run = RunRecord(
+                    str(data["run_id"]),
+                    str(data["request"]),
+                    str(data["started"]),
+                    float(data["duration_s"]),
+                )
+            except (KeyError, TypeError, ValueError):
+                continue
+            self.runs[run.run_id] = run
+
+    @staticmethod
+    def _append(path: Path, record: dict) -> None:
+        path.parent.mkdir(parents=True, exist_ok=True)
+        with path.open("a", encoding="utf-8") as file:
             file.write(json.dumps(record, ensure_ascii=False) + "\n")
 
     def record(self, event: UsageEvent) -> None:
-        self._append(event.model_dump())
+        self._append(self.path, event.model_dump())
         self.events.append(event)
 
-    def record_request(self, run_id: str, request: str) -> None:
-        """Remember what the marketer asked in run `run_id`, for the recent-runs list."""
-        self._append({"run_id": run_id, "request": request})
-        self.requests[run_id] = request
+    def record_run(self, run_id: str, request: str, started: str, duration_s: float) -> None:
+        """Remember a run's request, start and measured duration for the recent-runs list. The
+        record is a label: a file that can't be written is logged, never raised."""
+        run = RunRecord(run_id, request, started, duration_s)
+        try:
+            self._append(self.runs_path, asdict(run))
+        except OSError:
+            logger.exception("couldn't write the run records")
+        self.runs[run_id] = run
 
     def clear(self) -> None:
         self.events = []
-        self.requests = {}
+        self.runs = {}
         self.path.unlink(missing_ok=True)
+        self.runs_path.unlink(missing_ok=True)
 
     def select(
         self,
@@ -229,8 +282,10 @@ class UsageLedger:
         return self._grouped(lambda e: e.model, [e for e in self.events if e.kind == "search"])
 
     def cache_hit_rate(self) -> float | None:
-        """The share of recorded calls answered from a cache, or None before any call."""
-        return sum(e.cached for e in self.events) / len(self.events) if self.events else None
+        """The share of recorded calls answered from a cache, or None before any call. Images are
+        left out: they are never cacheable."""
+        events = [e for e in self.events if e.kind != "image"]
+        return sum(e.cached for e in events) / len(events) if events else None
 
     def recent_runs(self, limit: int = 20) -> list[RunRow]:
         """The latest runs, newest first; calls outside a run are not listed."""
@@ -241,15 +296,18 @@ class UsageLedger:
         rows = []
         for run_id, events in runs.items():
             totals = _sum(events)
-            request = (self.requests.get(run_id) or "").strip()
+            record = self.runs.get(run_id)
+            request = (record.request if record else "").strip()
             rows.append(
                 RunRow(
                     run_id=run_id,
-                    ts=min(e.ts for e in events),
+                    ts=record.started if record else min(e.ts for e in events),
                     request=request.splitlines()[0] if request else None,
                     cost_usd=totals.cost_usd,
                     tokens=totals.tokens,
-                    duration_s=round(sum(e.latency_s for e in events), 10),
+                    duration_s=(
+                        record.duration_s if record else round(sum(e.latency_s for e in events), 10)
+                    ),
                     fallback=bool(totals.fallbacks),
                     estimated=totals.estimated,
                 )
@@ -282,14 +340,16 @@ class UsageLedger:
 
 
 _ledgers: dict[Path, UsageLedger] = {}
+_ledgers_lock = threading.Lock()
 
 
 def get_ledger() -> UsageLedger:
     """The ledger for the configured data folder (one shared instance per file)."""
     path = get_settings().contentblitz_data_dir / LEDGER_FILE
-    if path not in _ledgers:
-        _ledgers[path] = UsageLedger(path)
-    return _ledgers[path]
+    with _ledgers_lock:
+        if path not in _ledgers:
+            _ledgers[path] = UsageLedger(path)
+        return _ledgers[path]
 
 
 def record(event: UsageEvent) -> None:

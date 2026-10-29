@@ -6,6 +6,7 @@ UI stays thin and every action can be tested against the real graph.
 """
 
 import shutil
+import time
 import uuid
 from dataclasses import dataclass
 from datetime import UTC, datetime
@@ -23,8 +24,7 @@ from contentblitz.core.usage import (
     Totals,
     get_ledger,
 )
-from contentblitz.integrations import llm, search_cache
-from contentblitz.workflow import brief_cache
+from contentblitz.integrations import llm
 from contentblitz.workflow.brand_profiles import DEFAULT_PROFILE_ID
 from contentblitz.workflow.export import (
     REPORT_EXPORTS,
@@ -191,8 +191,7 @@ class Workspace:
         Open handles are closed first, then the folders are deleted; each cache reopens on its
         next use. The usage ledger is not touched."""
         llm.reset_cache()
-        search_cache.close_all()
-        brief_cache.close_all()
+        cache.close_all()
         for folder in cache.cache_dirs():
             shutil.rmtree(folder, ignore_errors=True)
 
@@ -360,19 +359,21 @@ class Workspace:
 
     def _run(self, inputs: dict, request: str) -> str:
         """One workflow invocation is one Run: every call it makes is tagged with its id, and the
-        ledger keeps what was asked, for the Usage tab's recent runs. The invocation is also the
-        run's one LangSmith trace (#78), tagged with the same run id."""
-        profile_id = inputs.get("brand_profile_id")
-        topic = active_topic(self._state())
+        ledger keeps what was asked, when it started and how long it took, for the Usage tab's
+        recent runs. The run is also its one LangSmith trace (#78), tagged with the same id and
+        with the Topic active when the run ended."""
+        started = datetime.now(UTC).isoformat()
+        timer = time.perf_counter()
         with call_context.run(self.thread_id) as run_id, tracing.tracing():
             try:
-                get_ledger().record_request(run_id, request)
-            except OSError:
-                pass  # the request is a label; a ledger that can't be written must not stop the run
-            trace = tracing.run_config(
-                run_id, self.thread_id, profile_id, topic["name"] if topic else None
-            )
-            self.graph.invoke(inputs, config={**self._config, **trace})
+                with tracing.run_trace(
+                    run_id, self.thread_id, inputs.get("brand_profile_id")
+                ) as root:
+                    self.graph.invoke(inputs, config=self._config)
+                    topic = active_topic(self._state())
+                    root.add_metadata({"topic": topic["name"] if topic else None})
+            finally:
+                get_ledger().record_run(run_id, request, started, time.perf_counter() - timer)
         return run_id
 
     def usage(self) -> UsageView:

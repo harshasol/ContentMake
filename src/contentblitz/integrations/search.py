@@ -7,7 +7,6 @@ Page text is read with fetch_page, which extracts the readable article with traf
 import time
 from collections.abc import Iterator
 from contextlib import contextmanager
-from datetime import UTC, datetime
 from typing import NamedTuple, Protocol
 
 import httpx
@@ -20,6 +19,7 @@ from contentblitz.integrations import search_cache
 
 REQUEST_TIMEOUT_SECONDS = 10  # per search request; queries run in parallel, providers in turn
 MAX_PAGE_BYTES = 2_000_000  # HTML read per page; anything past this is ignored
+MAX_PAGE_CHARS = 2_000_000  # readable text kept (and cached) per page
 USER_AGENT = (
     "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 "
     "(KHTML, like Gecko) Chrome/130.0.0.0 Safari/537.36"
@@ -213,9 +213,13 @@ def search_with_fallback(
                 span.end(outputs={"results": len(results)})
         except Exception as exc:  # noqa: BLE001 - any provider failure moves to the next one
             failures[provider.name] = str(exc)
+            if fresh:
+                search_cache.delete("search", key)  # fresh overwrites: don't keep the stale entry
             continue
         if results:  # an empty answer may be a blip, so the next search asks again
             search_cache.put("search", key, [r.model_dump() for r in results])
+        elif fresh:
+            search_cache.delete("search", key)
         _record_search(providers, provider.name, failures, started)
         return SearchResponse(provider=provider.name, results=results, failures=failures)
     _record_search(providers, NO_PROVIDER, failures, started)
@@ -232,15 +236,11 @@ def _record_search(
     started: float,
     cached: bool = False,
 ) -> None:
-    context = call_context.current()
     price = 0.0 if cached else get_model_config().search.prices.get(answered_by.lower(), 0.0)
     usage.record(
-        usage.UsageEvent(
-            ts=datetime.now(UTC).isoformat(),
-            run_id=context.run_id,
-            conversation_id=context.conversation_id,
-            agent=context.agent or "search",
-            kind="search",
+        usage.event(
+            "search",
+            agent=call_context.current().agent or "search",
             model=answered_by,
             primary=providers[0].name if providers else None,
             cost_usd=price,
@@ -274,9 +274,11 @@ def fetch_page(
                 text = (trafilatura.extract(html, include_comments=False) if html else "") or ""
             except Exception:  # noqa: BLE001 - an unreadable page falls back to its snippet
                 text = ""
-            text = text.strip()[:MAX_PAGE_BYTES]
+            text = text.strip()[:MAX_PAGE_CHARS]
             if text:
                 search_cache.put("page_text", (url,), text)
+            elif fresh:
+                search_cache.delete("page_text", (url,))  # fresh overwrites: keep nothing stale
         page = text[:max_chars].rstrip()
         span.end(outputs={"chars": len(page), "cache_hit": cache_hit})
     return page

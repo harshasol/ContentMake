@@ -41,7 +41,7 @@ def clock(monkeypatch):
 @pytest.fixture(autouse=True)
 def close_caches():
     yield
-    search_cache.close_all()
+    cache.close_all()
 
 
 def switch_off(monkeypatch, name):
@@ -94,6 +94,30 @@ def test_a_fresh_search_skips_the_cache_and_overwrites_the_entry():
     again = search_with_fallback([provider], "ai")
     assert len(provider.calls) == 2
     assert again.results[0].url == "https://example.com/new"
+
+
+def test_a_fresh_search_that_fails_deletes_the_stale_entry():
+    provider = Counting()
+    search_with_fallback([provider], "ai")
+    provider.search = lambda *a, **k: (_ for _ in ()).throw(RuntimeError("down"))
+    with pytest.raises(search.SearchUnavailableError):
+        search_with_fallback([provider], "ai", fresh=True)
+
+    again = Counting()
+    search_with_fallback([again], "ai")
+    assert len(again.calls) == 1  # the entry is gone, so this goes live
+
+
+def test_a_fresh_search_that_is_empty_deletes_the_stale_entry():
+    provider = Counting()
+    search_with_fallback([provider], "ai")
+    provider.search = lambda *a, **k: []
+
+    search_with_fallback([provider], "ai", fresh=True)
+
+    again = Counting()
+    search_with_fallback([again], "ai")
+    assert len(again.calls) == 1
 
 
 def test_the_search_cache_can_be_switched_off(monkeypatch):
@@ -176,6 +200,17 @@ def test_a_fresh_page_fetch_skips_the_cache_and_overwrites_the_entry():
     assert len(requests) == 2
 
 
+def test_a_fresh_page_fetch_that_comes_back_empty_deletes_the_stale_entry():
+    client, requests = counting_client()
+    search.fetch_page(URL, 5, 10_000, client=client)
+    failing = httpx.Client(transport=httpx.MockTransport(lambda request: httpx.Response(500)))
+
+    assert search.fetch_page(URL, 5, 10_000, client=failing, fresh=True) == ""
+
+    search.fetch_page(URL, 5, 10_000, client=client)
+    assert len(requests) == 2  # the stale text is gone, so this reads the page again
+
+
 def test_an_unreadable_page_is_not_cached():
     calls = []
 
@@ -208,3 +243,27 @@ def test_an_empty_search_answer_is_not_cached():
     search_with_fallback([provider], "ai")
     search_with_fallback([provider], "ai")
     assert len(provider.calls) == 2
+
+
+def test_concurrent_first_uses_open_one_handle_that_close_all_closes(monkeypatch):
+    import time
+    from concurrent.futures import ThreadPoolExecutor
+
+    import diskcache
+
+    opened = []
+    real = diskcache.Cache
+
+    def slow_cache(folder, *args, **kwargs):
+        time.sleep(0.05)
+        handle = real(folder, *args, **kwargs)
+        opened.append(handle)
+        return handle
+
+    monkeypatch.setattr(diskcache, "Cache", slow_cache)
+
+    with ThreadPoolExecutor(8) as pool:
+        for future in [pool.submit(search_cache.put, "search", ("k",), "v") for _ in range(8)]:
+            future.result()
+
+    assert len(opened) == 1

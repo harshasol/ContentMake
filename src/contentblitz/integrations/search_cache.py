@@ -2,7 +2,7 @@
 
 Disk caches in the `search` and `page_text` cache folders (`core/cache.py`), each with its own
 switch and expiry from config. An entry stores when it was saved, so expiry follows `clock`
-(tests replace it). `close_all()` closes the open handles, like `workflow/brief_cache.py`.
+(tests replace it). The handles come from `cache.open_cache`, which `cache.close_all()` closes.
 """
 
 import re
@@ -17,18 +17,10 @@ from contentblitz.core.config import get_model_config
 
 clock = time.time  # seconds; tests inject a fake
 
-_open: dict[str, diskcache.Cache] = {}
-
 
 def _store(name: CacheName) -> diskcache.Cache | None:
     """The open cache `name`, or None when it is switched off (nothing is created)."""
-    config = get_model_config()
-    if not cache.options(name, config).enabled:
-        return None
-    folder = str(cache.cache_dir(name, config))
-    if folder not in _open:
-        _open[folder] = diskcache.Cache(folder)
-    return _open[folder]
+    return cache.open_cache(name, get_model_config())
 
 
 def get(name: CacheName, key: tuple) -> Any | None:
@@ -50,13 +42,13 @@ def put(name: CacheName, key: tuple, value: Any) -> None:
         store.set(key, (clock(), value))
 
 
+def delete(name: CacheName, key: tuple) -> None:
+    """Drop the entry under `key`, if any."""
+    store = _store(name)
+    if store is not None:
+        store.delete(key)
+
+
 def normalise_query(query: str) -> str:
     """Lower case with runs of whitespace collapsed, so trivial variants share an entry."""
     return re.sub(r"\s+", " ", query).strip().lower()
-
-
-def close_all() -> None:
-    """Close every open cache (tests use it to stand in for a new process)."""
-    for store in _open.values():
-        store.close()
-    _open.clear()

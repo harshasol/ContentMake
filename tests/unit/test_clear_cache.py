@@ -73,12 +73,24 @@ def test_clear_cache_empties_the_brief_cache():
 def test_clear_cache_leaves_the_usage_ledger_alone():
     event = UsageEvent(ts="2026-11-04T10:00:00+00:00", agent="a", kind="completion", model="m")
     get_ledger().record(event)
-    get_ledger().record_request("r1", "a request")
+    get_ledger().record_run("r1", "a request", "2026-11-04T10:00:00+00:00", 1.0)
 
     Workspace(None, "t").clear_cache()
 
     assert len(get_ledger().events) == 1
-    assert get_ledger().requests
+    assert get_ledger().runs
+
+
+def test_clear_cache_closes_every_handle_the_shared_opener_holds():
+    search_handle = cache.open_cache("search")
+    brief_handle = cache.open_cache("research_brief")
+    assert search_handle is cache.open_cache("search")
+
+    Workspace(None, "t").clear_cache()
+
+    assert cache._open == {}
+    assert cache.open_cache("search") is not search_handle
+    assert brief_handle is not cache.open_cache("research_brief")
 
 
 def test_clear_cache_works_when_no_cache_exists_yet():
