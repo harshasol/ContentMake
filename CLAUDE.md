@@ -2,6 +2,8 @@
 
 Multi-agent content marketing assistant (LangGraph + LiteLLM + Streamlit). Setup and layout: README.md. Vocabulary: GLOSSARY.md. Decisions: docs/adr/.
 
+Before building a ticket, read `docs/agents/implementer-notes.md`. It covers how to run checks (always `.venv/bin/python -m`), the spec-to-`main` flow, and the interfaces later features must use.
+
 ## Agent skills
 
 ### Issue tracker
