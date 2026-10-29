@@ -3,8 +3,9 @@
 import pandas as pd
 import streamlit as st
 
+from contentblitz.web_app.piece_detail import piece_detail
 from contentblitz.workflow.formats import PIECE_FORMATS
-from contentblitz.workflow.workspace import PieceRow, Workspace
+from contentblitz.workflow.workspace import PieceRow, TopicPieces, Workspace
 
 ACTIVE_TOPIC = "Active Topic"
 ALL_TOPICS = "All Topics"
@@ -34,3 +35,21 @@ def content_dashboard_tab(workspace: Workspace) -> None:
     for group in groups:
         st.subheader(group.topic)
         st.dataframe(_table(group.pieces), hide_index=True, use_container_width=True)
+    _open_piece(workspace, groups)
+
+
+def _open_piece(workspace: Workspace, groups: list[TopicPieces]) -> None:
+    """Pick a listed piece (key `open_piece`, value its piece id) to show its detail view below."""
+    rows = {row.piece_id: row for group in groups for row in group.pieces}
+    if not rows:
+        return
+    piece_id = st.selectbox(
+        "Open a piece",
+        list(rows),
+        index=None,
+        placeholder="Choose a Content Piece",
+        format_func=lambda i: f"{PIECE_FORMATS[rows[i].kind].label.capitalize()}: {rows[i].title}",
+        key="open_piece",
+    )
+    if piece_id and (piece := workspace.piece(piece_id)):
+        piece_detail(piece)

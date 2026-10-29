@@ -19,6 +19,7 @@ from contentblitz.workflow.state import (
     ContentPiece,
     ImageMetadata,
     ResearchBrief,
+    Revision,
 )
 from contentblitz.workflow.topics import active_topic, find_revision
 
@@ -86,6 +87,26 @@ class TopicPieces:
 
     topic: str
     pieces: list[PieceRow]
+
+
+@dataclass(frozen=True)
+class PieceDetail:
+    """A Content Piece with all its Revisions, oldest first (#61). The detail view renders one
+    Revision of it, so viewing an older one (#62) is `revision(n)` instead of `latest`."""
+
+    piece_id: str
+    kind: str
+    title: str
+    topic: str
+    revisions: list[Revision]
+
+    @property
+    def latest(self) -> Revision:
+        return self.revisions[-1]
+
+    def revision(self, number: int) -> Revision:
+        """Revision `number`, counted from 1."""
+        return self.revisions[number - 1]
 
 
 def new_thread_id() -> str:
@@ -186,6 +207,18 @@ class Workspace:
             self._config,
             {"active_topic_id": topic_id, "pending_topic_question": None},
             as_node="query_handler",
+        )
+
+    def piece(self, piece_id: str) -> PieceDetail | None:
+        """A Content Piece with all its Revisions, or None when this conversation has no such
+        piece (#61)."""
+        state = self._state()
+        piece = (state.get("content_pieces") or {}).get(piece_id)
+        if not piece:
+            return None
+        topic = (state.get("topics") or {}).get(piece["topic_id"]) or {}
+        return PieceDetail(
+            piece_id, piece["kind"], piece["title"], topic.get("name", ""), piece["revisions"]
         )
 
     def send(self, text: str, brand_profile_id: str = DEFAULT_PROFILE_ID) -> None:

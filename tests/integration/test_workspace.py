@@ -226,14 +226,11 @@ def test_the_configuration_shows_which_keys_are_set_and_never_their_values():
     assert "secret" not in repr(view)
 
 
-
 def test_the_configuration_describes_models_search_images_and_thresholds():
     from contentblitz.core.config import get_model_config
 
     config = get_model_config()
-    view = Workspace(build_graph(), new_thread_id()).configuration(
-        Settings(_env_file=None), config
-    )
+    view = Workspace(build_graph(), new_thread_id()).configuration(Settings(_env_file=None), config)
 
     assert view.agents["blog_writer"] == (config.agents["blog_writer"].primary, [])
     assert set(view.agents) == set(config.agents)
@@ -389,3 +386,28 @@ def test_the_next_content_request_after_new_topic_makes_a_topic_without_a_questi
     assert update.get("pending_topic_question") is None
     assert [s["agent"] for s in update["plan"]] == ["research", "content_strategist", "blog_writer"]
     assert update["topics"][update["active_topic_id"]]["name"] == "AI in radiology"
+
+
+def test_a_piece_comes_with_all_its_revisions_oldest_first():
+    graph = build_graph()
+    seed(graph)
+
+    piece = Workspace(graph, "t1").piece("piece-1")
+
+    assert (piece.piece_id, piece.kind, piece.title, piece.topic) == (
+        "piece-1",
+        "blog",
+        "AI Blog",
+        "AI",
+    )
+    assert [r["text"] for r in piece.revisions] == ["a", "b"]
+    assert piece.latest["text"] == "b"
+    assert piece.revision(1)["text"] == "a"
+
+
+def test_an_unknown_piece_is_none():
+    graph = build_graph()
+    seed(graph)
+
+    assert Workspace(graph, "t1").piece("nope") is None
+    assert Workspace(graph, "fresh").piece("piece-1") is None
