@@ -238,9 +238,21 @@ def test_viewing_an_older_revision_does_not_change_the_state(monkeypatch):
 
 def test_export_buttons_appear_on_an_opened_piece(monkeypatch):
     at = _scripted(monkeypatch, {"piece-1": _blog()})
-    assert not at.tabs[1].get("download_button")
+    assert [b.proto.label for b in at.tabs[1].get("download_button")] == ["Download Topic bundle"]
 
     at.tabs[1].selectbox[0].select("piece-1").run()
 
     labels = [b.proto.label for b in at.tabs[1].get("download_button")]
-    assert labels == ["Download Markdown", "Download HTML"]
+    assert labels == ["Download Topic bundle", "Download Markdown", "Download HTML"]
+
+
+def test_the_topic_bundle_button_appears_only_when_the_topic_has_pieces(monkeypatch):
+    st.cache_resource.clear()
+    monkeypatch.setattr(qh, "get_settings", lambda: Settings(_env_file=None, openai_api_key=None))
+    empty = AppTest.from_file(APP, default_timeout=30).run()
+    assert not empty.tabs[1].get("download_button")
+
+    at = _scripted(monkeypatch, {"piece-1": _refined_blog()})
+
+    labels = [b.proto.label for b in at.tabs[1].get("download_button")]
+    assert labels == ["Download Topic bundle"]

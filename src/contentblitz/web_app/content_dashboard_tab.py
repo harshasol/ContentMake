@@ -3,7 +3,7 @@
 import pandas as pd
 import streamlit as st
 
-from contentblitz.web_app.export_buttons import export_buttons
+from contentblitz.web_app.export_buttons import bundle_button, export_buttons
 from contentblitz.web_app.piece_detail import piece_detail, revision_history
 from contentblitz.workflow.formats import PIECE_FORMATS
 from contentblitz.workflow.workspace import PieceRow, TopicPieces, Workspace
@@ -36,6 +36,7 @@ def content_dashboard_tab(workspace: Workspace) -> None:
     for group in groups:
         st.subheader(group.topic)
         st.dataframe(_table(group.pieces), hide_index=True, use_container_width=True)
+    bundle_button(workspace.topic_bundle())
     _open_piece(workspace, groups)
 
 

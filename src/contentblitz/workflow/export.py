@@ -6,7 +6,9 @@ and `export_piece`.
 """
 
 import html
+import io
 import re
+import zipfile
 from dataclasses import dataclass
 from datetime import datetime
 from pathlib import Path
@@ -24,6 +26,7 @@ MIME = {
     "html": "text/html",
     "txt": "text/plain",
     "png": "image/png",
+    "zip": "application/zip",
 }
 PAGE_STYLE = (
     "body{font-family:system-ui,sans-serif;max-width:46rem;margin:2rem auto;padding:0 1rem;"
@@ -110,3 +113,12 @@ def export_report(topic: str, report: str, fmt: str) -> Export:
     name = f"{slug(topic)}-research-report.{fmt}"
     data = report if fmt == "md" else _page(f"Research: {topic}", report)
     return Export(name, MIME[fmt], data.encode())
+
+
+def export_bundle(topic: str, exports: list[Export]) -> Export:
+    """A zip of `exports`, each stored under its own file name, as `<topic>-bundle.zip` (#69)."""
+    buffer = io.BytesIO()
+    with zipfile.ZipFile(buffer, "w", zipfile.ZIP_DEFLATED) as archive:
+        for export in exports:
+            archive.writestr(export.file_name, export.data)
+    return Export(f"{slug(topic)}-bundle.zip", MIME["zip"], buffer.getvalue())
