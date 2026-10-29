@@ -48,7 +48,7 @@ LINKEDIN_DRAFT = {
     "text": "AI reads scans faster.\n\nWhat do you think?",
     "hashtags": ["#AI"],
 }
-VERDICT = {"engagement": 8, "suggestions": []}
+VERDICT = {"engagement": 8, "brand_voice": 8, "suggestions": []}
 IMAGE_PROMPT = {
     "prompt": "A robot doctor in a bright clinic.",
     "use": "general",
@@ -62,14 +62,15 @@ class FakeRouter:
 
     Research query planning gets three fixed queries, the Content Strategist a scripted draft
     Brief, the writers a scripted blog and LinkedIn post, the image prompt optimiser a scripted
-    prompt, and the reviewer a scripted verdict; only routing and Content Strategist calls are
-    recorded.
+    prompt, and the reviewer a scripted verdict; only routing, Content Strategist and reviewer
+    calls are recorded.
     """
 
     def __init__(self, decide):
         self.decide = decide
         self.calls = []
         self.strategist_calls = []
+        self.reviewer_calls = []
 
     def __call__(self, agent, messages, schema):
         if agent == "research":
@@ -82,6 +83,7 @@ class FakeRouter:
         if agent == "linkedin_writer":
             return schema.model_validate(LINKEDIN_DRAFT)
         if agent == "quality_judge":
+            self.reviewer_calls.append(messages)
             return schema.model_validate(VERDICT)
         if agent == "image_generator":
             return schema.model_validate(IMAGE_PROMPT)
@@ -290,7 +292,8 @@ BLOG = (
     "- length 7 words ✗\n"
     "- citations 1 Source cited ✗\n\n"
     "**Automatic revisions:** 3 of 3\n\n"
-    "**Engagement:** 8/10"
+    "**Engagement:** 8/10\n\n"
+    "**Brand voice:** 8/10"
 )
 LINKEDIN = (
     "```text\nAI reads scans faster.\n\nWhat do you think?\n\n#AI\n```\n\n"
@@ -305,7 +308,8 @@ LINKEDIN = (
     "- plain text no Markdown ✓\n"
     "- grounded figures no figures ✓\n\n"
     "**Automatic revisions:** 3 of 3\n\n"
-    "**Engagement:** 8/10"
+    "**Engagement:** 8/10\n\n"
+    "**Brand voice:** 8/10"
 )
 IMAGE = "Image ready: *A robot doctor*\n\n**Model:** openai/gpt-image-1\n\n**Size:** 1024×1024"
 
@@ -1409,6 +1413,27 @@ def test_an_unknown_profile_id_falls_back_to_default(monkeypatch, with_api_key):
         "Brand Profile *never-saved* no longer exists, so this conversation uses Default."
     )
     assert recorded_profiles(graph.get_state(config()).values) == {"piece-1": ["Default"]}
+
+
+def test_the_active_profile_reaches_the_reviewer_and_brand_voice_is_saved(
+    monkeypatch, with_api_key
+):
+    profile = saved_profile(audience="Hospital CIOs", words_to_avoid=["revolutionary"])
+    router = fake_router(monkeypatch, new_content("blog", "linkedin_post", same_topic=True))
+    graph = build_graph()
+    send_as(graph, "a blog and a LinkedIn post", profile.id, researched_topic())
+
+    assert router.reviewer_calls
+    for messages in router.reviewer_calls:
+        prompt = "\n".join(m["content"] for m in messages)
+        assert "Hospital CIOs" in prompt and "revolutionary" in prompt
+    pieces = graph.get_state(config()).values["content_pieces"]
+    for piece in pieces.values():
+        quality = piece["revisions"][-1].get("quality_score")
+        if quality:
+            assert quality["review"]["brand_voice"] == 8
+            assert quality["checks"][-1]["name"] == "words to avoid"
+    assert sum("quality_score" in p["revisions"][-1] for p in pieces.values()) == 2
 
 
 # --- Writers in the active Brand Profile's voice (#53) ---------------------------------------

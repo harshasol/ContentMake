@@ -24,9 +24,10 @@ from datetime import UTC, datetime
 
 from pydantic import BaseModel, Field
 
-from contentblitz.agents.quality_judge import review
+from contentblitz.agents.quality_judge import judged_profile, review
 from contentblitz.core.config import get_model_config
 from contentblitz.integrations import llm
+from contentblitz.workflow.active_brand_profile import active_brand_profile
 from contentblitz.workflow.brand_voice import brand_voice
 from contentblitz.workflow.content_checks import CheckResult, Draft, check_blog, word_range
 from contentblitz.workflow.plan import current_step
@@ -273,12 +274,13 @@ def _checks(state: ContentBlitzState, draft: dict) -> list[CheckResult]:
         source_numbers=[s["number"] for s in brief["sources"]],
     )
     words = _step(state).get("length")
-    return check_blog(checked, get_model_config().quality.blog, words)
+    avoid = active_brand_profile(state).words_to_avoid
+    return check_blog(checked, get_model_config().quality.blog, words, avoid)
 
 
 def _judge(state: ContentBlitzState, draft: dict) -> Review | None:
     text = f"Meta description: {draft['meta_description']}\n\nBlog post:\n\n{draft['body']}"
-    return review(text, JUDGING_CRITERIA)
+    return review(text, JUDGING_CRITERIA, judged_profile(active_brand_profile(state)))
 
 
 def _chat_text(draft: dict, quality: QualityScore) -> str:
