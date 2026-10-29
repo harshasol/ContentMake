@@ -249,3 +249,13 @@ def test_restoring_revision_1_adds_a_revision_showing_its_content(monkeypatch):
     assert list(history["Origin"]) == ["Draft", "Refinement", "Restore"]
     assert "First version" in _markdown(tab)  # the new latest shows the restored content
     assert not [i for i in tab.info if "older Revision" in i.value]
+
+
+def test_export_buttons_appear_on_an_opened_piece(monkeypatch):
+    at = _scripted(monkeypatch, {"piece-1": _blog()})
+    assert not at.tabs[1].get("download_button")
+
+    at.tabs[1].selectbox[0].select("piece-1").run()
+
+    labels = [b.proto.label for b in at.tabs[1].get("download_button")]
+    assert labels == ["Download Markdown", "Download HTML"]

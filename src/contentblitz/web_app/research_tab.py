@@ -3,6 +3,7 @@
 import pandas as pd
 import streamlit as st
 
+from contentblitz.web_app.export_buttons import export_buttons
 from contentblitz.workflow.report import display_date
 from contentblitz.workflow.state import Source
 from contentblitz.workflow.workspace import Workspace
@@ -32,6 +33,7 @@ def research_tab(workspace: Workspace) -> None:
         st.info(NO_RESEARCH)
         return
     st.markdown(research.report)
+    export_buttons(workspace.research_exports(), key="research_export")
     st.subheader("Sources")
     st.dataframe(
         sources_table(research.brief["sources"]),

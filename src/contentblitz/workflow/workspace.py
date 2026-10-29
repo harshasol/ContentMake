@@ -14,6 +14,13 @@ from langchain_core.messages import AnyMessage, HumanMessage
 
 from contentblitz.core.config import ModelConfig, Settings, get_model_config, get_settings
 from contentblitz.workflow.brand_profiles import DEFAULT_PROFILE_ID
+from contentblitz.workflow.export import (
+    REPORT_EXPORTS,
+    Export,
+    export_piece,
+    export_report,
+    formats,
+)
 from contentblitz.workflow.report import render_report
 from contentblitz.workflow.state import (
     ContentBlitzState,
@@ -247,6 +254,29 @@ class Workspace:
             add_revision(self._state(), piece_id, restored),
             as_node="query_handler",
         )
+
+    def piece_exports(self, piece_id: str, revision_number: int | None = None) -> list[Export]:
+        """Every export of Revision `revision_number` of a piece (the latest by default), built
+        in memory (#68); `[]` for an unknown piece or an image whose file is missing."""
+        piece = self.piece(piece_id)
+        if piece is None:
+            return []
+        number = revision_number or len(piece.revisions)
+        revision = piece.revision(number)
+        try:
+            return [
+                export_piece(piece.topic, piece.kind, piece.title, revision, number, fmt)
+                for fmt in formats(piece.kind)
+            ]
+        except OSError:
+            return []
+
+    def research_exports(self) -> list[Export]:
+        """The active Topic's research report as Markdown and HTML (#68); `[]` without research."""
+        research = self.research()
+        if research is None:
+            return []
+        return [export_report(research.topic_name, research.report, f) for f in REPORT_EXPORTS]
 
     def send(self, text: str, brand_profile_id: str = DEFAULT_PROFILE_ID) -> None:
         """Send the marketer's message and run the workflow; read the replies with `messages()`."""
