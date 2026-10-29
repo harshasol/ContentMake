@@ -136,8 +136,8 @@ class FakePages:
         self.barrier = barrier
         self.calls = []
 
-    def __call__(self, url, timeout, max_chars):
-        self.calls.append({"url": url, "timeout": timeout, "max_chars": max_chars})
+    def __call__(self, url, timeout, max_chars, fresh=False):
+        self.calls.append({"url": url, "timeout": timeout, "max_chars": max_chars, "fresh": fresh})
         if self.barrier:
             self.barrier.wait()  # breaks, and so raises, unless every read runs at once
         return self.texts.get(url, "")
@@ -617,6 +617,14 @@ def test_fresh_research_tells_every_search_to_skip_cached_results(monkeypatch):
     assert tavily.fresh == [True, True, True]
 
 
+def test_fresh_research_tells_every_page_fetch_to_skip_cached_text(monkeypatch, pages):
+    fake_model(monkeypatch, blog_request(fresh_research=True, same_topic=True))
+    fake_search(monkeypatch, FakeProvider("Tavily", {QUERIES[0]: [hit("https://new.org/ai")]}))
+    run(build_graph(), "find newer sources, then a blog", start=researched_topics())
+
+    assert pages.calls and all(call["fresh"] for call in pages.calls)
+
+
 def test_research_that_is_not_fresh_may_use_cached_results(monkeypatch):
     fake_model(monkeypatch)
     provider = FakeProvider("SerpAPI", {QUERIES[0]: [hit("https://new.org/ai")]})
@@ -682,7 +690,8 @@ def test_each_topics_research_is_kept_separately(monkeypatch):
     run(graph)
 
     model.decision = research_request("AI in finance")
-    provider.results = {QUERIES[0]: [hit("https://finance.org/")]}
+    # a different provider, so the first Topic's cached searches don't answer
+    fake_search(monkeypatch, FakeProvider("Tavily", {QUERIES[0]: [hit("https://finance.org/")]}))
     _, state = run(graph, "research AI in finance", start={"active_topic_id": None})
 
     assert urls(research_record(state, "topic-1")) == ["https://healthcare.org/"]

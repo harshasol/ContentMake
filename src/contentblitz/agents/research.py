@@ -103,7 +103,9 @@ def _search_all(
     return [s for s, _ in runs if s], [outcome for _, outcome in runs]
 
 
-def _read_pages(sources: list[ResearchSource], options: SearchOptions) -> list[ResearchSource]:
+def _read_pages(
+    sources: list[ResearchSource], options: SearchOptions, fresh: bool = False
+) -> list[ResearchSource]:
     """The top Sources with their page text, read in parallel; the rest keep only their snippet.
 
     A page that can't be read gives no text, so its Source falls back to its snippet.
@@ -114,7 +116,10 @@ def _read_pages(sources: list[ResearchSource], options: SearchOptions) -> list[R
 
     def read(source: ResearchSource) -> ResearchSource:
         text = search.fetch_page(
-            source["url"], timeout=options.page_timeout_seconds, max_chars=options.text_cap_chars
+            source["url"],
+            timeout=options.page_timeout_seconds,
+            max_chars=options.text_cap_chars,
+            fresh=fresh,
         )
         return {**source, "page_text": text}
 
@@ -176,7 +181,7 @@ def research(state: ContentBlitzState) -> ContentBlitzState:
     _trace(queries, outcomes, len(sources))
     if not sources:
         return {"abort_reason": NO_SOURCES.format(topic=name)}
-    sources = _read_pages(sources, options)
+    sources = _read_pages(sources, options, fresh=step.get("fresh", False))
 
     record: ResearchRecord = {
         "queries": queries,
