@@ -290,7 +290,7 @@ class Workspace:
                         formats(piece.kind)[0],
                     )
                 )
-            except OSError:
+            except (OSError, KeyError):
                 continue
         research = self.research()
         if research is not None:
