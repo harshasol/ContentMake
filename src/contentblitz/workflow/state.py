@@ -184,6 +184,8 @@ class ContentBlitzState(TypedDict, total=False):
     # Set by an agent to stop the plan: the dispatcher posts it and runs no more steps.
     abort_reason: str | None
     pending_topic_question: PendingTopicQuestion | None
+    # A direct command from the sidebar that skips routing (#67); the Query Handler clears it.
+    command: Literal["refresh_research"] | None
     # Conversation input from the sidebar: the active Brand Profile's id (None means Default).
     brand_profile_id: str | None
     # The active Brand Profile, loaded through the store at the start of each run as a

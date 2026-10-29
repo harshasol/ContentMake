@@ -128,6 +128,35 @@ def test_an_image_message_carries_the_images_metadata(monkeypatch):
     assert all(isinstance(m, ChatMessage) for m in messages)
 
 
+def test_refresh_research_without_an_active_topic_is_refused_in_the_chat(model):
+    workspace = Workspace(build_graph(), "t1")
+
+    assert not workspace.has_active_topic()
+    workspace.refresh_research()
+
+    assert [(m.role, m.text) for m in workspace.messages()] == [
+        ("assistant", qh.NO_TOPIC_TO_REFRESH)
+    ]
+
+
+def test_refresh_research_sends_the_command_with_the_brand_profile_and_no_user_message(
+    monkeypatch,
+):
+    seen = []
+
+    def handler(state):
+        seen.append((state.get("command"), state.get("brand_profile_id"), state.get("messages")))
+        return {"messages": [AIMessage(content="refreshing")], "command": None}
+
+    monkeypatch.setattr(workflow, "query_handler", handler)
+    workspace = Workspace(build_graph(), "t1")
+
+    workspace.refresh_research()
+
+    assert seen == [("refresh_research", "default", [])]
+    assert [(m.role, m.text) for m in workspace.messages()] == [("assistant", "refreshing")]
+
+
 def _brief(**changes):
     source = {
         "number": 1,
