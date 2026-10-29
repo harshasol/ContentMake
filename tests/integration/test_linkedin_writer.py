@@ -433,3 +433,67 @@ def test_figures_are_checked_against_the_briefs_findings_and_statistics(model):
 
     checks = revision_of(state)["quality_score"]["checks"]
     assert checks[-1]["name"] == "grounded figures" and checks[-1]["passed"]
+
+
+# Templates and instructions
+
+
+def test_a_template_named_in_the_request_is_used_recorded_and_shown(model):
+    model.reply = linkedin_draft(template="industry insights")  # what the model says it used
+    plan = [{"agent": "linkedin_writer", "instructions": None, "template": "tips"}]
+    [reply], state = run_plan(plan, {"topic-1": topic()})
+
+    assert "Template: tips" in prompt_of(model.calls_to("linkedin_writer")[0])
+    assert "Template: tips\n" in plain(reply)
+    assert revision_of(state)["template"] == "tips"
+
+
+def test_a_revised_attempt_keeps_the_template_named_in_the_request(model):
+    model.reply = [TOO_LONG, linkedin_draft(template="announcement")]
+    plan = [{"agent": "linkedin_writer", "instructions": None, "template": "tips"}]
+    _, state = run_plan(plan, {"topic-1": topic()})
+
+    revision = revision_of(state)
+    assert (revision["quality_score"]["revisions_used"], revision["template"]) == (1, "tips")
+
+
+def test_without_a_template_the_writer_picks_one_records_it_and_says_so(model):
+    model.reply = linkedin_draft(template="announcement")
+    [reply], state = run_plan(LINKEDIN, {"topic-1": topic()})
+
+    prompt = prompt_of(model.calls_to("linkedin_writer")[0]).lower()
+    assert "pick the template that fits best" in prompt
+    assert "Template: announcement (picked by the writer)" in plain(reply)
+    assert revision_of(state)["template"] == "announcement"
+
+
+STORY = "Last spring our clinic in Leeds piloted an AI triage tool, and I watched the queue shrink."
+
+
+def test_a_personal_story_from_the_instructions_reaches_the_drafting_and_revise_calls(model):
+    model.reply = [TOO_LONG, linkedin_draft(template="personal story")]
+    plan = [{"agent": "linkedin_writer", "instructions": STORY, "template": "personal story"}]
+    run_plan(plan, {"topic-1": topic()})
+
+    draft, revise = model.calls_to("linkedin_writer")
+    assert "Template: personal story" in prompt_of(draft)
+    assert STORY in prompt_of(draft) and STORY in prompt_of(revise)
+
+
+def test_a_personal_story_without_one_is_told_to_write_an_observation_and_invent_nothing(model):
+    plan = [{"agent": "linkedin_writer", "instructions": None, "template": "personal story"}]
+    run_plan(plan, {"topic-1": topic()})
+
+    prompt = prompt_of(model.calls_to("linkedin_writer")[0]).lower()
+    assert "instructions: none" in prompt
+    assert "observation" in prompt and "something i keep seeing" in prompt
+    assert "never invent first-person events" in prompt
+
+
+def test_the_steps_instructions_reach_the_revise_call(model):
+    model.reply = [TOO_LONG, linkedin_draft()]
+    plan = [{"agent": "linkedin_writer", "instructions": "mention our webinar"}]
+    run_plan(plan, {"topic-1": topic()})
+
+    revise = model.calls_to("linkedin_writer")[1]
+    assert "mention our webinar" in prompt_of(revise)

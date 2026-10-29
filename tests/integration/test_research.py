@@ -56,7 +56,7 @@ VERDICT = {"engagement": 8, "suggestions": []}
 LINKEDIN = (
     "```text\nAI reads scans faster.\n\nWhat do you think?\n\n#AI\n```\n\n"
     "**Characters:** 47\n\n"
-    "**Template:** tips\n\n"
+    "**Template:** tips (picked by the writer)\n\n"
     "**Quality Score:** 64/100\n\n"
     "- length 47 chars ✗\n"
     "- hashtags 1 hashtag ✗\n"

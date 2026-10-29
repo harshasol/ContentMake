@@ -266,7 +266,7 @@ BLOG = (
 LINKEDIN = (
     "```text\nAI reads scans faster.\n\nWhat do you think?\n\n#AI\n```\n\n"
     "**Characters:** 47\n\n"
-    "**Template:** tips\n\n"
+    "**Template:** tips (picked by the writer)\n\n"
     "**Quality Score:** 64/100\n\n"
     "- length 47 chars ✗\n"
     "- hashtags 1 hashtag ✗\n"
@@ -1028,3 +1028,41 @@ def test_the_requests_blog_options_carry_over_when_a_held_plan_is_rebuilt_for_a_
     ]
     revision = blog_revision(state)
     assert (revision["target_keyword"], revision["template"]) == ("AI diagnostics", "listicle")
+
+
+def linkedin_revision(state):
+    pieces = state["content_pieces"]
+    piece_ids = state["topics"][state["active_topic_id"]]["piece_ids"]
+    [piece_id] = [p for p in piece_ids if pieces[p]["kind"] == "linkedin_post"]
+    [revision] = pieces[piece_id]["revisions"]
+    return revision
+
+
+def test_a_linkedin_template_in_the_request_reaches_only_the_linkedin_step(
+    monkeypatch, with_api_key
+):
+    decision = new_content("blog", "linkedin_post", same_topic=True)(None)
+    fake_router(monkeypatch, lambda _: decision.model_copy(update={"template": "tips"}))
+    graph = build_graph()
+    send_with(graph, "a blog and a tips post on LinkedIn", researched_topic())
+
+    state = graph.get_state(config()).values
+    assert state["plan"] == [
+        {"agent": "blog_writer", "instructions": None},
+        {"agent": "linkedin_writer", "instructions": None, "template": "tips"},
+    ]
+    assert linkedin_revision(state)["template"] == "tips"
+
+
+def test_the_routing_decision_accepts_the_linkedin_and_blog_templates():
+    for template in [
+        "industry insights",
+        "personal story",
+        "tips",
+        "announcement",
+        "how-to",
+        "listicle",
+        "comparison",
+        "thought leadership",
+    ]:
+        assert RoutingDecision(intent="new_content", template=template).template == template

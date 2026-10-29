@@ -94,10 +94,11 @@ class Revision(TypedDict):
     Only the result a writer's quality loop keeps becomes a Revision, never its Attempts.
     """
 
-    text: str  # Markdown for a blog
+    text: str  # Markdown for a blog, plain text for a LinkedIn post
     origin: RevisionOrigin
     created_at: str  # ISO 8601, UTC
-    # A blog's SEO fields; the keyword and template carry over to its refinements.
+    # A blog's SEO fields, and the template any writer used; the keyword and template carry over
+    # to its refinements.
     meta_description: NotRequired[str]
     target_keyword: NotRequired[str]
     template: NotRequired[Template]
@@ -118,7 +119,8 @@ class PlanStep(TypedDict):
     instructions: NotRequired[str | None]
     # On a research step: re-research from scratch, skipping any cached search results.
     fresh: NotRequired[bool]
-    # On a writer step, when the request sets them: they win over the Brief and the config.
+    # On a writer step, when the request sets them: they win over the Brief and the config. A
+    # blog takes all three; a LinkedIn post takes a LinkedIn template.
     target_keyword: NotRequired[str]
     template: NotRequired[Template]
     length: NotRequired[int]  # in words, checked with a tolerance instead of the word range

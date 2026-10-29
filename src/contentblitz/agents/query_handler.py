@@ -33,7 +33,8 @@ conversation and return a routing decision:
 - new_content: the user wants research, a blog, a LinkedIn post or an image. Set topic_name
   and formats in the order asked (["research"] for research only). For a blog, set
   target_keyword ("target keyword: AI diagnostics"), template and length in words only when
-  the user asks for them.
+  the user asks for them. For a LinkedIn post, set template (industry insights, personal
+  story, tips or announcement) only when the user names one.
 - refine: the user wants an existing piece changed. Set instructions, set refine_target to the
   id of the Content Piece below that they mean (null if unsure), and set formats to its kind
   when they name one ("the LinkedIn post" → ["linkedin_post"]).

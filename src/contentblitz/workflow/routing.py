@@ -36,7 +36,7 @@ class RoutingDecision(BaseModel):
         None, description="The blog's target keyword, only if the user set one."
     )
     template: Template | None = Field(
-        None, description="The blog's template, only if the user chose one."
+        None, description="The blog's or LinkedIn post's template, only if the user chose one."
     )
     length: int | None = Field(
         None, description="The blog's length in words, only if the user asked for one."

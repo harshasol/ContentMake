@@ -30,7 +30,7 @@ from contentblitz.workflow.plan import current_step
 from contentblitz.workflow.progress import progress_message, stub_progress
 from contentblitz.workflow.quality_loop import Attempt, QualityFormat, quality_loop, quality_text
 from contentblitz.workflow.quality_score import QualityScore, Review
-from contentblitz.workflow.routing import LinkedInTemplate
+from contentblitz.workflow.routing import LinkedInTemplate, Template
 from contentblitz.workflow.state import (
     ContentBlitzState,
     ContentPiece,
@@ -47,7 +47,8 @@ AGENT = "linkedin_writer"
 TEMPLATES: dict[str, str] = {
     "industry insights": "a striking statistic or claim, why it matters, a takeaway",
     "personal story": "a narrative arc, told from a story the marketer gives in the "
-    'instructions; without one, written as an observation ("Something I keep seeing...")',
+    'instructions; without one, written as an observation ("Something I keep seeing...") that '
+    "never invents first-person events",
     "tips": "a hook, then 3-5 numbered tips as short paragraphs",
     "announcement": "the news, the benefit, a call to action",
 }
@@ -62,7 +63,9 @@ separated by blank lines, easy to scan on a phone, and close with a call to acti
 or an invitation to comment or share. Write plain text: no Markdown, and no [n] citations.
 Give the hashtags separately, and draw the hashtags from the keywords where possible.
 Follow the structure of the template you are given, or pick the template that fits best when you
-aren't given one. Follow the marketer's instructions."""
+aren't given one. Never invent first-person events from the marketer's life: tell a personal
+story only from one they give you in the instructions, and otherwise write it as an
+observation. Follow the marketer's instructions."""
 
 REVISE_PROMPT = """\
 Revise your LinkedIn post above to fix what follows. Change only what is needed to fix it, and
@@ -125,6 +128,11 @@ def _topic(state: ContentBlitzState) -> Topic:
     return active_topic(state)
 
 
+def _template(state: ContentBlitzState) -> Template | None:
+    """The template the request names. None lets the writer pick."""
+    return _step(state).get("template")
+
+
 def _range_text(low: int, high: int) -> str:
     return f"{low}" if low == high else f"{low}-{high}"
 
@@ -143,7 +151,7 @@ def _prompt(state: ContentBlitzState) -> list[dict]:
             f"Opening line: at most {rules.max_hook_chars} characters\n"
             f"Paragraphs: at least {rules.min_paragraphs}, each at most "
             f"{rules.max_paragraph_chars} characters\n"
-            "Template: none given, pick the template that fits best\n"
+            f"Template: {_template(state) or 'none given, pick the template that fits best'}\n"
             f"Instructions: {_step(state).get('instructions') or 'none'}\n\n"
             f"Templates:\n{templates}\n\n"
             f"Research Brief:\n\n{_brief_text(topic['brief'])}",
@@ -157,18 +165,20 @@ def _post(text: str, hashtags: list[str]) -> str:
     return f"{text.strip()}\n\n{tags}" if tags else text.strip()
 
 
-def _write_draft(messages: list[dict]) -> dict | None:
+def _write_draft(state: ContentBlitzState, messages: list[dict]) -> dict | None:
     """The model's post, or None if every provider failed or the reply never fit."""
     try:
         reply = llm.complete_structured_reply(AGENT, messages, LinkedInDraft)
     except Exception:  # noqa: BLE001 - a failed post posts an error; the plan carries on
         return None
     draft = reply.value
-    return {"template": draft.template, "post": _post(draft.text, draft.hashtags)}
+    # The template the request named is the one recorded, whatever the model says it used.
+    template = _template(state) or draft.template
+    return {"template": template, "post": _post(draft.text, draft.hashtags)}
 
 
 def _first_draft(state: ContentBlitzState) -> dict | None:
-    return _write_draft(_prompt(state))
+    return _write_draft(state, _prompt(state))
 
 
 def _draft_text(draft: dict) -> str:
@@ -179,6 +189,7 @@ def _draft_text(draft: dict) -> str:
 def _revise(state: ContentBlitzState, draft: dict, feedback: str) -> dict | None:
     """The current draft revised to fix what the feedback names, keeping the rest."""
     return _write_draft(
+        state,
         [
             *_prompt(state),
             {"role": "assistant", "content": _draft_text(draft)},
@@ -204,11 +215,12 @@ def _fenced(post: str) -> str:
     return f"{fence}text\n{post}\n{fence}"
 
 
-def _chat_text(draft: dict, quality: QualityScore) -> str:
+def _chat_text(state: ContentBlitzState, draft: dict, quality: QualityScore) -> str:
+    picked = "" if _template(state) else " (picked by the writer)"
     return (
         f"{_fenced(draft['post'])}\n\n"
         f"**Characters:** {len(draft['post']):,}\n\n"
-        f"**Template:** {draft['template']}\n\n"
+        f"**Template:** {draft['template']}{picked}\n\n"
         f"{quality_text(quality)}"
     )
 
@@ -236,8 +248,9 @@ def _revision(attempt: Attempt, origin: RevisionOrigin) -> Revision:
     }
 
 
-def _posted(attempt: Attempt) -> ContentBlitzState:
-    return {"messages": [progress_message(_chat_text(attempt["draft"], attempt["quality_score"]))]}
+def _posted(state: ContentBlitzState, attempt: Attempt) -> ContentBlitzState:
+    text = _chat_text(state, attempt["draft"], attempt["quality_score"])
+    return {"messages": [progress_message(text)]}
 
 
 def _finalise(state: ContentBlitzState, attempt: Attempt) -> ContentBlitzState:
@@ -249,7 +262,7 @@ def _finalise(state: ContentBlitzState, attempt: Attempt) -> ContentBlitzState:
         "title": _title(attempt["draft"]["post"]),
         "revisions": [_revision(attempt, "draft")],
     }
-    return {**add_piece(state, new_piece_id(state), piece), **_posted(attempt)}
+    return {**add_piece(state, new_piece_id(state), piece), **_posted(state, attempt)}
 
 
 def _failure(state: ContentBlitzState) -> str:
