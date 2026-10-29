@@ -6,6 +6,7 @@ from langchain_core.messages import HumanMessage
 from PIL import Image
 
 from contentblitz.agents import query_handler as qh
+from contentblitz.agents import research as research_agent
 from contentblitz.core.config import Settings
 from contentblitz.integrations import llm, search
 from contentblitz.integrations.llm import StructuredOutputError
@@ -1596,6 +1597,8 @@ def test_defaults_fields_reach_the_writers_when_no_other_profile_is_active(
 def brief_made_as(monkeypatch, brand_profile_id, thread):
     """Researches a new Topic under a profile; returns its Brief and the brand-neutral calls."""
     fake_router(monkeypatch, new_content("blog"))
+    # Pin research timestamps so the two Briefs don't differ when a second ticks over.
+    monkeypatch.setattr(research_agent, "_now", lambda: "2026-01-01T00:00:00+00:00")
     calls = record_model_calls(monkeypatch)
     graph = build_graph()
     send_as(graph, "research AI in healthcare, then a blog", brand_profile_id, thread=thread)
