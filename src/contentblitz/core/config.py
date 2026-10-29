@@ -122,7 +122,7 @@ DEFAULT_VISUAL_STYLE = (
     "colour palette and plenty of negative space"
 )
 DEFAULT_PLACEHOLDER_COLOUR = "#4A5568"  # a neutral slate
-HEX_COLOUR = r"^#[0-9A-Fa-f]{6}$"
+HEX_COLOUR = r"#[0-9A-Fa-f]{6}\b"  # a "#RRGGBB" colour
 
 
 class ImageOptions(AgentModels):
@@ -133,7 +133,7 @@ class ImageOptions(AgentModels):
     sizes: dict[str, dict[Aspect, str]] = {}  # model -> aspect -> "WIDTHxHEIGHT"
     quality: dict[str, str] = {}  # model -> the quality it is asked for
     default_style: str = DEFAULT_VISUAL_STYLE
-    placeholder_colour: str = Field(DEFAULT_PLACEHOLDER_COLOUR, pattern=HEX_COLOUR)  # "#RRGGBB"
+    placeholder_colour: str = Field(DEFAULT_PLACEHOLDER_COLOUR, pattern=f"^{HEX_COLOUR}$")
 
     def size_for(self, model: str, aspect: Aspect) -> str:
         return {**DEFAULT_IMAGE_SIZES, **self.sizes.get(model, {})}[aspect]

@@ -23,6 +23,13 @@ def piece_topic(state: ContentBlitzState, piece_id: str) -> Topic:
     return state["topics"][state["content_pieces"][piece_id]["topic_id"]]
 
 
+def find_revision(state: ContentBlitzState, piece_id: str, number: int) -> Revision | None:
+    """Revision `number` (from 1) of a Content Piece, or None when there is no such Revision."""
+    piece = (state.get("content_pieces") or {}).get(piece_id)
+    revisions = piece["revisions"] if piece else []
+    return revisions[number - 1] if 1 <= number <= len(revisions) else None
+
+
 def piece_title(state: ContentBlitzState, piece_id: str) -> str:
     return state["content_pieces"][piece_id]["title"]
 

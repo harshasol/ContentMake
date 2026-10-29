@@ -3,6 +3,7 @@
 import base64
 import io
 from dataclasses import dataclass
+from typing import TypedDict
 
 import httpx
 import litellm
@@ -96,11 +97,22 @@ class ImageCheckError(ImageGenerationError):
     """An image model's result failed a check: not a PNG, JPEG or WebP, too small, or blank."""
 
 
+class ModelOutcome(TypedDict):
+    """How one image model did when it was tried: why it failed, or "used"."""
+
+    model: str
+    outcome: str
+
+
+USED = "used"
+
+
 class NoUsableImage(ImageGenerationError):
     """Every image model failed; `fallbacks` says how each one did, in the order tried."""
 
-    def __init__(self, fallbacks: tuple[str, ...]):
-        super().__init__("no image model gave a usable image: " + "; ".join(fallbacks))
+    def __init__(self, fallbacks: tuple[ModelOutcome, ...]):
+        reasons = "; ".join(f"{f['model']}: {f['outcome']}" for f in fallbacks)
+        super().__init__(f"no image model gave a usable image: {reasons}")
         self.fallbacks = fallbacks
 
 
@@ -108,12 +120,16 @@ class NoUsableImage(ImageGenerationError):
 class GeneratedImage:
     """An image model's result: the image bytes, the model that made it, the provider's URL
     when it returned one (provider URLs expire, so the bytes are what gets kept), and the
-    models tried and failed before it, each as "model: outcome"."""
+    models tried and failed before it, each with its outcome."""
 
     data: bytes
     model: str
     provider_url: str | None = None
-    fallbacks: tuple[str, ...] = ()
+    fallbacks: tuple[ModelOutcome, ...] = ()
+
+    def models_tried(self) -> list[ModelOutcome]:
+        """Each model tried, in order, with its outcome: the failed ones, then the one used."""
+        return [*self.fallbacks, {"model": self.model, "outcome": USED}]
 
 
 IMAGE_FORMATS = {"PNG": "PNG", "JPEG": "JPEG", "WEBP": "WebP"}
@@ -129,14 +145,15 @@ def check_image(data: bytes) -> None:
         with Image.open(io.BytesIO(data)) as image:
             image.load()
             kind, (width, height) = image.format, image.size
-            grey = image.convert("L").resize((64, 64))
+            sample = image.convert("RGB").resize((64, 64))
     except Exception as error:  # noqa: BLE001 - any decoding failure means it isn't an image
         raise ImageCheckError("not an image") from error
     if kind not in IMAGE_FORMATS:
         raise ImageCheckError(f"{kind} is not PNG, JPEG or WebP")
     if min(width, height) < MIN_IMAGE_SIDE:
         raise ImageCheckError(f"{width}×{height} is smaller than {MIN_IMAGE_SIDE} px")
-    if ImageStat.Stat(grey).stddev[0] < MIN_PIXEL_STDDEV:
+    # Each colour channel is measured, so colours of equal brightness still count as different.
+    if max(ImageStat.Stat(sample).stddev) < MIN_PIXEL_STDDEV:
         raise ImageCheckError("nearly a single colour")
 
 
@@ -149,14 +166,14 @@ def has_api_key(model: str) -> bool:
     return bool(getattr(settings, field)) if field in type(settings).model_fields else True
 
 
-def _outcome(model: str, error: Exception) -> str:
+def _outcome(model: str, error: Exception) -> ModelOutcome:
     if isinstance(error, ImageCheckError):
         outcome = f"failed check: {error}"
     elif isinstance(error, ImageGenerationError):
         outcome = str(error)
     else:
         outcome = f"{type(error).__name__}: {error}"
-    return f"{model}: {outcome}"[:OUTCOME_CHARS]
+    return {"model": model, "outcome": outcome[:OUTCOME_CHARS]}
 
 
 def generate_image(
@@ -169,10 +186,10 @@ def generate_image(
     for `aspect`, until one gives an image that passes `check_image`. A model whose provider
     has no API key is skipped. Raises NoUsableImage, listing each outcome, when none does."""
     config = config or get_model_config()
-    fallbacks: list[str] = []
+    fallbacks: list[ModelOutcome] = []
     for model in config.image.models:
         if not has_api_key(model):
-            fallbacks.append(f"{model}: no API key configured")
+            fallbacks.append({"model": model, "outcome": "no API key configured"})
             continue
         try:
             image = generate_image_with(model, prompt, aspect, config, client)

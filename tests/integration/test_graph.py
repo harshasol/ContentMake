@@ -736,7 +736,12 @@ def test_refine_without_a_target_uses_the_only_piece_of_that_kind_on_the_active_
 def test_refine_it_uses_the_only_piece_on_the_active_topic(monkeypatch, with_api_key):
     fake_router(monkeypatch, refine("brighter colours"))
     image = piece("image", "Robot doctor")
-    image["revisions"][0]["image"] = {"prompt": "A robot doctor.", "aspect": "square"}
+    image["revisions"][0]["image"] = {
+        "prompt": "A robot doctor.",
+        "aspect": "square",
+        "use": "general",
+        "alt_text": "A robot doctor",
+    }
     start = with_pieces(
         **{
             "piece-1": image,

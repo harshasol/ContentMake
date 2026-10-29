@@ -11,6 +11,7 @@ from pathlib import Path
 from PIL import Image, ImageColor, ImageDraw, ImageFont
 
 from contentblitz.core.config import get_settings
+from contentblitz.workflow.state import ImageMetadata
 
 
 def image_path(topic_id: str, piece_id: str, revision_number: int) -> Path:
@@ -29,6 +30,17 @@ def save_png(data: bytes, path: Path) -> tuple[int, int]:
 
 
 PLACEHOLDER_LABEL = "Placeholder image"
+
+
+def size_label(image: ImageMetadata) -> str:
+    """The image's size as the chat shows it: "1536×1024"."""
+    return image["size"].replace("x", "×")
+
+
+def image_caption(image: ImageMetadata) -> str:
+    """The caption under an image in the chat: its model, or that it is a placeholder, and size."""
+    made_by = PLACEHOLDER_LABEL if image["placeholder"] else image["model"]
+    return f"{made_by} · {size_label(image)}"
 
 
 def placeholder_png(size: tuple[int, int], colour: str, topic_name: str) -> bytes:

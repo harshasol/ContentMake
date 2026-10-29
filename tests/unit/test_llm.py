@@ -244,8 +244,8 @@ def test_image_models_are_tried_in_config_order_until_one_gives_a_usable_image(m
     assert calls == ["openai/gpt-image-1", "openai/dall-e-3", "openai/dall-e-2"]
     assert (image.data, image.model) == (png, "openai/dall-e-2")
     assert image.fallbacks == (
-        "openai/gpt-image-1: RuntimeError: quota exceeded",
-        "openai/dall-e-3: RuntimeError: service unavailable",
+        {"model": "openai/gpt-image-1", "outcome": "RuntimeError: quota exceeded"},
+        {"model": "openai/dall-e-3", "outcome": "RuntimeError: service unavailable"},
     )
 
 
@@ -279,7 +279,18 @@ def test_an_unusable_result_counts_as_a_failure_and_the_next_model_is_tried(
     image = llm.generate_image("a robot doctor", "square")
 
     assert (image.data, image.model) == (png, "openai/dall-e-3")
-    assert image.fallbacks == (f"openai/gpt-image-1: {outcome}",)
+    assert image.fallbacks == ({"model": "openai/gpt-image-1", "outcome": f"{outcome}"},)
+
+
+def test_an_image_in_colours_of_equal_brightness_is_not_rejected_as_blank():
+    # Red and green halves that are the same grey once converted to greyscale.
+    buffer = io.BytesIO()
+    image = Image.new("RGB", (1024, 1024), (200, 0, 0))
+    image.paste((0, 102, 0), (0, 0, 512, 1024))
+    image.save(buffer, format="PNG")
+    assert len(set(image.convert("L").getdata())) == 1
+
+    llm.check_image(buffer.getvalue())
 
 
 @pytest.mark.parametrize("format", ["JPEG", "WEBP"])
@@ -300,8 +311,8 @@ def test_when_every_model_fails_the_error_lists_each_outcome(monkeypatch):
         llm.generate_image("a robot doctor", "square")
 
     assert raised.value.fallbacks == (
-        "openai/gpt-image-1: RuntimeError: quota exceeded",
-        "openai/dall-e-3: failed check: 300×300 is smaller than 512 px",
+        {"model": "openai/gpt-image-1", "outcome": "RuntimeError: quota exceeded"},
+        {"model": "openai/dall-e-3", "outcome": "failed check: 300×300 is smaller than 512 px"},
     )
 
 
@@ -314,6 +325,6 @@ def test_a_model_without_its_api_key_is_skipped(monkeypatch):
 
     assert calls == []
     assert raised.value.fallbacks == (
-        "openai/gpt-image-1: no API key configured",
-        "openai/dall-e-3: no API key configured",
+        {"model": "openai/gpt-image-1", "outcome": "no API key configured"},
+        {"model": "openai/dall-e-3", "outcome": "no API key configured"},
     )

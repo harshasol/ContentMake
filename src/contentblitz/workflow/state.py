@@ -6,7 +6,8 @@ from langchain_core.messages import AnyMessage
 from langgraph.graph.message import add_messages
 
 from contentblitz.core.config import Aspect
-from contentblitz.workflow.formats import AgentName, PieceKind
+from contentblitz.integrations.llm import ModelOutcome
+from contentblitz.workflow.formats import AgentName, ImageUse, PieceKind
 from contentblitz.workflow.quality_score import QualityScore
 from contentblitz.workflow.routing import Intent, Template
 
@@ -87,7 +88,6 @@ class Topic(TypedDict):
 
 
 RevisionOrigin = Literal["draft", "refinement", "hand_edit"]
-ImageUse = Literal["blog_header", "linkedin", "general"]
 PLACEHOLDER_MODEL = "placeholder"
 
 
@@ -106,7 +106,7 @@ class ImageMetadata(TypedDict):
     provider_url: str | None  # the provider's link, if it gave one
     provider_url_temporary: bool  # provider links expire: the file is the copy to keep
     placeholder: bool
-    fallbacks: list[str]  # each image model tried and failed before this one: "model: outcome"
+    fallbacks: list[ModelOutcome]  # each image model tried and failed before this one
     source_piece: NotRequired[str]  # the Content Piece it was made for ("an image for the blog")
 
 

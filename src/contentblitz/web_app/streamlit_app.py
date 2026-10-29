@@ -7,7 +7,9 @@ import streamlit as st
 from langchain_core.messages import AnyMessage, HumanMessage
 
 from contentblitz.workflow.graph import build_graph
-from contentblitz.workflow.state import ContentPiece, ImageMetadata
+from contentblitz.workflow.image_files import image_caption
+from contentblitz.workflow.state import ContentBlitzState, ImageMetadata
+from contentblitz.workflow.topics import find_revision
 
 st.set_page_config(page_title="ContentBlitz", page_icon="⚡", layout="wide")
 
@@ -26,21 +28,13 @@ def new_replies(messages: list[AnyMessage]) -> list[AnyMessage]:
     return [m for m in messages[last_user + 1 :] if m.type == "ai"]
 
 
-def referenced_image(message: AnyMessage, pieces: dict[str, ContentPiece]) -> ImageMetadata | None:
+def referenced_image(message: AnyMessage, state: ContentBlitzState) -> ImageMetadata | None:
     """The image metadata of the Content Piece Revision a message references, if any (#21)."""
     reference = message.additional_kwargs.get("content_piece")
     if not reference:
         return None
-    piece = pieces.get(reference["piece_id"])
-    revisions = piece["revisions"] if piece else []
-    if not 1 <= reference["revision"] <= len(revisions):
-        return None
-    return revisions[reference["revision"] - 1].get("image")
-
-
-def image_caption(image: ImageMetadata) -> str:
-    size = image["size"].replace("x", "×")
-    return f"Placeholder image · {size}" if image["placeholder"] else f"{image['model']} · {size}"
+    revision = find_revision(state, reference["piece_id"], reference["revision"])
+    return revision.get("image") if revision else None
 
 
 def show_message(role: str, text: str, image: ImageMetadata | None = None) -> None:
@@ -85,9 +79,8 @@ with chat_tab:
                 {"messages": [HumanMessage(content=prompt)]},
                 config={"configurable": {"thread_id": st.session_state.thread_id}},
             )
-        pieces = result.get("content_pieces") or {}
         for reply in new_replies(result["messages"]):
-            entry = ("assistant", reply.content, referenced_image(reply, pieces))
+            entry = ("assistant", reply.content, referenced_image(reply, result))
             st.session_state.chat.append(entry)
             show_message(*entry)
 

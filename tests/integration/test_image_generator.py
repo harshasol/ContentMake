@@ -12,6 +12,7 @@ from pathlib import Path
 
 import pytest
 from langchain_core.messages import HumanMessage
+from langsmith import tracing_context
 from PIL import Image
 
 from contentblitz.agents.image_generator import make_image, optimise_prompt
@@ -137,6 +138,31 @@ def image_step(instructions=REQUEST):
 
 def prompt_of(call):
     return "\n".join(m["content"] for m in call["messages"])
+
+
+class RecordingClient:
+    """A LangSmith client that keeps the runs it is sent, so a test can read the trace."""
+
+    def __init__(self):
+        self.runs = {}
+
+    def create_run(self, **run):
+        self.runs[run["id"]] = run
+
+    def update_run(self, run_id, **update):
+        self.runs.setdefault(run_id, {}).update(update)
+
+    def __getattr__(self, name):
+        return lambda *args, **kwargs: None
+
+
+def traced_image_step(run):
+    """The outputs the image step put in its trace while `run()` ran."""
+    client = RecordingClient()
+    with tracing_context(enabled=True, client=client):
+        run()
+    [traced] = [r.get("outputs") for r in client.runs.values() if r.get("name") == "image"]
+    return traced
 
 
 def only_image(state):
@@ -301,48 +327,94 @@ def test_the_request_falls_back_to_the_marketers_message_without_instructions(mo
     "failure",
     [RuntimeError("every provider is down"), llm.StructuredOutputError("not a prompt")],
 )
-def test_a_failed_prompt_optimisation_posts_an_error_and_the_plan_carries_on(models, failure):
+def test_a_failed_prompt_optimisation_draws_the_request_and_the_plan_carries_on(models, failure):
     plan = [*image_step(), *image_step()]
     models.reply = [failure, image_prompt()]
     messages, state = run_plan(plan, {"topic-1": topic()})
 
-    assert messages[0].content == (
-        "I couldn't make the image for *AI in radiology*: the model didn't give a usable reply. "
-        "The rest of the plan carries on, so ask again to retry the image."
+    first, second = (state["content_pieces"][p] for p in state["topics"]["topic-1"]["piece_ids"])
+    image = first["revisions"][0]["image"]
+    assert models.image_calls[0] == {"prompt": f"{REQUEST} {NO_TEXT_RULE}", "aspect": "square"}
+    assert (image["prompt"], image["alt_text"], image["use"]) == (
+        f"{REQUEST} {NO_TEXT_RULE}",
+        REQUEST,
+        "general",
     )
-    assert messages[1].content.startswith("Image ready:")
-    assert len(state["topics"]["topic-1"]["piece_ids"]) == 1
+    assert messages[0].content.startswith(f"Image ready: *{REQUEST}*")
+    assert second["revisions"][0]["image"]["prompt"] == f"{OPTIMISED} {NO_TEXT_RULE}"
     assert not state["abort_reason"]
 
 
-def test_request_optimised_prompt_and_model_are_traced(models):
-    from langsmith import tracing_context
+def test_an_image_that_cant_be_saved_posts_an_error_and_the_plan_carries_on(
+    models, data_dir, monkeypatch
+):
+    unwritable = data_dir / "not-a-folder"
+    unwritable.write_text("")
+    monkeypatch.setenv("CONTENTBLITZ_DATA_DIR", str(unwritable))
+    messages, state = run_plan([*image_step(), *image_step()], {"topic-1": topic()})
 
-    class RecordingClient:
-        def __init__(self):
-            self.runs = {}
+    assert [m.content for m in messages] == [
+        "I couldn't make the image for *AI in radiology*. "
+        "The rest of the plan carries on, so ask again to retry the image."
+    ] * 2
+    assert state["topics"]["topic-1"]["piece_ids"] == []
+    assert not state["abort_reason"]
 
-        def create_run(self, **run):
-            self.runs[run["id"]] = run
 
-        def update_run(self, run_id, **update):
-            self.runs.setdefault(run_id, {}).update(update)
+def test_without_a_model_key_a_failed_optimisation_still_saves_a_placeholder(
+    image_models, data_dir, monkeypatch
+):
+    monkeypatch.setenv("OPENAI_API_KEY", "")
+    image_models.optimiser.reply = RuntimeError("no API key")
+    [message], state = run_plan(image_step(), {"topic-1": topic()})
 
-        def __getattr__(self, name):
-            return lambda *args, **kwargs: None
+    _, image = assert_placeholder(state, data_dir, (1024, 1024))
+    assert image["prompt"] == f"{REQUEST} {NO_TEXT_RULE}"
+    assert "placeholder" in message.content.lower()
+    assert not state["abort_reason"]
 
-    client = RecordingClient()
-    with tracing_context(enabled=True, client=client):
-        run_plan(image_step(), {"topic-1": topic()})
 
-    [traced] = [r.get("outputs") for r in client.runs.values() if r.get("name") == "image"]
+@pytest.mark.parametrize(
+    ("instructions", "kind", "size"),
+    [
+        ("a portrait image of a robot doctor", None, (1024, 1536)),
+        (REQUEST, "blog", (1536, 1024)),
+        ("a square image for the blog", "blog", (1024, 1024)),
+    ],
+    ids=["explicit", "source-piece", "explicit-wins"],
+)
+def test_a_failed_optimisation_takes_its_shape_from_the_request_or_the_piece(
+    models, instructions, kind, size
+):
+    models.reply = RuntimeError("down")
+    if kind:
+        _, state = run_for_piece(kind, instructions)
+        image = state["content_pieces"]["piece-2"]["revisions"][0]["image"]
+    else:
+        _, state = run_plan(image_step(instructions), {"topic-1": topic()})
+        image = only_image(state)[2]["image"]
+    with Image.open(image["file_path"]) as saved:
+        assert saved.size == size
+
+
+def test_request_optimised_prompt_and_each_model_tried_are_traced(models):
+    traced = traced_image_step(lambda: run_plan(image_step(), {"topic-1": topic()}))
+
     assert traced == {
         "request": REQUEST,
         "optimised_prompt": f"{OPTIMISED} {NO_TEXT_RULE}",
-        "model": "openai/gpt-image-1",
-        "fallbacks": [],
+        "optimiser_failure": None,
+        "models_tried": [{"model": "openai/gpt-image-1", "outcome": "used"}],
         "placeholder": False,
     }
+
+
+def test_a_failed_prompt_optimisation_is_traced(models):
+    models.reply = RuntimeError("down")
+    traced = traced_image_step(lambda: run_plan(image_step(), {"topic-1": topic()}))
+
+    assert traced["optimiser_failure"] == "RuntimeError: down"
+    assert traced["optimised_prompt"] == f"{REQUEST} {NO_TEXT_RULE}"
 
 
 # --- Model fallback, result checks and the placeholder (#44) ---
@@ -389,7 +461,9 @@ def test_when_the_first_model_fails_the_second_is_tried_and_its_image_saved(imag
     image = only_image(state)[2]["image"]
     assert image_models.calls == [GPT_IMAGE, DALL_E]
     assert (image["model"], image["placeholder"]) == (DALL_E, False)
-    assert image["fallbacks"] == ["openai/gpt-image-1: RuntimeError: quota exceeded"]
+    assert image["fallbacks"] == [
+        {"model": "openai/gpt-image-1", "outcome": "RuntimeError: quota exceeded"}
+    ]
     with Image.open(image["file_path"]) as saved:
         assert saved.size == (1024, 1024)
     assert "**Model:** openai/dall-e-3" in message.content
@@ -410,7 +484,9 @@ def test_a_broken_result_is_rejected_and_the_next_model_tried(image_models, resu
 
     image = only_image(state)[2]["image"]
     assert image["model"] == DALL_E
-    assert image["fallbacks"] == [f"openai/gpt-image-1: failed check: {outcome}"]
+    assert image["fallbacks"] == [
+        {"model": "openai/gpt-image-1", "outcome": f"failed check: {outcome}"}
+    ]
 
 
 def assert_placeholder(state, data_dir, size):
@@ -441,8 +517,8 @@ def test_when_every_model_fails_a_placeholder_in_the_requested_shape_is_saved(
 
     piece_id, image = assert_placeholder(state, data_dir, size)
     assert image["fallbacks"] == [
-        "openai/gpt-image-1: RuntimeError: quota exceeded",
-        "openai/dall-e-3: failed check: nearly a single colour",
+        {"model": "openai/gpt-image-1", "outcome": "RuntimeError: quota exceeded"},
+        {"model": "openai/dall-e-3", "outcome": "failed check: nearly a single colour"},
     ]
     assert "placeholder" in message.content.lower()
     assert message.additional_kwargs["content_piece"] == {"piece_id": piece_id, "revision": 1}
@@ -457,8 +533,8 @@ def test_without_an_image_model_key_a_placeholder_is_saved_and_no_model_called(
     _, image = assert_placeholder(state, data_dir, (1024, 1024))
     assert image_models.calls == []
     assert image["fallbacks"] == [
-        "openai/gpt-image-1: no API key configured",
-        "openai/dall-e-3: no API key configured",
+        {"model": "openai/gpt-image-1", "outcome": "no API key configured"},
+        {"model": "openai/dall-e-3", "outcome": "no API key configured"},
     ]
     assert "placeholder" in message.content.lower()
 
@@ -485,7 +561,7 @@ def test_the_placeholder_uses_the_visual_styles_primary_colour(monkeypatch):
 
     assert (image.model, image.fallbacks[0]) == (
         "placeholder",
-        "openai/gpt-image-1: no API key configured",
+        {"model": "openai/gpt-image-1", "outcome": "no API key configured"},
     )
     with Image.open(io.BytesIO(image.data)) as card:
         assert card.size == (1024, 1536)
@@ -501,33 +577,25 @@ def test_the_placeholder_uses_the_configured_colour_when_the_style_has_none(monk
         assert card.convert("RGB").getpixel((5, 5)) == DEFAULT_COLOUR
 
 
-def test_fallbacks_and_the_placeholder_flag_are_traced(image_models):
-    from langsmith import tracing_context
-
-    class RecordingClient:
-        def __init__(self):
-            self.runs = {}
-
-        def create_run(self, **run):
-            self.runs[run["id"]] = run
-
-        def update_run(self, run_id, **update):
-            self.runs.setdefault(run_id, {}).update(update)
-
-        def __getattr__(self, name):
-            return lambda *args, **kwargs: None
-
+def test_each_model_tried_and_the_placeholder_flag_are_traced(image_models):
     image_models.results = {GPT_IMAGE: [RuntimeError("down")], DALL_E: [RuntimeError("down")]}
-    client = RecordingClient()
-    with tracing_context(enabled=True, client=client):
-        run_plan(image_step(), {"topic-1": topic()})
+    traced = traced_image_step(lambda: run_plan(image_step(), {"topic-1": topic()}))
 
-    [traced] = [r.get("outputs") for r in client.runs.values() if r.get("name") == "image"]
-    assert traced["model"] == "placeholder"
     assert traced["placeholder"] is True
-    assert traced["fallbacks"] == [
-        "openai/gpt-image-1: RuntimeError: down",
-        "openai/dall-e-3: RuntimeError: down",
+    assert traced["models_tried"] == [
+        {"model": "openai/gpt-image-1", "outcome": "RuntimeError: down"},
+        {"model": "openai/dall-e-3", "outcome": "RuntimeError: down"},
+        {"model": "placeholder", "outcome": "used"},
+    ]
+
+
+def test_the_model_that_made_the_image_is_traced_after_those_that_failed(image_models):
+    image_models.results = {GPT_IMAGE: [RuntimeError("down")], DALL_E: [png((1024, 1024))]}
+    traced = traced_image_step(lambda: run_plan(image_step(), {"topic-1": topic()}))
+
+    assert traced["models_tried"] == [
+        {"model": "openai/gpt-image-1", "outcome": "RuntimeError: down"},
+        {"model": "openai/dall-e-3", "outcome": "used"},
     ]
 
 
@@ -647,6 +715,27 @@ def test_a_refined_image_keeps_the_piece_it_was_made_for(models, data_dir):
     )
 
 
+def test_refining_an_image_for_a_piece_gives_the_optimiser_that_pieces_title_and_kind(
+    models, data_dir
+):
+    models.reply = image_prompt(prompt=BRIGHTER, use="general")
+    topics, pieces = seeded_image(data_dir)
+    pieces["piece-1"]["revisions"][0]["image"]["source_piece"] = "piece-2"
+    pieces["piece-2"] = {
+        "kind": "linkedin_post",
+        "topic_id": "topic-1",
+        "title": SOURCES["linkedin_post"]["title"],
+        "revisions": [{"text": SOURCES["linkedin_post"]["text"], "origin": "draft"}],
+    }
+    topics["topic-1"]["piece_ids"].append("piece-2")
+
+    _, state = run_refine("make it brighter", topics, pieces)
+
+    prompt = prompt_of(models.prompt_calls[0])
+    assert f"For the LinkedIn post: {SOURCES['linkedin_post']['title']}" in prompt
+    assert state["content_pieces"]["piece-1"]["revisions"][-1]["image"]["use"] == "linkedin"
+
+
 def test_a_refined_image_made_for_no_piece_records_none(models, data_dir):
     topics, pieces = seeded_image(data_dir)
 
@@ -680,18 +769,22 @@ def test_the_chat_shows_the_refined_image_as_for_a_new_one(models, data_dir):
     assert message.additional_kwargs["content_piece"] == {"piece_id": "piece-1", "revision": 3}
 
 
-def test_a_failed_refinement_posts_an_error_and_leaves_the_image_unchanged(models, data_dir):
+def test_a_failed_refinement_optimisation_draws_the_latest_prompt_plus_the_instructions(
+    models, data_dir
+):
     models.reply = RuntimeError("every provider is down")
-    topics, pieces = seeded_image(data_dir)
+    topics, pieces = seeded_image(data_dir, aspect="portrait")
 
     [message], state = run_refine("make it brighter", topics, pieces)
 
-    assert message.content == (
-        "I couldn't make a new version of *A robot doctor in a corridor*: the model didn't give "
-        "a usable reply. The image is unchanged, so ask again to retry."
-    )
-    assert state["content_pieces"]["piece-1"] == pieces["piece-1"]
-    assert [p.name for p in (data_dir / "images" / "topic-1").iterdir()] == ["piece-1-r1.png"]
+    first, second = state["content_pieces"]["piece-1"]["revisions"]
+    assert first == pieces["piece-1"]["revisions"][0]
+    image = second["image"]
+    latest = LATEST_PROMPT.removesuffix(f" {NO_TEXT_RULE}")
+    assert image["prompt"] == f"{latest} make it brighter {NO_TEXT_RULE}"
+    assert (image["aspect"], image["use"]) == ("portrait", "blog_header")
+    assert image["alt_text"] == "A robot doctor in a corridor"
+    assert message.additional_kwargs["content_piece"] == {"piece_id": "piece-1", "revision": 2}
     assert not state["abort_reason"]
 
 
@@ -704,7 +797,9 @@ def test_a_refinement_falls_back_through_the_models_too(image_models, data_dir):
 
     image = state["content_pieces"]["piece-1"]["revisions"][-1]["image"]
     assert (image["model"], image["placeholder"]) == (DALL_E, False)
-    assert image["fallbacks"] == ["openai/gpt-image-1: RuntimeError: quota exceeded"]
+    assert image["fallbacks"] == [
+        {"model": "openai/gpt-image-1", "outcome": "RuntimeError: quota exceeded"}
+    ]
 
 
 def test_a_refinement_with_no_usable_image_is_a_placeholder_revision(

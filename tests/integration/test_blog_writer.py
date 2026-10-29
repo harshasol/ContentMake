@@ -428,8 +428,9 @@ def test_a_failed_draft_posts_an_error_saves_nothing_and_the_plan_carries_on(mod
         "I couldn't write the blog on *AI in healthcare*: the model didn't give a usable reply. "
         "The rest of the plan carries on, so ask again to retry the blog."
     )
-    assert state["topics"]["topic-1"]["piece_ids"] == []
-    assert not state.get("content_pieces")
+    # Only the image step saved a Content Piece.
+    pieces = state["content_pieces"]
+    assert [pieces[p]["kind"] for p in state["topics"]["topic-1"]["piece_ids"]] == ["image"]
     assert not state["abort_reason"]
     assert [s["agent"] for s in state["completed_steps"]] == ["blog_writer", "image_generator"]
 
