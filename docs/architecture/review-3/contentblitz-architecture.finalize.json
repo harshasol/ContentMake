@@ -1,0 +1,1138 @@
+{
+  "schemaVersion": 1,
+  "ok": true,
+  "command": "finalize",
+  "status": "pass",
+  "type": "architecture",
+  "quality": "showcase",
+  "startedAt": "2026-10-29T13:41:12.026Z",
+  "specification": {
+    "path": "/Users/harshahammika/IK-FDE/Classes/Capstone/ContentBlitz - Content Marketing Agent/ContentMake/docs/architecture/candidate.json",
+    "sha256": "3c49d12db62214a73e35f24abd0dc1c83cf67ee53f52d87d28e9b528d455344d",
+    "bytes": 9927
+  },
+  "artifact": {
+    "path": "/Users/harshahammika/IK-FDE/Classes/Capstone/ContentBlitz - Content Marketing Agent/ContentMake/docs/architecture/contentblitz-architecture.html",
+    "sha256": "4b7afe7da9e0b027846c4a34bc54db730913cbfbc098683f14d560906c7c8d11",
+    "bytes": 860614
+  },
+  "stages": {
+    "validate": {
+      "status": "pass",
+      "exitCode": 0,
+      "durationMs": null,
+      "execution": "embedded-in-deliver",
+      "command": [
+        "/opt/homebrew/Cellar/node/26.0.0/bin/node",
+        "/Users/harshahammika/.claude/skills/archify/bin/archify.mjs",
+        "deliver",
+        "architecture",
+        "/Users/harshahammika/IK-FDE/Classes/Capstone/ContentBlitz - Content Marketing Agent/ContentMake/docs/architecture/candidate.json",
+        "/Users/harshahammika/IK-FDE/Classes/Capstone/ContentBlitz - Content Marketing Agent/ContentMake/docs/architecture/contentblitz-architecture.html",
+        "--quality",
+        "showcase",
+        "--repo-root",
+        "/Users/harshahammika/IK-FDE/Classes/Capstone/ContentBlitz - Content Marketing Agent/ContentMake",
+        "--json"
+      ],
+      "receipt": {
+        "schemaVersion": 1,
+        "ok": true,
+        "command": "validate",
+        "specification": {
+          "sha256": "3c49d12db62214a73e35f24abd0dc1c83cf67ee53f52d87d28e9b528d455344d",
+          "bytes": 9927
+        },
+        "validation": {
+          "checksPassed": 9,
+          "checkCount": 9,
+          "compositionProfile": "showcase",
+          "compositionStatus": "pass",
+          "errors": 0,
+          "warnings": 0
+        }
+      }
+    },
+    "deliver": {
+      "status": "pass",
+      "exitCode": 0,
+      "durationMs": 616,
+      "command": [
+        "/opt/homebrew/Cellar/node/26.0.0/bin/node",
+        "/Users/harshahammika/.claude/skills/archify/bin/archify.mjs",
+        "deliver",
+        "architecture",
+        "/Users/harshahammika/IK-FDE/Classes/Capstone/ContentBlitz - Content Marketing Agent/ContentMake/docs/architecture/candidate.json",
+        "/Users/harshahammika/IK-FDE/Classes/Capstone/ContentBlitz - Content Marketing Agent/ContentMake/docs/architecture/contentblitz-architecture.html",
+        "--quality",
+        "showcase",
+        "--repo-root",
+        "/Users/harshahammika/IK-FDE/Classes/Capstone/ContentBlitz - Content Marketing Agent/ContentMake",
+        "--json"
+      ],
+      "receipt": {
+        "schemaVersion": 1,
+        "receiptId": "84a88fcc-6dda-40f5-bf02-69c7b103e972",
+        "ok": true,
+        "command": "deliver",
+        "type": "architecture",
+        "input": "/Users/harshahammika/IK-FDE/Classes/Capstone/ContentBlitz - Content Marketing Agent/ContentMake/docs/architecture/candidate.json",
+        "output": "/Users/harshahammika/IK-FDE/Classes/Capstone/ContentBlitz - Content Marketing Agent/ContentMake/docs/architecture/contentblitz-architecture.html",
+        "specification": {
+          "sha256": "3c49d12db62214a73e35f24abd0dc1c83cf67ee53f52d87d28e9b528d455344d",
+          "bytes": 9927
+        },
+        "artifact": {
+          "sha256": "4b7afe7da9e0b027846c4a34bc54db730913cbfbc098683f14d560906c7c8d11",
+          "bytes": 860614
+        },
+        "validation": {
+          "checksPassed": 9,
+          "checkCount": 9,
+          "compositionProfile": "showcase",
+          "compositionStatus": "pass",
+          "errors": 0,
+          "warnings": 0
+        },
+        "evidence": {
+          "verified": true,
+          "repository": "https://github.com/harshasol/ContentMake",
+          "revision": "ebf839fe05fc424a7bffb6eb03aa9fff70b538e5",
+          "references": 31
+        },
+        "update": {
+          "status": "unavailable",
+          "installedVersion": null,
+          "availableVersion": null,
+          "releaseNotes": null,
+          "checkedAt": null,
+          "source": null,
+          "noticeRequired": false,
+          "noticeText": null,
+          "reason": "disabled"
+        }
+      }
+    },
+    "check": {
+      "status": "pass",
+      "exitCode": 0,
+      "durationMs": 223,
+      "command": [
+        "/opt/homebrew/Cellar/node/26.0.0/bin/node",
+        "/Users/harshahammika/.claude/skills/archify/bin/archify.mjs",
+        "check",
+        "/Users/harshahammika/IK-FDE/Classes/Capstone/ContentBlitz - Content Marketing Agent/ContentMake/docs/architecture/contentblitz-architecture.html",
+        "--require-provenance"
+      ],
+      "receipt": {
+        "ok": true,
+        "file": "/Users/harshahammika/IK-FDE/Classes/Capstone/ContentBlitz - Content Marketing Agent/ContentMake/docs/architecture/contentblitz-architecture.html",
+        "artifact": {
+          "sha256": "4b7afe7da9e0b027846c4a34bc54db730913cbfbc098683f14d560906c7c8d11",
+          "bytes": 860614
+        },
+        "checks": [
+          {
+            "name": "single_svg",
+            "ok": true,
+            "details": [
+              "found 1 <svg> block(s)"
+            ]
+          },
+          {
+            "name": "finite_svg",
+            "ok": true,
+            "details": []
+          },
+          {
+            "name": "orthogonal_arrows",
+            "ok": true,
+            "details": []
+          },
+          {
+            "name": "label_route_clearance",
+            "ok": true,
+            "details": []
+          },
+          {
+            "name": "relationship_crossings",
+            "ok": true,
+            "details": []
+          },
+          {
+            "name": "relationship_corridors",
+            "ok": true,
+            "details": []
+          },
+          {
+            "name": "container_border_runs",
+            "ok": true,
+            "details": []
+          },
+          {
+            "name": "route_rhythm",
+            "ok": true,
+            "details": []
+          },
+          {
+            "name": "legend_clearance",
+            "ok": true,
+            "details": []
+          }
+        ],
+        "composition": {
+          "schemaVersion": 1,
+          "profile": "showcase",
+          "status": "pass",
+          "summary": {
+            "errors": 0,
+            "warnings": 0
+          },
+          "metrics": {
+            "properCrossings": 0,
+            "resolvedCrossovers": 3,
+            "ambiguousCorridors": 0,
+            "arrowheadCollisions": 0,
+            "containerBorderRuns": 0,
+            "labelRouteClearanceIssues": 0,
+            "labelCanvasOverflowIssues": 0,
+            "minLabelRouteClearance": 4,
+            "desktopReadabilityIssues": 0,
+            "viewportHeightIssues": 0,
+            "minProjectedNodeTextPx": 6.015642458100559,
+            "maxBends": 3,
+            "routesOverSuggestedBends": 2,
+            "maxStretch": 1.057,
+            "routesOverSuggestedStretch": 0,
+            "minSegmentPx": 24,
+            "minInteriorSegmentPx": 100,
+            "shortSegmentCount": 0,
+            "shortEndpointSegmentCount": 0,
+            "shortInteriorSegmentCount": 0,
+            "microSegmentCount": 0
+          },
+          "suggestedLimits": {
+            "bendsPerRelationship": 2,
+            "stretch": 1.35,
+            "segmentPx": 16,
+            "microSegmentPx": 8
+          },
+          "routeReview": {
+            "crossings": [
+              {
+                "left": {
+                  "id": "to-research",
+                  "from": "dispatcher",
+                  "to": "research",
+                  "label": "",
+                  "collectionIndex": 7,
+                  "artifactIndex": 8
+                },
+                "right": {
+                  "id": "to-strategist",
+                  "from": "dispatcher",
+                  "to": "strategist",
+                  "label": "",
+                  "collectionIndex": 8,
+                  "artifactIndex": 9
+                },
+                "point": [
+                  949,
+                  408
+                ],
+                "sharedNode": "dispatcher"
+              },
+              {
+                "left": {
+                  "id": "research-search",
+                  "from": "research",
+                  "to": "search",
+                  "label": "search",
+                  "collectionIndex": 13,
+                  "artifactIndex": 14
+                },
+                "right": {
+                  "id": "qh-llm",
+                  "from": "query-handler",
+                  "to": "llm",
+                  "label": "routing decision",
+                  "collectionIndex": 21,
+                  "artifactIndex": 22
+                },
+                "point": [
+                  1165,
+                  256
+                ]
+              },
+              {
+                "left": {
+                  "id": "image-files-save",
+                  "from": "image",
+                  "to": "image-files",
+                  "label": "save PNG",
+                  "collectionIndex": 15,
+                  "artifactIndex": 16
+                },
+                "right": {
+                  "id": "voice-llm",
+                  "from": "voice",
+                  "to": "llm",
+                  "label": "voice description",
+                  "collectionIndex": 22,
+                  "artifactIndex": 23
+                },
+                "point": [
+                  1165,
+                  760
+                ]
+              }
+            ],
+            "detours": [
+              {
+                "relationship": {
+                  "id": "qh-llm",
+                  "from": "query-handler",
+                  "to": "llm",
+                  "label": "routing decision",
+                  "collectionIndex": 21,
+                  "artifactIndex": 22
+                },
+                "bends": 3,
+                "stretch": 1.057,
+                "directCorridorBlockers": [
+                  {
+                    "id": "dispatcher",
+                    "label": "Dispatcher",
+                    "box": [
+                      870,
+                      458,
+                      130,
+                      100
+                    ]
+                  },
+                  {
+                    "id": "writers",
+                    "label": "Blog &amp; LinkedIn Writers",
+                    "box": [
+                      1080,
+                      480,
+                      170,
+                      56
+                    ]
+                  }
+                ]
+              },
+              {
+                "relationship": {
+                  "id": "voice-llm",
+                  "from": "voice",
+                  "to": "llm",
+                  "label": "voice description",
+                  "collectionIndex": 22,
+                  "artifactIndex": 23
+                },
+                "bends": 3,
+                "stretch": 1.042
+              }
+            ]
+          },
+          "leadingSpace": {
+            "measured": true,
+            "emptyTopPx": 148,
+            "emptyTopRatio": 0.162,
+            "occupiedTop": 148,
+            "viewBoxTop": 0,
+            "canvasHeight": 914,
+            "typicalNodeHeight": 60,
+            "reviewSuggested": false
+          },
+          "desktopReadability": {
+            "budgetBasis": "recognized-declared-wide",
+            "readerContract": "declared-wide-v1",
+            "availableDiagramWidth": 1346,
+            "actualBudgetPx": 1346,
+            "actualReaderWidth": 1376,
+            "desiredReaderWidth": 1708.125,
+            "viewportCap": 1376,
+            "limit": "viewport-cap",
+            "requestedTargetPx": 7.5,
+            "requestedTargetMet": false,
+            "hardFloorPx": 6,
+            "hardFloorMet": true,
+            "minimumOwner": {
+              "kind": "edge",
+              "id": "user-chat",
+              "from": "user",
+              "to": "ui"
+            },
+            "minimumSourceTextPx": 8,
+            "minimumProjectedTextPx": 6.015642458100559,
+            "semanticTextCount": 61
+          },
+          "issues": []
+        },
+        "provenance": "current",
+        "deliveryReceiptId": "84a88fcc-6dda-40f5-bf02-69c7b103e972"
+      }
+    },
+    "browser-check": {
+      "status": "pass",
+      "exitCode": 0,
+      "durationMs": 2366,
+      "command": [
+        "/opt/homebrew/Cellar/node/26.0.0/bin/node",
+        "/Users/harshahammika/.claude/skills/archify/bin/archify.mjs",
+        "browser-check",
+        "/Users/harshahammika/IK-FDE/Classes/Capstone/ContentBlitz - Content Marketing Agent/ContentMake/docs/architecture/contentblitz-architecture.html",
+        "--json",
+        "--require-provenance",
+        "--out-dir",
+        "/Users/harshahammika/IK-FDE/Classes/Capstone/ContentBlitz - Content Marketing Agent/ContentMake/docs/architecture/review-3"
+      ],
+      "execution": "in-process",
+      "receipt": {
+        "schemaVersion": 1,
+        "ok": true,
+        "command": "browser-check",
+        "evidenceKind": "automated-browser",
+        "status": "pass",
+        "visualReview": "not-requested",
+        "provenance": "current",
+        "deliveryReceiptId": "84a88fcc-6dda-40f5-bf02-69c7b103e972",
+        "artifact": {
+          "path": "/Users/harshahammika/IK-FDE/Classes/Capstone/ContentBlitz - Content Marketing Agent/ContentMake/docs/architecture/contentblitz-architecture.html",
+          "sha256": "4b7afe7da9e0b027846c4a34bc54db730913cbfbc098683f14d560906c7c8d11",
+          "bytes": 860614
+        },
+        "state": {
+          "detail": "read",
+          "motion": "still"
+        },
+        "chrome": {
+          "status": "available",
+          "executable": "/Applications/Google Chrome.app/Contents/MacOS/Google Chrome"
+        },
+        "diagnostics": [],
+        "containment": {
+          "status": "pass",
+          "policy": "fit-or-reader-declared-readable-vertical-scroll",
+          "viewports": [
+            {
+              "width": 1440,
+              "height": 900,
+              "theme": "light",
+              "innerWidth": 1440,
+              "innerHeight": 900,
+              "scrollWidth": 1440,
+              "scrollHeight": 900,
+              "overflowX": false,
+              "overflowY": false,
+              "verticalScrollAccepted": false,
+              "overflowDisposition": "contained",
+              "readerLayout": "adaptive",
+              "readerOverflow": null,
+              "readerFit": "intrinsic-height",
+              "ok": true,
+              "readerWidth": 1376,
+              "diagramWidth": 1346,
+              "pageComposition": {
+                "bodyPaddingPx": 12,
+                "headerPx": 52,
+                "diagramChromePx": 78,
+                "svgPx": 687,
+                "cardsPx": 0,
+                "viewBoxHeight": 914
+              },
+              "viewBoxWidth": 1790,
+              "minimumProjectedNodeTextPx": 6.015642458100559,
+              "minimumProjectedNonEdgeTextPx": 6.767597765363129,
+              "minimumProjectedEdgeTextPx": 6.015642458100559,
+              "minimumProjectedNodeText": "chat",
+              "minimumProjectedNodeTextDetail": "edge",
+              "minimumProjectedNodeTextOwner": {
+                "kind": "edge",
+                "id": "user-chat",
+                "from": "user",
+                "to": "ui"
+              },
+              "minimumRequiredNodeTextPx": 6,
+              "readabilityOk": true,
+              "hasLegend": true,
+              "hasNavigationDock": true,
+              "legendDockIntersectionArea": 0,
+              "dockStageIntersectionArea": 0,
+              "dockStageGap": 10,
+              "requiredDockStageGap": 10,
+              "viewerChromeStageOk": true,
+              "viewerChromeReserve": 54,
+              "viewerChromeActive": true,
+              "viewerChromeOk": true,
+              "resolvedTheme": "light"
+            },
+            {
+              "width": 1600,
+              "height": 1000,
+              "theme": "light",
+              "innerWidth": 1600,
+              "innerHeight": 1000,
+              "scrollWidth": 1600,
+              "scrollHeight": 1000,
+              "overflowX": false,
+              "overflowY": false,
+              "verticalScrollAccepted": false,
+              "overflowDisposition": "contained",
+              "readerLayout": "adaptive",
+              "readerOverflow": null,
+              "readerFit": "intrinsic-height",
+              "ok": true,
+              "readerWidth": 1536,
+              "diagramWidth": 1506,
+              "pageComposition": {
+                "bodyPaddingPx": 64,
+                "headerPx": 60,
+                "diagramChromePx": 84,
+                "svgPx": 769,
+                "cardsPx": 0,
+                "viewBoxHeight": 914
+              },
+              "viewBoxWidth": 1790,
+              "minimumProjectedNodeTextPx": 6.73072625698324,
+              "minimumProjectedNonEdgeTextPx": 7.572067039106145,
+              "minimumProjectedEdgeTextPx": 6.73072625698324,
+              "minimumProjectedNodeText": "chat",
+              "minimumProjectedNodeTextDetail": "edge",
+              "minimumProjectedNodeTextOwner": {
+                "kind": "edge",
+                "id": "user-chat",
+                "from": "user",
+                "to": "ui"
+              },
+              "minimumRequiredNodeTextPx": 6,
+              "readabilityOk": true,
+              "hasLegend": true,
+              "hasNavigationDock": true,
+              "legendDockIntersectionArea": 0,
+              "dockStageIntersectionArea": 0,
+              "dockStageGap": 10,
+              "requiredDockStageGap": 10,
+              "viewerChromeStageOk": true,
+              "viewerChromeReserve": 54,
+              "viewerChromeActive": true,
+              "viewerChromeOk": true,
+              "resolvedTheme": "light"
+            },
+            {
+              "width": 1920,
+              "height": 1080,
+              "theme": "light",
+              "innerWidth": 1920,
+              "innerHeight": 1080,
+              "scrollWidth": 1920,
+              "scrollHeight": 1080,
+              "overflowX": false,
+              "overflowY": false,
+              "verticalScrollAccepted": false,
+              "overflowDisposition": "contained",
+              "readerLayout": "adaptive",
+              "readerOverflow": null,
+              "readerFit": "intrinsic-height",
+              "ok": true,
+              "readerWidth": 1714,
+              "diagramWidth": 1684,
+              "pageComposition": {
+                "bodyPaddingPx": 64,
+                "headerPx": 60,
+                "diagramChromePx": 84,
+                "svgPx": 860,
+                "cardsPx": 0,
+                "viewBoxHeight": 914
+              },
+              "viewBoxWidth": 1790,
+              "minimumProjectedNodeTextPx": 7.5262569832402235,
+              "minimumProjectedNonEdgeTextPx": 8.46703910614525,
+              "minimumProjectedEdgeTextPx": 7.5262569832402235,
+              "minimumProjectedNodeText": "chat",
+              "minimumProjectedNodeTextDetail": "edge",
+              "minimumProjectedNodeTextOwner": {
+                "kind": "edge",
+                "id": "user-chat",
+                "from": "user",
+                "to": "ui"
+              },
+              "minimumRequiredNodeTextPx": 6,
+              "readabilityOk": true,
+              "hasLegend": true,
+              "hasNavigationDock": true,
+              "legendDockIntersectionArea": 0,
+              "dockStageIntersectionArea": 0,
+              "dockStageGap": 10,
+              "requiredDockStageGap": 10,
+              "viewerChromeStageOk": true,
+              "viewerChromeReserve": 54,
+              "viewerChromeActive": true,
+              "viewerChromeOk": true,
+              "resolvedTheme": "light"
+            },
+            {
+              "width": 2048,
+              "height": 1320,
+              "theme": "light",
+              "innerWidth": 2048,
+              "innerHeight": 1320,
+              "scrollWidth": 2048,
+              "scrollHeight": 1320,
+              "overflowX": false,
+              "overflowY": false,
+              "verticalScrollAccepted": false,
+              "overflowDisposition": "contained",
+              "readerLayout": "adaptive",
+              "readerOverflow": null,
+              "readerFit": "intrinsic-height",
+              "ok": true,
+              "readerWidth": 1920,
+              "diagramWidth": 1870,
+              "pageComposition": {
+                "bodyPaddingPx": 64,
+                "headerPx": 68,
+                "diagramChromePx": 94,
+                "svgPx": 955,
+                "cardsPx": 0,
+                "viewBoxHeight": 914
+              },
+              "viewBoxWidth": 1790,
+              "minimumProjectedNodeTextPx": 8,
+              "minimumProjectedNonEdgeTextPx": 9,
+              "minimumProjectedEdgeTextPx": 8,
+              "minimumProjectedNodeText": "chat",
+              "minimumProjectedNodeTextDetail": "edge",
+              "minimumProjectedNodeTextOwner": {
+                "kind": "edge",
+                "id": "user-chat",
+                "from": "user",
+                "to": "ui"
+              },
+              "minimumRequiredNodeTextPx": 6,
+              "readabilityOk": true,
+              "hasLegend": true,
+              "hasNavigationDock": true,
+              "legendDockIntersectionArea": 0,
+              "dockStageIntersectionArea": 0,
+              "dockStageGap": 10,
+              "requiredDockStageGap": 10,
+              "viewerChromeStageOk": true,
+              "viewerChromeReserve": 44,
+              "viewerChromeActive": true,
+              "viewerChromeOk": true,
+              "resolvedTheme": "light"
+            }
+          ]
+        },
+        "themeStates": {
+          "status": "pass",
+          "viewports": [
+            {
+              "width": 1440,
+              "height": 900,
+              "requestedTheme": "light",
+              "resolvedTheme": "light",
+              "ok": true
+            },
+            {
+              "width": 1600,
+              "height": 1000,
+              "requestedTheme": "light",
+              "resolvedTheme": "light",
+              "ok": true
+            },
+            {
+              "width": 1920,
+              "height": 1080,
+              "requestedTheme": "light",
+              "resolvedTheme": "light",
+              "ok": true
+            },
+            {
+              "width": 2048,
+              "height": 1320,
+              "requestedTheme": "light",
+              "resolvedTheme": "light",
+              "ok": true
+            },
+            {
+              "width": 1440,
+              "height": 900,
+              "requestedTheme": "dark",
+              "resolvedTheme": "dark",
+              "ok": true
+            },
+            {
+              "width": 2048,
+              "height": 1320,
+              "requestedTheme": "dark",
+              "resolvedTheme": "dark",
+              "ok": true
+            }
+          ]
+        },
+        "readability": {
+          "status": "pass",
+          "minimumProjectedNodeTextPx": 6,
+          "viewports": [
+            {
+              "width": 1440,
+              "height": 900,
+              "theme": "light",
+              "innerWidth": 1440,
+              "innerHeight": 900,
+              "scrollWidth": 1440,
+              "scrollHeight": 900,
+              "overflowX": false,
+              "overflowY": false,
+              "verticalScrollAccepted": false,
+              "overflowDisposition": "contained",
+              "readerLayout": "adaptive",
+              "readerOverflow": null,
+              "readerFit": "intrinsic-height",
+              "ok": true,
+              "readerWidth": 1376,
+              "diagramWidth": 1346,
+              "pageComposition": {
+                "bodyPaddingPx": 12,
+                "headerPx": 52,
+                "diagramChromePx": 78,
+                "svgPx": 687,
+                "cardsPx": 0,
+                "viewBoxHeight": 914
+              },
+              "viewBoxWidth": 1790,
+              "minimumProjectedNodeTextPx": 6.015642458100559,
+              "minimumProjectedNonEdgeTextPx": 6.767597765363129,
+              "minimumProjectedEdgeTextPx": 6.015642458100559,
+              "minimumProjectedNodeText": "chat",
+              "minimumProjectedNodeTextDetail": "edge",
+              "minimumProjectedNodeTextOwner": {
+                "kind": "edge",
+                "id": "user-chat",
+                "from": "user",
+                "to": "ui"
+              },
+              "minimumRequiredNodeTextPx": 6,
+              "readabilityOk": true,
+              "hasLegend": true,
+              "hasNavigationDock": true,
+              "legendDockIntersectionArea": 0,
+              "dockStageIntersectionArea": 0,
+              "dockStageGap": 10,
+              "requiredDockStageGap": 10,
+              "viewerChromeStageOk": true,
+              "viewerChromeReserve": 54,
+              "viewerChromeActive": true,
+              "viewerChromeOk": true,
+              "resolvedTheme": "light"
+            },
+            {
+              "width": 1600,
+              "height": 1000,
+              "theme": "light",
+              "innerWidth": 1600,
+              "innerHeight": 1000,
+              "scrollWidth": 1600,
+              "scrollHeight": 1000,
+              "overflowX": false,
+              "overflowY": false,
+              "verticalScrollAccepted": false,
+              "overflowDisposition": "contained",
+              "readerLayout": "adaptive",
+              "readerOverflow": null,
+              "readerFit": "intrinsic-height",
+              "ok": true,
+              "readerWidth": 1536,
+              "diagramWidth": 1506,
+              "pageComposition": {
+                "bodyPaddingPx": 64,
+                "headerPx": 60,
+                "diagramChromePx": 84,
+                "svgPx": 769,
+                "cardsPx": 0,
+                "viewBoxHeight": 914
+              },
+              "viewBoxWidth": 1790,
+              "minimumProjectedNodeTextPx": 6.73072625698324,
+              "minimumProjectedNonEdgeTextPx": 7.572067039106145,
+              "minimumProjectedEdgeTextPx": 6.73072625698324,
+              "minimumProjectedNodeText": "chat",
+              "minimumProjectedNodeTextDetail": "edge",
+              "minimumProjectedNodeTextOwner": {
+                "kind": "edge",
+                "id": "user-chat",
+                "from": "user",
+                "to": "ui"
+              },
+              "minimumRequiredNodeTextPx": 6,
+              "readabilityOk": true,
+              "hasLegend": true,
+              "hasNavigationDock": true,
+              "legendDockIntersectionArea": 0,
+              "dockStageIntersectionArea": 0,
+              "dockStageGap": 10,
+              "requiredDockStageGap": 10,
+              "viewerChromeStageOk": true,
+              "viewerChromeReserve": 54,
+              "viewerChromeActive": true,
+              "viewerChromeOk": true,
+              "resolvedTheme": "light"
+            },
+            {
+              "width": 1920,
+              "height": 1080,
+              "theme": "light",
+              "innerWidth": 1920,
+              "innerHeight": 1080,
+              "scrollWidth": 1920,
+              "scrollHeight": 1080,
+              "overflowX": false,
+              "overflowY": false,
+              "verticalScrollAccepted": false,
+              "overflowDisposition": "contained",
+              "readerLayout": "adaptive",
+              "readerOverflow": null,
+              "readerFit": "intrinsic-height",
+              "ok": true,
+              "readerWidth": 1714,
+              "diagramWidth": 1684,
+              "pageComposition": {
+                "bodyPaddingPx": 64,
+                "headerPx": 60,
+                "diagramChromePx": 84,
+                "svgPx": 860,
+                "cardsPx": 0,
+                "viewBoxHeight": 914
+              },
+              "viewBoxWidth": 1790,
+              "minimumProjectedNodeTextPx": 7.5262569832402235,
+              "minimumProjectedNonEdgeTextPx": 8.46703910614525,
+              "minimumProjectedEdgeTextPx": 7.5262569832402235,
+              "minimumProjectedNodeText": "chat",
+              "minimumProjectedNodeTextDetail": "edge",
+              "minimumProjectedNodeTextOwner": {
+                "kind": "edge",
+                "id": "user-chat",
+                "from": "user",
+                "to": "ui"
+              },
+              "minimumRequiredNodeTextPx": 6,
+              "readabilityOk": true,
+              "hasLegend": true,
+              "hasNavigationDock": true,
+              "legendDockIntersectionArea": 0,
+              "dockStageIntersectionArea": 0,
+              "dockStageGap": 10,
+              "requiredDockStageGap": 10,
+              "viewerChromeStageOk": true,
+              "viewerChromeReserve": 54,
+              "viewerChromeActive": true,
+              "viewerChromeOk": true,
+              "resolvedTheme": "light"
+            },
+            {
+              "width": 2048,
+              "height": 1320,
+              "theme": "light",
+              "innerWidth": 2048,
+              "innerHeight": 1320,
+              "scrollWidth": 2048,
+              "scrollHeight": 1320,
+              "overflowX": false,
+              "overflowY": false,
+              "verticalScrollAccepted": false,
+              "overflowDisposition": "contained",
+              "readerLayout": "adaptive",
+              "readerOverflow": null,
+              "readerFit": "intrinsic-height",
+              "ok": true,
+              "readerWidth": 1920,
+              "diagramWidth": 1870,
+              "pageComposition": {
+                "bodyPaddingPx": 64,
+                "headerPx": 68,
+                "diagramChromePx": 94,
+                "svgPx": 955,
+                "cardsPx": 0,
+                "viewBoxHeight": 914
+              },
+              "viewBoxWidth": 1790,
+              "minimumProjectedNodeTextPx": 8,
+              "minimumProjectedNonEdgeTextPx": 9,
+              "minimumProjectedEdgeTextPx": 8,
+              "minimumProjectedNodeText": "chat",
+              "minimumProjectedNodeTextDetail": "edge",
+              "minimumProjectedNodeTextOwner": {
+                "kind": "edge",
+                "id": "user-chat",
+                "from": "user",
+                "to": "ui"
+              },
+              "minimumRequiredNodeTextPx": 6,
+              "readabilityOk": true,
+              "hasLegend": true,
+              "hasNavigationDock": true,
+              "legendDockIntersectionArea": 0,
+              "dockStageIntersectionArea": 0,
+              "dockStageGap": 10,
+              "requiredDockStageGap": 10,
+              "viewerChromeStageOk": true,
+              "viewerChromeReserve": 44,
+              "viewerChromeActive": true,
+              "viewerChromeOk": true,
+              "resolvedTheme": "light"
+            }
+          ]
+        },
+        "viewerChrome": {
+          "status": "pass",
+          "viewports": [
+            {
+              "width": 1440,
+              "height": 900,
+              "theme": "light",
+              "innerWidth": 1440,
+              "innerHeight": 900,
+              "scrollWidth": 1440,
+              "scrollHeight": 900,
+              "overflowX": false,
+              "overflowY": false,
+              "verticalScrollAccepted": false,
+              "overflowDisposition": "contained",
+              "readerLayout": "adaptive",
+              "readerOverflow": null,
+              "readerFit": "intrinsic-height",
+              "ok": true,
+              "readerWidth": 1376,
+              "diagramWidth": 1346,
+              "pageComposition": {
+                "bodyPaddingPx": 12,
+                "headerPx": 52,
+                "diagramChromePx": 78,
+                "svgPx": 687,
+                "cardsPx": 0,
+                "viewBoxHeight": 914
+              },
+              "viewBoxWidth": 1790,
+              "minimumProjectedNodeTextPx": 6.015642458100559,
+              "minimumProjectedNonEdgeTextPx": 6.767597765363129,
+              "minimumProjectedEdgeTextPx": 6.015642458100559,
+              "minimumProjectedNodeText": "chat",
+              "minimumProjectedNodeTextDetail": "edge",
+              "minimumProjectedNodeTextOwner": {
+                "kind": "edge",
+                "id": "user-chat",
+                "from": "user",
+                "to": "ui"
+              },
+              "minimumRequiredNodeTextPx": 6,
+              "readabilityOk": true,
+              "hasLegend": true,
+              "hasNavigationDock": true,
+              "legendDockIntersectionArea": 0,
+              "dockStageIntersectionArea": 0,
+              "dockStageGap": 10,
+              "requiredDockStageGap": 10,
+              "viewerChromeStageOk": true,
+              "viewerChromeReserve": 54,
+              "viewerChromeActive": true,
+              "viewerChromeOk": true,
+              "resolvedTheme": "light"
+            },
+            {
+              "width": 1600,
+              "height": 1000,
+              "theme": "light",
+              "innerWidth": 1600,
+              "innerHeight": 1000,
+              "scrollWidth": 1600,
+              "scrollHeight": 1000,
+              "overflowX": false,
+              "overflowY": false,
+              "verticalScrollAccepted": false,
+              "overflowDisposition": "contained",
+              "readerLayout": "adaptive",
+              "readerOverflow": null,
+              "readerFit": "intrinsic-height",
+              "ok": true,
+              "readerWidth": 1536,
+              "diagramWidth": 1506,
+              "pageComposition": {
+                "bodyPaddingPx": 64,
+                "headerPx": 60,
+                "diagramChromePx": 84,
+                "svgPx": 769,
+                "cardsPx": 0,
+                "viewBoxHeight": 914
+              },
+              "viewBoxWidth": 1790,
+              "minimumProjectedNodeTextPx": 6.73072625698324,
+              "minimumProjectedNonEdgeTextPx": 7.572067039106145,
+              "minimumProjectedEdgeTextPx": 6.73072625698324,
+              "minimumProjectedNodeText": "chat",
+              "minimumProjectedNodeTextDetail": "edge",
+              "minimumProjectedNodeTextOwner": {
+                "kind": "edge",
+                "id": "user-chat",
+                "from": "user",
+                "to": "ui"
+              },
+              "minimumRequiredNodeTextPx": 6,
+              "readabilityOk": true,
+              "hasLegend": true,
+              "hasNavigationDock": true,
+              "legendDockIntersectionArea": 0,
+              "dockStageIntersectionArea": 0,
+              "dockStageGap": 10,
+              "requiredDockStageGap": 10,
+              "viewerChromeStageOk": true,
+              "viewerChromeReserve": 54,
+              "viewerChromeActive": true,
+              "viewerChromeOk": true,
+              "resolvedTheme": "light"
+            },
+            {
+              "width": 1920,
+              "height": 1080,
+              "theme": "light",
+              "innerWidth": 1920,
+              "innerHeight": 1080,
+              "scrollWidth": 1920,
+              "scrollHeight": 1080,
+              "overflowX": false,
+              "overflowY": false,
+              "verticalScrollAccepted": false,
+              "overflowDisposition": "contained",
+              "readerLayout": "adaptive",
+              "readerOverflow": null,
+              "readerFit": "intrinsic-height",
+              "ok": true,
+              "readerWidth": 1714,
+              "diagramWidth": 1684,
+              "pageComposition": {
+                "bodyPaddingPx": 64,
+                "headerPx": 60,
+                "diagramChromePx": 84,
+                "svgPx": 860,
+                "cardsPx": 0,
+                "viewBoxHeight": 914
+              },
+              "viewBoxWidth": 1790,
+              "minimumProjectedNodeTextPx": 7.5262569832402235,
+              "minimumProjectedNonEdgeTextPx": 8.46703910614525,
+              "minimumProjectedEdgeTextPx": 7.5262569832402235,
+              "minimumProjectedNodeText": "chat",
+              "minimumProjectedNodeTextDetail": "edge",
+              "minimumProjectedNodeTextOwner": {
+                "kind": "edge",
+                "id": "user-chat",
+                "from": "user",
+                "to": "ui"
+              },
+              "minimumRequiredNodeTextPx": 6,
+              "readabilityOk": true,
+              "hasLegend": true,
+              "hasNavigationDock": true,
+              "legendDockIntersectionArea": 0,
+              "dockStageIntersectionArea": 0,
+              "dockStageGap": 10,
+              "requiredDockStageGap": 10,
+              "viewerChromeStageOk": true,
+              "viewerChromeReserve": 54,
+              "viewerChromeActive": true,
+              "viewerChromeOk": true,
+              "resolvedTheme": "light"
+            },
+            {
+              "width": 2048,
+              "height": 1320,
+              "theme": "light",
+              "innerWidth": 2048,
+              "innerHeight": 1320,
+              "scrollWidth": 2048,
+              "scrollHeight": 1320,
+              "overflowX": false,
+              "overflowY": false,
+              "verticalScrollAccepted": false,
+              "overflowDisposition": "contained",
+              "readerLayout": "adaptive",
+              "readerOverflow": null,
+              "readerFit": "intrinsic-height",
+              "ok": true,
+              "readerWidth": 1920,
+              "diagramWidth": 1870,
+              "pageComposition": {
+                "bodyPaddingPx": 64,
+                "headerPx": 68,
+                "diagramChromePx": 94,
+                "svgPx": 955,
+                "cardsPx": 0,
+                "viewBoxHeight": 914
+              },
+              "viewBoxWidth": 1790,
+              "minimumProjectedNodeTextPx": 8,
+              "minimumProjectedNonEdgeTextPx": 9,
+              "minimumProjectedEdgeTextPx": 8,
+              "minimumProjectedNodeText": "chat",
+              "minimumProjectedNodeTextDetail": "edge",
+              "minimumProjectedNodeTextOwner": {
+                "kind": "edge",
+                "id": "user-chat",
+                "from": "user",
+                "to": "ui"
+              },
+              "minimumRequiredNodeTextPx": 6,
+              "readabilityOk": true,
+              "hasLegend": true,
+              "hasNavigationDock": true,
+              "legendDockIntersectionArea": 0,
+              "dockStageIntersectionArea": 0,
+              "dockStageGap": 10,
+              "requiredDockStageGap": 10,
+              "viewerChromeStageOk": true,
+              "viewerChromeReserve": 44,
+              "viewerChromeActive": true,
+              "viewerChromeOk": true,
+              "resolvedTheme": "light"
+            }
+          ]
+        },
+        "captures": {
+          "status": "not-requested",
+          "screenshots": [],
+          "contactSheet": null
+        },
+        "sidecars": {
+          "directory": "/Users/harshahammika/IK-FDE/Classes/Capstone/ContentBlitz - Content Marketing Agent/ContentMake/docs/architecture/review-3",
+          "receipt": "contentblitz-architecture.browser-check.json",
+          "files": []
+        }
+      }
+    }
+  },
+  "diagnostics": [],
+  "evidence": {
+    "receipt": "/Users/harshahammika/IK-FDE/Classes/Capstone/ContentBlitz - Content Marketing Agent/ContentMake/docs/architecture/review-3/contentblitz-architecture.finalize.json",
+    "summaryReceipt": "/Users/harshahammika/IK-FDE/Classes/Capstone/ContentBlitz - Content Marketing Agent/ContentMake/docs/architecture/review-3/contentblitz-architecture.finalize-summary.json",
+    "browserCheckReceipt": "/Users/harshahammika/IK-FDE/Classes/Capstone/ContentBlitz - Content Marketing Agent/ContentMake/docs/architecture/review-3/contentblitz-architecture.browser-check.json"
+  },
+  "visualReview": "not-requested",
+  "finishedAt": "2026-10-29T13:41:15.401Z",
+  "durationMs": 3375,
+  "update": {
+    "status": "update_available",
+    "installedVersion": "3.1.0",
+    "availableVersion": "3.2.0",
+    "releaseNotes": "https://github.com/tt-a1i/archify/releases/tag/v3.2.0",
+    "severity": "normal",
+    "checkedAt": "2026-10-29T13:40:03.740Z",
+    "source": "cache",
+    "noticeRequired": true,
+    "noticeText": "Archify update: 3.1.0 → 3.2.0. A previous check at 2026-10-29T13:40:03.740Z found a newer release. Release notes: https://github.com/tt-a1i/archify/releases/tag/v3.2.0. The installed Skill has not changed; ask to snooze or ignore this reminder.",
+    "eventKey": "archify@sha256:70e210265c59f24dcbdf2a502ff671104b5454e7ee7d3554aecd86bad32384f5"
+  }
+}

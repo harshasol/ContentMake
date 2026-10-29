@@ -5,16 +5,16 @@
   "status": "pass",
   "type": "architecture",
   "quality": "showcase",
-  "startedAt": "2026-10-28T13:24:25.125Z",
+  "startedAt": "2026-10-29T13:40:21.930Z",
   "specification": {
     "path": "/Users/harshahammika/IK-FDE/Classes/Capstone/ContentBlitz - Content Marketing Agent/ContentMake/docs/architecture/candidate.json",
-    "sha256": "ba365a86a309275f898ae0e44e4958c92f8384428c51392c9488636b397686ed",
-    "bytes": 6794
+    "sha256": "3c49d12db62214a73e35f24abd0dc1c83cf67ee53f52d87d28e9b528d455344d",
+    "bytes": 9927
   },
   "artifact": {
     "path": "/Users/harshahammika/IK-FDE/Classes/Capstone/ContentBlitz - Content Marketing Agent/ContentMake/docs/architecture/contentblitz-architecture.html",
-    "sha256": "84c33704eff146607a93471366946550ae5e65290b21a24098553a4e8ec99661",
-    "bytes": 840618
+    "sha256": "4b7afe7da9e0b027846c4a34bc54db730913cbfbc098683f14d560906c7c8d11",
+    "bytes": 860614
   },
   "stages": {
     "validate": {
@@ -40,8 +40,8 @@
         "ok": true,
         "command": "validate",
         "specification": {
-          "sha256": "ba365a86a309275f898ae0e44e4958c92f8384428c51392c9488636b397686ed",
-          "bytes": 6794
+          "sha256": "3c49d12db62214a73e35f24abd0dc1c83cf67ee53f52d87d28e9b528d455344d",
+          "bytes": 9927
         },
         "validation": {
           "checksPassed": 9,
@@ -56,7 +56,7 @@
     "deliver": {
       "status": "pass",
       "exitCode": 0,
-      "durationMs": 515,
+      "durationMs": 610,
       "command": [
         "/opt/homebrew/Cellar/node/26.0.0/bin/node",
         "/Users/harshahammika/.claude/skills/archify/bin/archify.mjs",
@@ -72,19 +72,19 @@
       ],
       "receipt": {
         "schemaVersion": 1,
-        "receiptId": "47a8131f-5909-4555-bf34-876ed7ec5e82",
+        "receiptId": "a45b6e53-74f6-4fd0-8272-d9a8d184ba2d",
         "ok": true,
         "command": "deliver",
         "type": "architecture",
         "input": "/Users/harshahammika/IK-FDE/Classes/Capstone/ContentBlitz - Content Marketing Agent/ContentMake/docs/architecture/candidate.json",
         "output": "/Users/harshahammika/IK-FDE/Classes/Capstone/ContentBlitz - Content Marketing Agent/ContentMake/docs/architecture/contentblitz-architecture.html",
         "specification": {
-          "sha256": "ba365a86a309275f898ae0e44e4958c92f8384428c51392c9488636b397686ed",
-          "bytes": 6794
+          "sha256": "3c49d12db62214a73e35f24abd0dc1c83cf67ee53f52d87d28e9b528d455344d",
+          "bytes": 9927
         },
         "artifact": {
-          "sha256": "84c33704eff146607a93471366946550ae5e65290b21a24098553a4e8ec99661",
-          "bytes": 840618
+          "sha256": "4b7afe7da9e0b027846c4a34bc54db730913cbfbc098683f14d560906c7c8d11",
+          "bytes": 860614
         },
         "validation": {
           "checksPassed": 9,
@@ -97,8 +97,8 @@
         "evidence": {
           "verified": true,
           "repository": "https://github.com/harshasol/ContentMake",
-          "revision": "8d1207251ec46cef71219ec0e3a212fbb85652bd",
-          "references": 17
+          "revision": "ebf839fe05fc424a7bffb6eb03aa9fff70b538e5",
+          "references": 31
         },
         "update": {
           "status": "unavailable",
@@ -116,7 +116,7 @@
     "check": {
       "status": "pass",
       "exitCode": 0,
-      "durationMs": 206,
+      "durationMs": 231,
       "command": [
         "/opt/homebrew/Cellar/node/26.0.0/bin/node",
         "/Users/harshahammika/.claude/skills/archify/bin/archify.mjs",
@@ -128,8 +128,8 @@
         "ok": true,
         "file": "/Users/harshahammika/IK-FDE/Classes/Capstone/ContentBlitz - Content Marketing Agent/ContentMake/docs/architecture/contentblitz-architecture.html",
         "artifact": {
-          "sha256": "84c33704eff146607a93471366946550ae5e65290b21a24098553a4e8ec99661",
-          "bytes": 840618
+          "sha256": "4b7afe7da9e0b027846c4a34bc54db730913cbfbc098683f14d560906c7c8d11",
+          "bytes": 860614
         },
         "checks": [
           {
@@ -190,22 +190,22 @@
           },
           "metrics": {
             "properCrossings": 0,
-            "resolvedCrossovers": 1,
+            "resolvedCrossovers": 3,
             "ambiguousCorridors": 0,
             "arrowheadCollisions": 0,
             "containerBorderRuns": 0,
             "labelRouteClearanceIssues": 0,
             "labelCanvasOverflowIssues": 0,
-            "minLabelRouteClearance": 20,
+            "minLabelRouteClearance": 4,
             "desktopReadabilityIssues": 0,
             "viewportHeightIssues": 0,
-            "minProjectedNodeTextPx": 6.584070796460177,
-            "maxBends": 2,
-            "routesOverSuggestedBends": 0,
-            "maxStretch": 1,
+            "minProjectedNodeTextPx": 6.015642458100559,
+            "maxBends": 3,
+            "routesOverSuggestedBends": 2,
+            "maxStretch": 1.057,
             "routesOverSuggestedStretch": 0,
             "minSegmentPx": 24,
-            "minInteriorSegmentPx": 64,
+            "minInteriorSegmentPx": 100,
             "shortSegmentCount": 0,
             "shortEndpointSegmentCount": 0,
             "shortInteriorSegmentCount": 0,
@@ -221,46 +221,140 @@
             "crossings": [
               {
                 "left": {
+                  "id": "to-research",
+                  "from": "dispatcher",
+                  "to": "research",
+                  "label": "",
+                  "collectionIndex": 7,
+                  "artifactIndex": 8
+                },
+                "right": {
                   "id": "to-strategist",
                   "from": "dispatcher",
                   "to": "strategist",
                   "label": "",
-                  "collectionIndex": 3,
-                  "artifactIndex": 4
-                },
-                "right": {
-                  "id": "to-blog",
-                  "from": "dispatcher",
-                  "to": "blog",
-                  "label": "",
-                  "collectionIndex": 4,
-                  "artifactIndex": 5
+                  "collectionIndex": 8,
+                  "artifactIndex": 9
                 },
                 "point": [
-                  769,
-                  146
+                  949,
+                  408
                 ],
                 "sharedNode": "dispatcher"
+              },
+              {
+                "left": {
+                  "id": "research-search",
+                  "from": "research",
+                  "to": "search",
+                  "label": "search",
+                  "collectionIndex": 13,
+                  "artifactIndex": 14
+                },
+                "right": {
+                  "id": "qh-llm",
+                  "from": "query-handler",
+                  "to": "llm",
+                  "label": "routing decision",
+                  "collectionIndex": 21,
+                  "artifactIndex": 22
+                },
+                "point": [
+                  1165,
+                  256
+                ]
+              },
+              {
+                "left": {
+                  "id": "image-files-save",
+                  "from": "image",
+                  "to": "image-files",
+                  "label": "save PNG",
+                  "collectionIndex": 15,
+                  "artifactIndex": 16
+                },
+                "right": {
+                  "id": "voice-llm",
+                  "from": "voice",
+                  "to": "llm",
+                  "label": "voice description",
+                  "collectionIndex": 22,
+                  "artifactIndex": 23
+                },
+                "point": [
+                  1165,
+                  760
+                ]
               }
             ],
-            "detours": []
+            "detours": [
+              {
+                "relationship": {
+                  "id": "qh-llm",
+                  "from": "query-handler",
+                  "to": "llm",
+                  "label": "routing decision",
+                  "collectionIndex": 21,
+                  "artifactIndex": 22
+                },
+                "bends": 3,
+                "stretch": 1.057,
+                "directCorridorBlockers": [
+                  {
+                    "id": "dispatcher",
+                    "label": "Dispatcher",
+                    "box": [
+                      870,
+                      458,
+                      130,
+                      100
+                    ]
+                  },
+                  {
+                    "id": "writers",
+                    "label": "Blog &amp; LinkedIn Writers",
+                    "box": [
+                      1080,
+                      480,
+                      170,
+                      56
+                    ]
+                  }
+                ]
+              },
+              {
+                "relationship": {
+                  "id": "voice-llm",
+                  "from": "voice",
+                  "to": "llm",
+                  "label": "voice description",
+                  "collectionIndex": 22,
+                  "artifactIndex": 23
+                },
+                "bends": 3,
+                "stretch": 1.042
+              }
+            ]
           },
           "leadingSpace": {
             "measured": true,
-            "emptyTopPx": 10,
-            "emptyTopRatio": 0.014,
-            "occupiedTop": 10,
+            "emptyTopPx": 148,
+            "emptyTopRatio": 0.162,
+            "occupiedTop": 148,
             "viewBoxTop": 0,
-            "canvasHeight": 738,
+            "canvasHeight": 914,
             "typicalNodeHeight": 60,
             "reviewSuggested": false
           },
           "desktopReadability": {
-            "budgetBasis": "legacy-930",
+            "budgetBasis": "recognized-declared-wide",
             "readerContract": "declared-wide-v1",
-            "availableDiagramWidth": 930,
-            "actualBudgetPx": 930,
-            "limit": "legacy",
+            "availableDiagramWidth": 1346,
+            "actualBudgetPx": 1346,
+            "actualReaderWidth": 1376,
+            "desiredReaderWidth": 1708.125,
+            "viewportCap": 1376,
+            "limit": "viewport-cap",
             "requestedTargetPx": 7.5,
             "requestedTargetMet": false,
             "hardFloorPx": 6,
@@ -272,19 +366,19 @@
               "to": "ui"
             },
             "minimumSourceTextPx": 8,
-            "minimumProjectedTextPx": 6.584070796460177,
-            "semanticTextCount": 41
+            "minimumProjectedTextPx": 6.015642458100559,
+            "semanticTextCount": 61
           },
           "issues": []
         },
         "provenance": "current",
-        "deliveryReceiptId": "47a8131f-5909-4555-bf34-876ed7ec5e82"
+        "deliveryReceiptId": "a45b6e53-74f6-4fd0-8272-d9a8d184ba2d"
       }
     },
     "browser-check": {
       "status": "pass",
       "exitCode": 0,
-      "durationMs": 3497,
+      "durationMs": 2929,
       "command": [
         "/opt/homebrew/Cellar/node/26.0.0/bin/node",
         "/Users/harshahammika/.claude/skills/archify/bin/archify.mjs",
@@ -302,11 +396,11 @@
         "status": "pass",
         "visualReview": "not-requested",
         "provenance": "current",
-        "deliveryReceiptId": "47a8131f-5909-4555-bf34-876ed7ec5e82",
+        "deliveryReceiptId": "a45b6e53-74f6-4fd0-8272-d9a8d184ba2d",
         "artifact": {
           "path": "/Users/harshahammika/IK-FDE/Classes/Capstone/ContentBlitz - Content Marketing Agent/ContentMake/docs/architecture/contentblitz-architecture.html",
-          "sha256": "84c33704eff146607a93471366946550ae5e65290b21a24098553a4e8ec99661",
-          "bytes": 840618
+          "sha256": "4b7afe7da9e0b027846c4a34bc54db730913cbfbc098683f14d560906c7c8d11",
+          "bytes": 860614
         },
         "state": {
           "detail": "read",
@@ -337,20 +431,20 @@
               "readerOverflow": null,
               "readerFit": "intrinsic-height",
               "ok": true,
-              "readerWidth": 1172,
-              "diagramWidth": 1142,
+              "readerWidth": 1376,
+              "diagramWidth": 1346,
               "pageComposition": {
                 "bodyPaddingPx": 12,
                 "headerPx": 52,
                 "diagramChromePx": 78,
-                "svgPx": 746,
+                "svgPx": 687,
                 "cardsPx": 0,
-                "viewBoxHeight": 738
+                "viewBoxHeight": 914
               },
-              "viewBoxWidth": 1130,
-              "minimumProjectedNodeTextPx": 8,
-              "minimumProjectedNonEdgeTextPx": 9,
-              "minimumProjectedEdgeTextPx": 8,
+              "viewBoxWidth": 1790,
+              "minimumProjectedNodeTextPx": 6.015642458100559,
+              "minimumProjectedNonEdgeTextPx": 6.767597765363129,
+              "minimumProjectedEdgeTextPx": 6.015642458100559,
               "minimumProjectedNodeText": "chat",
               "minimumProjectedNodeTextDetail": "edge",
               "minimumProjectedNodeTextOwner": {
@@ -389,20 +483,20 @@
               "readerOverflow": null,
               "readerFit": "intrinsic-height",
               "ok": true,
-              "readerWidth": 1224,
-              "diagramWidth": 1194,
+              "readerWidth": 1536,
+              "diagramWidth": 1506,
               "pageComposition": {
                 "bodyPaddingPx": 64,
                 "headerPx": 60,
                 "diagramChromePx": 84,
-                "svgPx": 780,
+                "svgPx": 769,
                 "cardsPx": 0,
-                "viewBoxHeight": 738
+                "viewBoxHeight": 914
               },
-              "viewBoxWidth": 1130,
-              "minimumProjectedNodeTextPx": 8,
-              "minimumProjectedNonEdgeTextPx": 9,
-              "minimumProjectedEdgeTextPx": 8,
+              "viewBoxWidth": 1790,
+              "minimumProjectedNodeTextPx": 6.73072625698324,
+              "minimumProjectedNonEdgeTextPx": 7.572067039106145,
+              "minimumProjectedEdgeTextPx": 6.73072625698324,
               "minimumProjectedNodeText": "chat",
               "minimumProjectedNodeTextDetail": "edge",
               "minimumProjectedNodeTextOwner": {
@@ -441,20 +535,20 @@
               "readerOverflow": null,
               "readerFit": "intrinsic-height",
               "ok": true,
-              "readerWidth": 1347,
-              "diagramWidth": 1317,
+              "readerWidth": 1714,
+              "diagramWidth": 1684,
               "pageComposition": {
                 "bodyPaddingPx": 64,
                 "headerPx": 60,
                 "diagramChromePx": 84,
                 "svgPx": 860,
                 "cardsPx": 0,
-                "viewBoxHeight": 738
+                "viewBoxHeight": 914
               },
-              "viewBoxWidth": 1130,
-              "minimumProjectedNodeTextPx": 8,
-              "minimumProjectedNonEdgeTextPx": 9,
-              "minimumProjectedEdgeTextPx": 8,
+              "viewBoxWidth": 1790,
+              "minimumProjectedNodeTextPx": 7.5262569832402235,
+              "minimumProjectedNonEdgeTextPx": 8.46703910614525,
+              "minimumProjectedEdgeTextPx": 7.5262569832402235,
               "minimumProjectedNodeText": "chat",
               "minimumProjectedNodeTextDetail": "edge",
               "minimumProjectedNodeTextOwner": {
@@ -493,17 +587,17 @@
               "readerOverflow": null,
               "readerFit": "intrinsic-height",
               "ok": true,
-              "readerWidth": 1707,
-              "diagramWidth": 1657,
+              "readerWidth": 1920,
+              "diagramWidth": 1870,
               "pageComposition": {
                 "bodyPaddingPx": 64,
                 "headerPx": 68,
                 "diagramChromePx": 94,
-                "svgPx": 1082,
+                "svgPx": 955,
                 "cardsPx": 0,
-                "viewBoxHeight": 738
+                "viewBoxHeight": 914
               },
-              "viewBoxWidth": 1130,
+              "viewBoxWidth": 1790,
               "minimumProjectedNodeTextPx": 8,
               "minimumProjectedNonEdgeTextPx": 9,
               "minimumProjectedEdgeTextPx": 8,
@@ -598,20 +692,20 @@
               "readerOverflow": null,
               "readerFit": "intrinsic-height",
               "ok": true,
-              "readerWidth": 1172,
-              "diagramWidth": 1142,
+              "readerWidth": 1376,
+              "diagramWidth": 1346,
               "pageComposition": {
                 "bodyPaddingPx": 12,
                 "headerPx": 52,
                 "diagramChromePx": 78,
-                "svgPx": 746,
+                "svgPx": 687,
                 "cardsPx": 0,
-                "viewBoxHeight": 738
+                "viewBoxHeight": 914
               },
-              "viewBoxWidth": 1130,
-              "minimumProjectedNodeTextPx": 8,
-              "minimumProjectedNonEdgeTextPx": 9,
-              "minimumProjectedEdgeTextPx": 8,
+              "viewBoxWidth": 1790,
+              "minimumProjectedNodeTextPx": 6.015642458100559,
+              "minimumProjectedNonEdgeTextPx": 6.767597765363129,
+              "minimumProjectedEdgeTextPx": 6.015642458100559,
               "minimumProjectedNodeText": "chat",
               "minimumProjectedNodeTextDetail": "edge",
               "minimumProjectedNodeTextOwner": {
@@ -650,20 +744,20 @@
               "readerOverflow": null,
               "readerFit": "intrinsic-height",
               "ok": true,
-              "readerWidth": 1224,
-              "diagramWidth": 1194,
+              "readerWidth": 1536,
+              "diagramWidth": 1506,
               "pageComposition": {
                 "bodyPaddingPx": 64,
                 "headerPx": 60,
                 "diagramChromePx": 84,
-                "svgPx": 780,
+                "svgPx": 769,
                 "cardsPx": 0,
-                "viewBoxHeight": 738
+                "viewBoxHeight": 914
               },
-              "viewBoxWidth": 1130,
-              "minimumProjectedNodeTextPx": 8,
-              "minimumProjectedNonEdgeTextPx": 9,
-              "minimumProjectedEdgeTextPx": 8,
+              "viewBoxWidth": 1790,
+              "minimumProjectedNodeTextPx": 6.73072625698324,
+              "minimumProjectedNonEdgeTextPx": 7.572067039106145,
+              "minimumProjectedEdgeTextPx": 6.73072625698324,
               "minimumProjectedNodeText": "chat",
               "minimumProjectedNodeTextDetail": "edge",
               "minimumProjectedNodeTextOwner": {
@@ -702,20 +796,20 @@
               "readerOverflow": null,
               "readerFit": "intrinsic-height",
               "ok": true,
-              "readerWidth": 1347,
-              "diagramWidth": 1317,
+              "readerWidth": 1714,
+              "diagramWidth": 1684,
               "pageComposition": {
                 "bodyPaddingPx": 64,
                 "headerPx": 60,
                 "diagramChromePx": 84,
                 "svgPx": 860,
                 "cardsPx": 0,
-                "viewBoxHeight": 738
+                "viewBoxHeight": 914
               },
-              "viewBoxWidth": 1130,
-              "minimumProjectedNodeTextPx": 8,
-              "minimumProjectedNonEdgeTextPx": 9,
-              "minimumProjectedEdgeTextPx": 8,
+              "viewBoxWidth": 1790,
+              "minimumProjectedNodeTextPx": 7.5262569832402235,
+              "minimumProjectedNonEdgeTextPx": 8.46703910614525,
+              "minimumProjectedEdgeTextPx": 7.5262569832402235,
               "minimumProjectedNodeText": "chat",
               "minimumProjectedNodeTextDetail": "edge",
               "minimumProjectedNodeTextOwner": {
@@ -754,17 +848,17 @@
               "readerOverflow": null,
               "readerFit": "intrinsic-height",
               "ok": true,
-              "readerWidth": 1707,
-              "diagramWidth": 1657,
+              "readerWidth": 1920,
+              "diagramWidth": 1870,
               "pageComposition": {
                 "bodyPaddingPx": 64,
                 "headerPx": 68,
                 "diagramChromePx": 94,
-                "svgPx": 1082,
+                "svgPx": 955,
                 "cardsPx": 0,
-                "viewBoxHeight": 738
+                "viewBoxHeight": 914
               },
-              "viewBoxWidth": 1130,
+              "viewBoxWidth": 1790,
               "minimumProjectedNodeTextPx": 8,
               "minimumProjectedNonEdgeTextPx": 9,
               "minimumProjectedEdgeTextPx": 8,
@@ -811,20 +905,20 @@
               "readerOverflow": null,
               "readerFit": "intrinsic-height",
               "ok": true,
-              "readerWidth": 1172,
-              "diagramWidth": 1142,
+              "readerWidth": 1376,
+              "diagramWidth": 1346,
               "pageComposition": {
                 "bodyPaddingPx": 12,
                 "headerPx": 52,
                 "diagramChromePx": 78,
-                "svgPx": 746,
+                "svgPx": 687,
                 "cardsPx": 0,
-                "viewBoxHeight": 738
+                "viewBoxHeight": 914
               },
-              "viewBoxWidth": 1130,
-              "minimumProjectedNodeTextPx": 8,
-              "minimumProjectedNonEdgeTextPx": 9,
-              "minimumProjectedEdgeTextPx": 8,
+              "viewBoxWidth": 1790,
+              "minimumProjectedNodeTextPx": 6.015642458100559,
+              "minimumProjectedNonEdgeTextPx": 6.767597765363129,
+              "minimumProjectedEdgeTextPx": 6.015642458100559,
               "minimumProjectedNodeText": "chat",
               "minimumProjectedNodeTextDetail": "edge",
               "minimumProjectedNodeTextOwner": {
@@ -863,20 +957,20 @@
               "readerOverflow": null,
               "readerFit": "intrinsic-height",
               "ok": true,
-              "readerWidth": 1224,
-              "diagramWidth": 1194,
+              "readerWidth": 1536,
+              "diagramWidth": 1506,
               "pageComposition": {
                 "bodyPaddingPx": 64,
                 "headerPx": 60,
                 "diagramChromePx": 84,
-                "svgPx": 780,
+                "svgPx": 769,
                 "cardsPx": 0,
-                "viewBoxHeight": 738
+                "viewBoxHeight": 914
               },
-              "viewBoxWidth": 1130,
-              "minimumProjectedNodeTextPx": 8,
-              "minimumProjectedNonEdgeTextPx": 9,
-              "minimumProjectedEdgeTextPx": 8,
+              "viewBoxWidth": 1790,
+              "minimumProjectedNodeTextPx": 6.73072625698324,
+              "minimumProjectedNonEdgeTextPx": 7.572067039106145,
+              "minimumProjectedEdgeTextPx": 6.73072625698324,
               "minimumProjectedNodeText": "chat",
               "minimumProjectedNodeTextDetail": "edge",
               "minimumProjectedNodeTextOwner": {
@@ -915,20 +1009,20 @@
               "readerOverflow": null,
               "readerFit": "intrinsic-height",
               "ok": true,
-              "readerWidth": 1347,
-              "diagramWidth": 1317,
+              "readerWidth": 1714,
+              "diagramWidth": 1684,
               "pageComposition": {
                 "bodyPaddingPx": 64,
                 "headerPx": 60,
                 "diagramChromePx": 84,
                 "svgPx": 860,
                 "cardsPx": 0,
-                "viewBoxHeight": 738
+                "viewBoxHeight": 914
               },
-              "viewBoxWidth": 1130,
-              "minimumProjectedNodeTextPx": 8,
-              "minimumProjectedNonEdgeTextPx": 9,
-              "minimumProjectedEdgeTextPx": 8,
+              "viewBoxWidth": 1790,
+              "minimumProjectedNodeTextPx": 7.5262569832402235,
+              "minimumProjectedNonEdgeTextPx": 8.46703910614525,
+              "minimumProjectedEdgeTextPx": 7.5262569832402235,
               "minimumProjectedNodeText": "chat",
               "minimumProjectedNodeTextDetail": "edge",
               "minimumProjectedNodeTextOwner": {
@@ -967,17 +1061,17 @@
               "readerOverflow": null,
               "readerFit": "intrinsic-height",
               "ok": true,
-              "readerWidth": 1707,
-              "diagramWidth": 1657,
+              "readerWidth": 1920,
+              "diagramWidth": 1870,
               "pageComposition": {
                 "bodyPaddingPx": 64,
                 "headerPx": 68,
                 "diagramChromePx": 94,
-                "svgPx": 1082,
+                "svgPx": 955,
                 "cardsPx": 0,
-                "viewBoxHeight": 738
+                "viewBoxHeight": 914
               },
-              "viewBoxWidth": 1130,
+              "viewBoxWidth": 1790,
               "minimumProjectedNodeTextPx": 8,
               "minimumProjectedNonEdgeTextPx": 9,
               "minimumProjectedEdgeTextPx": 8,
@@ -1024,18 +1118,18 @@
     "browserCheckReceipt": "/Users/harshahammika/IK-FDE/Classes/Capstone/ContentBlitz - Content Marketing Agent/ContentMake/docs/architecture/contentblitz-architecture.browser-check.json"
   },
   "visualReview": "not-requested",
-  "finishedAt": "2026-10-28T13:24:29.532Z",
-  "durationMs": 4407,
+  "finishedAt": "2026-10-29T13:40:25.884Z",
+  "durationMs": 3954,
   "update": {
     "status": "update_available",
     "installedVersion": "3.1.0",
     "availableVersion": "3.2.0",
     "releaseNotes": "https://github.com/tt-a1i/archify/releases/tag/v3.2.0",
     "severity": "normal",
-    "checkedAt": "2026-10-28T13:24:25.273Z",
-    "source": "network",
+    "checkedAt": "2026-10-29T13:40:03.740Z",
+    "source": "cache",
     "noticeRequired": true,
-    "noticeText": "Archify update: 3.1.0 → 3.2.0. A newer release is available. Release notes: https://github.com/tt-a1i/archify/releases/tag/v3.2.0. The installed Skill has not changed; ask to snooze or ignore this reminder.",
+    "noticeText": "Archify update: 3.1.0 → 3.2.0. A previous check at 2026-10-29T13:40:03.740Z found a newer release. Release notes: https://github.com/tt-a1i/archify/releases/tag/v3.2.0. The installed Skill has not changed; ask to snooze or ignore this reminder.",
     "eventKey": "archify@sha256:70e210265c59f24dcbdf2a502ff671104b5454e7ee7d3554aecd86bad32384f5"
   }
 }
