@@ -2,7 +2,9 @@
 
 The LinkedIn step runs the LinkedIn quality loop from #19. Its draft is one structured call to
 the `linkedin_writer` model, given the whole Brief, its keywords, the four template guides,
-the character and hashtag ranges, and the step's instructions. It returns the template it used,
+the character and hashtag ranges, and the step's instructions. A post built on another Content
+Piece ("turn that blog into a LinkedIn post") is also given that piece's latest Revision as
+background, but still takes its facts from the Brief. It returns the template it used,
 the post's plain text and its hashtags; the post is the text, a blank line, then the hashtags on
 one line. The loop checks the post against LinkedIn's feed conventions, and the AI reviewer
 scores its hook, readability on a phone, tone and call to action. A draft that doesn't pass is
@@ -36,6 +38,7 @@ from contentblitz.workflow.content_checks import (
     check_linkedin,
     hashtag_range,
 )
+from contentblitz.workflow.formats import PIECE_FORMATS
 from contentblitz.workflow.plan import current_step
 from contentblitz.workflow.progress import progress_message
 from contentblitz.workflow.quality_loop import Attempt, QualityFormat, quality_loop, quality_text
@@ -114,6 +117,12 @@ NO_BRIEF = (
     "I can't refine *{title}* yet: *{topic}* has no Research Brief to check it "
     "against. Ask me to research it again first."
 )
+
+SOURCE_PROMPT = """\
+Background: the marketer's {label} *{title}*, which this post should build on.
+Take every fact and figure from the Research Brief, not from it.
+
+{text}"""
 
 _NUMBER_WORDS = "zero one two three four five six seven eight nine ten eleven twelve".split()
 _HASHTAG_COUNT = re.compile(rf"\b(\d+|{'|'.join(_NUMBER_WORDS)})\s+hashtags?\b", re.IGNORECASE)
@@ -202,6 +211,19 @@ def _range_text(low: int, high: int) -> str:
     return f"{low}" if low == high else f"{low}-{high}"
 
 
+def _source_text(state: ContentBlitzState) -> str:
+    """The piece the post builds on, as background, or nothing when it builds on none."""
+    piece_id = _step(state).get("source_piece")
+    if not piece_id:
+        return ""
+    piece = state["content_pieces"][piece_id]
+    label = PIECE_FORMATS[piece["kind"]].label
+    background = SOURCE_PROMPT.format(
+        label=label, title=piece["title"], text=piece["revisions"][-1]["text"]
+    )
+    return f"\n\n{background}"
+
+
 def _prompt(state: ContentBlitzState) -> list[dict]:
     topic = _topic(state)
     rules = get_model_config().quality.linkedin
@@ -220,7 +242,7 @@ def _prompt(state: ContentBlitzState) -> list[dict]:
             f"Template: {_template(state) or 'none given, pick the template that fits best'}\n"
             f"Instructions: {_step(state).get('instructions') or 'none'}\n\n"
             f"Templates:\n{templates}\n\n"
-            f"Research Brief:\n\n{_brief_text(topic['brief'])}",
+            f"Research Brief:\n\n{_brief_text(topic['brief'])}{_source_text(state)}",
         },
     ]
 

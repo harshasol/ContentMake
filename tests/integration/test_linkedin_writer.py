@@ -660,3 +660,61 @@ def test_refining_a_post_whose_topic_has_no_brief_says_so_and_changes_nothing(mo
     )
     assert model.calls == []
     assert state["content_pieces"]["piece-1"]["revisions"] == [HAND_EDIT]
+
+
+# Repurposing: a post built on an existing Content Piece
+
+BLOG_TEXT = "# AI in Healthcare\n\nAI reads scans 30% faster [2]."
+BLOG_HAND_EDIT = BLOG_TEXT + "\n\nI added this closing line myself."
+BLOG_PIECE = {
+    "kind": "blog",
+    "topic_id": "topic-1",
+    "title": "AI in Healthcare",
+    "revisions": [
+        {"text": BLOG_TEXT, "origin": "draft", "created_at": "2026-10-21T10:00:00+00:00"},
+        {"text": BLOG_HAND_EDIT, "origin": "hand_edit", "created_at": "2026-10-22T10:00:00+00:00"},
+    ],
+}
+
+
+def repurpose(plan):
+    seeded = topic() | {"piece_ids": ["piece-1"]}
+    return run_plan(plan, {"topic-1": seeded}, pieces={"piece-1": BLOG_PIECE})
+
+
+def test_a_post_built_on_a_blog_is_given_its_latest_revision_and_the_whole_brief(model):
+    plan = [{"agent": "linkedin_writer", "instructions": None, "source_piece": "piece-1"}]
+    repurpose(plan)
+
+    prompt = prompt_of(model.calls_to("linkedin_writer")[0])
+    assert BLOG_HAND_EDIT in prompt
+    assert "AI in Healthcare" in prompt  # the blog's title
+    assert "30%: faster scan reading (verified)" in prompt  # the Brief, as before
+    assert "take every fact and figure from the research brief" in prompt.lower()
+
+
+def test_a_post_built_on_a_blog_is_a_new_piece_and_leaves_the_blog_unchanged(model):
+    plan = [{"agent": "linkedin_writer", "instructions": None, "source_piece": "piece-1"}]
+    _, state = repurpose(plan)
+
+    assert state["topics"]["topic-1"]["piece_ids"] == ["piece-1", "piece-2"]
+    assert state["content_pieces"]["piece-1"] == BLOG_PIECE
+    assert state["content_pieces"]["piece-2"]["kind"] == "linkedin_post"
+
+
+def test_without_a_source_piece_the_post_is_drafted_from_the_brief_alone(model):
+    _, state = repurpose(LINKEDIN)
+
+    prompt = prompt_of(model.calls_to("linkedin_writer")[0])
+    assert BLOG_TEXT not in prompt
+    assert "build on" not in prompt.lower()
+
+
+def test_a_long_opening_line_is_shortened_at_a_word_for_the_title(model):
+    long_hook = "Hospitals that read every scan twice are finding the second reader is an AI system"
+    model.reply = linkedin_draft(text=TEXT.replace(HOOK, long_hook))
+    _, state = run_plan(LINKEDIN, {"topic-1": topic()})
+
+    [piece_id] = state["topics"]["topic-1"]["piece_ids"]
+    title = state["content_pieces"][piece_id]["title"]
+    assert title == "Hospitals that read every scan twice are finding the second reader is an AI…"

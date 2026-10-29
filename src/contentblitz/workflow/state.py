@@ -126,6 +126,8 @@ class PlanStep(TypedDict):
     # A blog's in words, checked with a tolerance instead of the word range; a LinkedIn post's
     # in characters, the most it may have.
     length: NotRequired[int]
+    # On a LinkedIn step: the Content Piece the post builds on ("turn that blog into a post").
+    source_piece: NotRequired[str]
 
 
 class PendingTopicQuestion(TypedDict):

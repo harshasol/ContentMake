@@ -16,6 +16,7 @@ from contentblitz.workflow.refine import (
     no_piece_of_kind,
     pieces_context,
     refine_step,
+    resolve_source,
     resolve_target,
     which_piece_question,
 )
@@ -35,7 +36,9 @@ conversation and return a routing decision:
   target_keyword ("target keyword: AI diagnostics"), template and length in words only when
   the user asks for them. For a LinkedIn post, set template (industry insights, personal
   story, tips or announcement) only when the user names one, and length with length_unit
-  "characters" only when they ask for a length in characters.
+  "characters" only when they ask for a length in characters. When the request turns an
+  existing Content Piece below into the new one ("turn that blog into a LinkedIn post"), set
+  source_piece to its id.
 - refine: the user wants an existing piece changed. Set instructions, set refine_target to the
   id of the Content Piece below that they mean (null if unsure), and set formats to its kind
   when they name one ("the LinkedIn post" → ["linkedin_post"]). Set template and length as for
@@ -233,6 +236,7 @@ def query_handler(state: ContentBlitzState) -> ContentBlitzState:
     if answered:
         return answered
     if decision.intent == "new_content":
+        decision = resolve_source(state, decision)
         return _ask_topic_question(state, decision) or _new_content(state, decision)
     if decision.intent == "refine":
         return _refine(state, decision)

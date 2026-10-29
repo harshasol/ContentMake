@@ -32,6 +32,11 @@ class RoutingDecision(BaseModel):
     )
     fresh_research: bool = Field(False, description="Whether fresh research was asked for.")
     refine_target: str | None = Field(None, description="Content Piece id to refine.")
+    source_piece: str | None = Field(
+        None,
+        description="For new_content: the id of the Content Piece the new one builds on, only "
+        "if the request points at one ('turn that blog into a LinkedIn post').",
+    )
     instructions: str | None = Field(None, description="Instructions to pass on to the writers.")
     target_keyword: str | None = Field(
         None, description="The blog's target keyword, only if the user set one."

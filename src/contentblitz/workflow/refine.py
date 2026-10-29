@@ -34,6 +34,13 @@ def resolve_target(state: ContentBlitzState, decision: RoutingDecision) -> list[
     return [pid for pid in active_topic_pieces(state) if pieces[pid]["kind"] in kinds]
 
 
+def resolve_source(state: ContentBlitzState, decision: RoutingDecision) -> RoutingDecision:
+    """The decision with its source piece kept only if it names an existing Content Piece."""
+    if decision.source_piece in (state.get("content_pieces") or {}):
+        return decision
+    return decision.model_copy(update={"source_piece": None})
+
+
 def refine_step(state: ContentBlitzState, piece_id: str, decision: RoutingDecision) -> PlanStep:
     """The one step that refines `piece_id`. It also gets the request's options for the piece's
     format, so a refinement can change, say, its template."""

@@ -1083,9 +1083,7 @@ def test_a_length_in_characters_reaches_only_the_linkedin_step(monkeypatch, with
     ]
 
 
-def test_a_refine_request_in_characters_reaches_the_linkedin_refine_step(
-    monkeypatch, with_api_key
-):
+def test_a_refine_request_in_characters_reaches_the_linkedin_refine_step(monkeypatch, with_api_key):
     decision = refine("under 1,000 characters, as tips", formats=["linkedin_post"])(None)
     update = {"length": 1000, "length_unit": "characters", "template": "tips"}
     fake_router(monkeypatch, lambda _: decision.model_copy(update=update))
@@ -1105,3 +1103,57 @@ def test_a_refine_request_in_characters_reaches_the_linkedin_refine_step(
     ]
     _, refined = state["content_pieces"]["piece-1"]["revisions"]
     assert (refined["origin"], refined["template"]) == ("refinement", "tips")
+
+
+def test_turn_that_blog_into_a_linkedin_post_builds_a_new_post_on_the_blog(
+    monkeypatch, with_api_key
+):
+    decision = new_content("linkedin_post", same_topic=True)(None)
+    router = fake_router(
+        monkeypatch, lambda _: decision.model_copy(update={"source_piece": "piece-1"})
+    )
+    start = with_pieces(**{"piece-1": piece("blog", "AI in the clinic")})
+    graph = build_graph()
+    send_with(graph, "turn that blog into a LinkedIn post", start)
+
+    state = graph.get_state(config()).values
+    assert state["plan"] == [
+        {"agent": "linkedin_writer", "instructions": None, "source_piece": "piece-1"}
+    ]
+    assert state["topics"]["topic-1"]["piece_ids"] == ["piece-1", "piece-2"]
+    assert state["content_pieces"]["piece-1"] == piece("blog", "AI in the clinic")
+    assert "- piece-1: blog on AI in healthcare" in prompt_text(router.calls[0])
+
+
+def prompt_text(call):
+    return "\n".join(m["content"] for m in call["messages"])
+
+
+def test_a_source_piece_that_does_not_exist_is_dropped(monkeypatch, with_api_key):
+    decision = new_content("linkedin_post", same_topic=True)(None)
+    fake_router(monkeypatch, lambda _: decision.model_copy(update={"source_piece": "piece-9"}))
+    graph = build_graph()
+    send_with(graph, "turn that blog into a LinkedIn post", researched_topic())
+
+    state = graph.get_state(config()).values
+    assert state["plan"] == [{"agent": "linkedin_writer", "instructions": None}]
+
+
+def test_a_held_plan_rebuilt_for_a_new_topic_keeps_its_source_piece(monkeypatch, with_api_key):
+    asked = RoutingDecision(
+        intent="new_content",
+        topic_name="AI in radiology",
+        formats=["linkedin_post"],
+        source_piece="piece-1",
+    )
+    fake_router(monkeypatch, routes(**{ASK: asked, "a new one": answer("new")}))
+    graph = build_graph()
+    send_with(graph, ASK, with_pieces(**{"piece-1": piece("blog", "AI in the clinic")}))
+    send(graph, "a new one")
+
+    state = graph.get_state(config()).values
+    assert state["plan"][-1] == {
+        "agent": "linkedin_writer",
+        "instructions": None,
+        "source_piece": "piece-1",
+    }
