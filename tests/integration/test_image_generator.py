@@ -17,6 +17,8 @@ from PIL import Image
 
 from contentblitz.agents.image_generator import make_image, optimise_prompt
 from contentblitz.integrations import llm
+from contentblitz.workflow.active_brand_profile import load_brand_profile
+from contentblitz.workflow.brand_profiles import BrandProfileStore
 from contentblitz.workflow.graph import build_graph
 
 REAL_GENERATE_IMAGE = llm.generate_image
@@ -114,9 +116,10 @@ def config(thread="t1"):
     return {"configurable": {"thread_id": thread}}
 
 
-def run_plan(plan, topics=None, graph=None, request=REQUEST):
-    """Run `plan` from the dispatcher, as if the Query Handler had just posted it. Returns the
-    messages the plan produced and the state afterwards."""
+def run_plan(plan, topics=None, graph=None, request=REQUEST, brand_profile_id=None):
+    """Run `plan` from the dispatcher, as if the Query Handler had just posted it, with the
+    Brand Profile `brand_profile_id` (Default without one) loaded as the graph's first node
+    would. Returns the messages the plan produced and the state afterwards."""
     graph = graph or build_graph()
     before = len(graph.get_state(config()).values.get("messages", []))
     seeded = {
@@ -124,6 +127,7 @@ def run_plan(plan, topics=None, graph=None, request=REQUEST):
         "plan": plan,
         "completed_steps": [],
         "abort_reason": None,
+        **load_brand_profile({"brand_profile_id": brand_profile_id}),
     }
     if topics is not None:
         seeded |= {"topics": topics, "active_topic_id": "topic-1"}
@@ -269,7 +273,7 @@ def test_an_explicitly_requested_shape_wins_over_the_intended_use(models):
         assert saved.size == (1024, 1536)
 
 
-def test_the_optimiser_is_given_the_instructions_topic_brief_and_default_style(models):
+def test_the_optimiser_is_given_the_instructions_topic_brief_and_defaults_style(models):
     run_plan(image_step(), {"topic-1": topic(brief=BRIEF)})
 
     [call] = models.prompt_calls
@@ -280,7 +284,9 @@ def test_the_optimiser_is_given_the_instructions_topic_brief_and_default_style(m
         "AI in radiology",
         "AI is speeding up diagnosis in radiology.",
         "The radiologist's new colleague: Your next scan may be read twice.",
-        "clean, modern editorial illustration",  # the default style from config
+        "calm and professional",  # the Default Brand Profile's visual style
+        "illustration",
+        "clean and modern, with plenty of negative space",
     ]:
         assert fact in prompt, fact
 
@@ -553,11 +559,9 @@ def test_the_plan_carries_on_after_a_placeholder(image_models):
     assert not state["abort_reason"]
 
 
-def test_the_placeholder_uses_the_visual_styles_primary_colour(monkeypatch):
+def test_the_placeholder_uses_the_colour_it_is_given(monkeypatch):
     monkeypatch.setenv("OPENAI_API_KEY", "")
-    style = "bold flat illustration, primary colour #FF6600, accents #003366"
-
-    image = make_image("a robot doctor", "portrait", "AI in radiology", visual_style=style)
+    image = make_image("a robot doctor", "portrait", "AI in radiology", colour="#FF6600")
 
     assert (image.model, image.fallbacks[0]) == (
         "placeholder",
@@ -568,10 +572,10 @@ def test_the_placeholder_uses_the_visual_styles_primary_colour(monkeypatch):
         assert card.convert("RGB").getpixel((5, 5)) == (0xFF, 0x66, 0x00)
 
 
-def test_the_placeholder_uses_the_configured_colour_when_the_style_has_none(monkeypatch):
+def test_the_placeholder_uses_the_configured_colour_when_given_none(monkeypatch):
     monkeypatch.setenv("OPENAI_API_KEY", "")
 
-    image = make_image("a robot doctor", "square", "AI in radiology", visual_style="soft pastels")
+    image = make_image("a robot doctor", "square", "AI in radiology")
 
     with Image.open(io.BytesIO(image.data)) as card:
         assert card.convert("RGB").getpixel((5, 5)) == DEFAULT_COLOUR
@@ -648,11 +652,11 @@ def seeded_image(data_dir, aspect="landscape", revisions=1):
     return topics, {"piece-1": piece}
 
 
-def run_refine(instructions, topics, pieces):
+def run_refine(instructions, topics, pieces, brand_profile_id=None):
     graph = build_graph()
     graph.update_state(config(), {"content_pieces": pieces}, as_node="query_handler")
     step = {"agent": "image_generator", "target": "piece-1", "instructions": instructions}
-    return run_plan([step], topics, graph=graph, request=instructions)
+    return run_plan([step], topics, graph, instructions, brand_profile_id)
 
 
 def test_refining_starts_from_the_latest_prompt_plus_the_instructions(models, data_dir):
@@ -898,3 +902,75 @@ def test_an_image_for_no_piece_records_none(models):
     _, state = run_plan(image_step(), {"topic-1": topic()})
 
     assert "source_piece" not in only_image(state)[2]["image"]
+
+
+# The active Brand Profile's visual style (#55)
+
+TEAL = (0x0D, 0x94, 0x88)
+
+
+def teal_profile(**visual_style):
+    """A saved Brand Profile with a teal illustration style; `visual_style` overrides parts."""
+    style = {
+        "colours": ["#0D9488", "#F59E0B"],
+        "mood": "optimistic and warm",
+        "medium": "illustration",
+        "notes": "rounded shapes, no people's faces",
+        **visual_style,
+    }
+    return BrandProfileStore().create(
+        {"name": "Acme Health", "tone": ["confident"], "visual_style": style}
+    )
+
+
+def assert_given_teal_style(models):
+    [call] = models.prompt_calls
+    prompt = prompt_of(call)
+    for fact in ["#0D9488", "#F59E0B", "optimistic and warm", "illustration", "rounded shapes"]:
+        assert fact in prompt, fact
+    assert "calm and professional" not in prompt  # Default's style
+    assert "clean, modern editorial illustration" not in prompt  # config's default style
+    [drawn] = models.image_calls
+    assert drawn["prompt"].endswith(NO_TEXT_RULE)
+
+
+def test_a_new_image_is_optimised_in_the_active_profiles_visual_style(models):
+    profile = teal_profile()
+    run_plan(image_step(), {"topic-1": topic()}, brand_profile_id=profile.id)
+
+    assert_given_teal_style(models)
+
+
+def test_a_refined_image_is_optimised_in_the_active_profiles_visual_style(models, data_dir):
+    profile = teal_profile()
+    topics, pieces = seeded_image(data_dir)
+    run_refine("make it brighter", topics, pieces, brand_profile_id=profile.id)
+
+    assert_given_teal_style(models)
+
+
+def placeholder_pixel(state):
+    image = only_image(state)[2]["image"]
+    assert image["placeholder"] is True
+    with Image.open(image["file_path"]) as saved:
+        return saved.convert("RGB").getpixel((5, 5))
+
+
+def test_the_placeholder_is_drawn_in_the_active_profiles_primary_colour(
+    image_models, monkeypatch
+):
+    monkeypatch.setenv("OPENAI_API_KEY", "")
+    profile = teal_profile()
+    _, state = run_plan(image_step(), {"topic-1": topic()}, brand_profile_id=profile.id)
+
+    assert placeholder_pixel(state) == TEAL
+
+
+def test_a_profile_without_colours_gets_the_configured_placeholder_colour(
+    image_models, monkeypatch
+):
+    monkeypatch.setenv("OPENAI_API_KEY", "")
+    profile = teal_profile(colours=[], notes="accents like #0D9488")
+    _, state = run_plan(image_step(), {"topic-1": topic()}, brand_profile_id=profile.id)
+
+    assert placeholder_pixel(state) == DEFAULT_COLOUR
