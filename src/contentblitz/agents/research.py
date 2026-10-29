@@ -5,11 +5,11 @@ fallback chain, merges the results into ranked Sources and saves them on the act
 as its Research Record. It does not summarise: that is the Content Strategist's job.
 """
 
-from concurrent.futures import ThreadPoolExecutor
 from datetime import UTC, datetime
 from typing import TypedDict
 
 from langsmith import traceable
+from langsmith.utils import ContextThreadPoolExecutor
 from pydantic import BaseModel, Field, field_validator
 
 from contentblitz.core.config import SearchOptions, get_model_config
@@ -98,7 +98,7 @@ def _search_all(
         )
         return QuerySearch(query, response, retrieved_at=_now()), outcome
 
-    with ThreadPoolExecutor(max_workers=len(queries)) as pool:
+    with ContextThreadPoolExecutor(max_workers=len(queries)) as pool:
         runs = list(pool.map(run, queries))
     return [s for s, _ in runs if s], [outcome for _, outcome in runs]
 
@@ -118,7 +118,7 @@ def _read_pages(sources: list[ResearchSource], options: SearchOptions) -> list[R
         )
         return {**source, "page_text": text}
 
-    with ThreadPoolExecutor(max_workers=len(top)) as pool:
+    with ContextThreadPoolExecutor(max_workers=len(top)) as pool:
         return [*pool.map(read, top), *sources[len(top) :]]
 
 

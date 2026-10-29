@@ -429,7 +429,7 @@ class ScriptedImageModels:
         self.results = {GPT_IMAGE: [], DALL_E: []}
         self.calls = []
 
-    def generate_with(self, model, prompt, aspect, config=None, client=None):
+    def generate_with(self, model, prompt, aspect, config=None, client=None, failed_models=None):
         self.calls.append(model)
         results = self.results[model]
         result = results[min(self.calls.count(model), len(results)) - 1]

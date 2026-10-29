@@ -31,14 +31,14 @@ def _config():
 
 
 def test_a_completion_records_tokens_cost_latency_and_models(monkeypatch):
-    _fake(monkeypatch, _response("hi", model="anthropic/claude-x"))
+    _fake(monkeypatch, _response("hi"))
 
     llm.complete("blog_writer", MESSAGES, config=_config())
 
     (event,) = get_ledger().events
     assert (event.agent, event.kind, event.cached) == ("blog_writer", "completion", False)
-    assert (event.model, event.primary) == ("anthropic/claude-x", "openai/gpt-4o")
-    assert event.fallback
+    assert (event.model, event.primary) == ("openai/gpt-4o", "openai/gpt-4o")
+    assert not event.fallback
     assert (event.tokens_in, event.tokens_out, event.cost_usd) == (100, 50, 0.002)
     assert event.latency_s >= 0
     assert (event.run_id, event.conversation_id) == (None, None)  # outside a run

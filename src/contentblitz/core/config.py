@@ -48,9 +48,21 @@ class AgentModels(BaseModel):
         return self.models[1:]
 
 
+class TokenPrice(BaseModel):
+    """What a model costs per 1,000 tokens, in USD; used when LiteLLM has no price for it."""
+
+    input_per_1k: float = Field(0, ge=0)
+    output_per_1k: float = Field(0, ge=0)
+
+
 class LLMOptions(BaseModel):
     num_retries: int = 2
     timeout_seconds: int = 60
+    # How LiteLLM waits between retries of one model, before the next model is tried.
+    retry_strategy: Literal["constant_retry", "exponential_backoff_retry"] = (
+        "exponential_backoff_retry"
+    )
+    token_prices: dict[str, TokenPrice] = {}  # model -> estimate for a model LiteLLM can't price
 
 
 class BlogQuality(BaseModel):
@@ -107,6 +119,7 @@ class SearchOptions(BaseModel):
     pages_to_read: int = Field(6, ge=0)
     page_timeout_seconds: float = Field(8, gt=0)
     text_cap_chars: int = Field(2000, ge=0)
+    prices: dict[str, float] = {}  # provider (config name) -> USD per search; none = free
 
 
 Aspect = Literal["landscape", "square", "portrait"]
@@ -128,6 +141,7 @@ class ImageOptions(AgentModels):
 
     sizes: dict[str, dict[Aspect, str]] = {}  # model -> aspect -> "WIDTHxHEIGHT"
     quality: dict[str, str] = {}  # model -> the quality it is asked for
+    prices: dict[str, float] = {}  # model -> USD per image, when LiteLLM has no price for it
     placeholder_colour: str = Field(DEFAULT_PLACEHOLDER_COLOUR, pattern=f"^{HEX_COLOUR}$")
 
     def size_for(self, model: str, aspect: Aspect) -> str:

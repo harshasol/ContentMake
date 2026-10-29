@@ -5,6 +5,7 @@ Page text is read with fetch_page, which extracts the readable article with traf
 """
 
 import time
+from datetime import UTC, datetime
 from collections.abc import Iterator
 from contextlib import contextmanager
 from typing import NamedTuple, Protocol
@@ -13,6 +14,7 @@ import httpx
 import trafilatura
 from pydantic import BaseModel
 
+from contentblitz.core import call_context, usage
 from contentblitz.core.config import ModelConfig, Settings, get_model_config, get_settings
 
 REQUEST_TIMEOUT_SECONDS = 10  # per search request; queries run in parallel, providers in turn
@@ -186,16 +188,44 @@ class SearchResponse(BaseModel):
 def search_with_fallback(
     providers: list[SearchProvider], query: str, max_results: int = 10, fresh: bool = False
 ) -> SearchResponse:
-    """`fresh` is passed to every provider tried, so none answers from a cache."""
+    """`fresh` is passed to every provider tried, so none answers from a cache. Each query is
+    recorded in the usage ledger, with the provider that answered and those that failed."""
     failures: dict[str, str] = {}
+    started = time.perf_counter()
     for provider in providers:
         try:
             results = provider.search(query, max_results, fresh=fresh)
         except Exception as exc:  # noqa: BLE001 - any provider failure moves to the next one
             failures[provider.name] = str(exc)
             continue
+        _record_search(providers, provider.name, failures, started)
         return SearchResponse(provider=provider.name, results=results, failures=failures)
+    _record_search(providers, NO_PROVIDER, failures, started)
     raise SearchUnavailableError(failures)
+
+
+NO_PROVIDER = "none"  # the ledger's provider for a query no provider answered
+
+
+def _record_search(
+    providers: list[SearchProvider], answered_by: str, failures: dict[str, str], started: float
+) -> None:
+    context = call_context.current()
+    price = get_model_config().search.prices.get(answered_by.lower(), 0.0)
+    usage.record(
+        usage.UsageEvent(
+            ts=datetime.now(UTC).isoformat(),
+            run_id=context.run_id,
+            conversation_id=context.conversation_id,
+            agent=context.agent or "search",
+            kind="search",
+            model=answered_by,
+            primary=providers[0].name if providers else None,
+            cost_usd=price,
+            latency_s=round(time.perf_counter() - started, 3),
+            failed=[{"provider": name, "error": error} for name, error in failures.items()],
+        )
+    )
 
 
 def fetch_page(url: str, timeout: float, max_chars: int, client: httpx.Client | None = None) -> str:
