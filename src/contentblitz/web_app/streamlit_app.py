@@ -6,6 +6,7 @@ from pathlib import Path
 import streamlit as st
 from langchain_core.messages import AnyMessage, HumanMessage
 
+from contentblitz.web_app.brand_profiles_tab import brand_profiles_tab
 from contentblitz.workflow.brand_profiles import DEFAULT_PROFILE_ID, BrandProfileStore
 from contentblitz.workflow.graph import build_graph
 from contentblitz.workflow.image_files import image_caption
@@ -120,7 +121,7 @@ with research_tab:
     st.info("The active Topic's Research Brief and Sources will appear here.")
 
 with brands_tab:
-    st.info("Create and edit Brand Profiles here.")
+    brand_profiles_tab()
 
 with usage_tab:
     st.info("Token usage, cost and fallback events per agent will appear here.")

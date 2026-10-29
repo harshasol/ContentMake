@@ -28,6 +28,7 @@ from contentblitz.agents.quality_judge import judged_profile, review
 from contentblitz.core.config import get_model_config
 from contentblitz.integrations import llm
 from contentblitz.workflow.active_brand_profile import active_brand_profile
+from contentblitz.workflow.brand_voice import brand_voice
 from contentblitz.workflow.content_checks import CheckResult, Draft, check_blog, word_range
 from contentblitz.workflow.plan import current_step
 from contentblitz.workflow.progress import progress_message
@@ -198,6 +199,7 @@ def _prompt(state: ContentBlitzState) -> list[dict]:
             f"Template: {_template(state) or 'none given, pick the template that fits best'}\n"
             f"Instructions: {_step(state).get('instructions') or 'none'}\n\n"
             f"Templates:\n{templates}\n\n"
+            f"{brand_voice(state)}\n\n"
             f"Research Brief:\n\n{_brief_text(brief)}",
         },
     ]
