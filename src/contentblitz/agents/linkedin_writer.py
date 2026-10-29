@@ -40,13 +40,13 @@ from contentblitz.workflow.content_checks import (
     range_text,
 )
 from contentblitz.workflow.formats import PIECE_FORMATS, LinkedInTemplate
-from contentblitz.workflow.hand_edit import brief_facts
 from contentblitz.workflow.plan import current_step
 from contentblitz.workflow.progress import progress_message
 from contentblitz.workflow.quality_loop import Attempt, QualityFormat, quality_loop, quality_text
 from contentblitz.workflow.quality_score import QualityScore
 from contentblitz.workflow.routing import Template
 from contentblitz.workflow.state import (
+    CheckTargets,
     ContentBlitzState,
     ContentPiece,
     PlanStep,
@@ -55,6 +55,7 @@ from contentblitz.workflow.state import (
     RevisionOrigin,
     Topic,
 )
+from contentblitz.workflow.statistics import brief_facts
 from contentblitz.workflow.topics import (
     active_topic,
     add_piece,
@@ -342,15 +343,23 @@ def _now() -> str:
     return datetime.now(UTC).isoformat(timespec="seconds")
 
 
-def _revision(attempt: Attempt, origin: RevisionOrigin) -> Revision:
+def _revision(state: ContentBlitzState, attempt: Attempt, origin: RevisionOrigin) -> Revision:
     draft = attempt["draft"]
-    return {
+    revision: Revision = {
         "text": draft["post"],
         "template": draft["template"],
         "origin": origin,
         "created_at": _now(),
         "quality_score": attempt["quality_score"],
     }
+    targets: CheckTargets = {}
+    if chars := _step(state).get("length"):
+        targets["length"] = chars
+    if tags := _hashtag_range(state):
+        targets["hashtags"] = list(tags)
+    if targets:
+        revision["check_targets"] = targets
+    return revision
 
 
 def _posted(state: ContentBlitzState, attempt: Attempt) -> ContentBlitzState:
@@ -365,7 +374,7 @@ def _finalise(state: ContentBlitzState, attempt: Attempt) -> ContentBlitzState:
         "kind": "linkedin_post",
         "topic_id": state["active_topic_id"],
         "title": _title(attempt["draft"]["post"]),
-        "revisions": [_revision(attempt, "draft")],
+        "revisions": [_revision(state, attempt, "draft")],
     }
     return {**add_piece(state, new_piece_id(state), piece), **_posted(state, attempt)}
 
@@ -373,7 +382,7 @@ def _finalise(state: ContentBlitzState, attempt: Attempt) -> ContentBlitzState:
 def _finalise_refinement(state: ContentBlitzState, attempt: Attempt) -> ContentBlitzState:
     """Adds the kept Attempt to the refined post as a new Revision, and posts it. The post keeps
     its title, so the marketer can still refer to it by the name they know."""
-    revision = _revision(attempt, "refinement")
+    revision = _revision(state, attempt, "refinement")
     return {**add_revision(state, _target(state), revision), **_posted(state, attempt)}
 
 

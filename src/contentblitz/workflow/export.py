@@ -16,11 +16,10 @@ from pathlib import Path
 import markdown
 import yaml
 
+from contentblitz.workflow.formats import FORMATS, PIECE_FORMATS
 from contentblitz.workflow.state import Revision
 
-# Formats offered per kind, first is the primary one.
-PIECE_EXPORTS = {"blog": ["md", "html"], "linkedin_post": ["txt", "md"], "image": ["png"]}
-REPORT_EXPORTS = ["md", "html"]
+REPORT_EXPORTS = list(FORMATS["research"].exports)
 MIME = {
     "md": "text/markdown",
     "html": "text/html",
@@ -54,7 +53,7 @@ def file_name(topic: str, kind: str, title: str, revision: int, extension: str) 
 
 def formats(kind: str) -> list[str]:
     """The export formats (file extensions) offered for a piece of `kind`."""
-    return PIECE_EXPORTS.get(kind, [])
+    return list(PIECE_FORMATS[kind].exports) if kind in PIECE_FORMATS else []
 
 
 def _page(title: str, body_markdown: str, description: str | None = None) -> str:

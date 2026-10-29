@@ -225,11 +225,11 @@ def test_opening_the_url_with_a_thread_id_shows_the_same_conversation(monkeypatc
 
 
 def test_the_settings_tab_shows_set_or_not_without_key_values(monkeypatch):
-    from contentblitz.web_app import settings_tab
+    from contentblitz.workflow import workspace as workspace_module
 
     secret = "sk-very-secret-value"
     monkeypatch.setattr(
-        settings_tab, "get_settings", lambda: Settings(_env_file=None, openai_api_key=secret)
+        workspace_module, "get_settings", lambda: Settings(_env_file=None, openai_api_key=secret)
     )
     st.cache_resource.clear()
     at = AppTest.from_file(APP, default_timeout=30).run()

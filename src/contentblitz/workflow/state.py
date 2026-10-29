@@ -118,6 +118,14 @@ class BrandProfileRecord(TypedDict):
     updated_at: str  # ISO 8601, UTC: which version of the profile
 
 
+class CheckTargets(TypedDict, total=False):
+    """The targets a request set that a text Revision's rule checks used: a blog's length in
+    words, a LinkedIn post's length in characters and hashtag range. Absent means the defaults."""
+
+    length: int
+    hashtags: list[int]  # [min, max]
+
+
 class Revision(TypedDict):
     """One saved version of a Content Piece's text; refinements start from the latest.
 
@@ -137,6 +145,8 @@ class Revision(TypedDict):
     template: NotRequired[Template]
     # How it measured up when it was made: the score and each check's result. Text formats only.
     quality_score: NotRequired[QualityScore]
+    # The request-set targets its rule checks used, so a hand edit is checked the same way.
+    check_targets: NotRequired[CheckTargets]
     # An image Revision's image: its file and how it was made.
     image: NotRequired[ImageMetadata]
     # A *restore* Revision: the number (from 1) of the Revision it copies.

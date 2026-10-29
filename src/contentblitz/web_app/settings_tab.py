@@ -5,7 +5,6 @@ Changing models stays a config edit (ADR 0002). Key values are never shown, only
 
 import streamlit as st
 
-from contentblitz.core.config import get_settings
 from contentblitz.workflow.brand_profiles import DEFAULT_PROFILE_ID
 from contentblitz.workflow.workspace import Workspace, new_thread_id
 
@@ -17,7 +16,7 @@ def _start_new_conversation() -> None:
 
 def settings_tab(workspace: Workspace) -> None:
     st.button("New conversation", key="new_conversation", on_click=_start_new_conversation)
-    view = workspace.configuration(get_settings())
+    view = workspace.configuration()
 
     st.subheader("Providers")
     for name, is_set in view.provider_keys.items():

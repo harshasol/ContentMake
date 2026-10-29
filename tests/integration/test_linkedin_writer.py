@@ -832,3 +832,24 @@ def test_no_hashtags_in_the_instructions_asks_for_a_post_without_any(model):
     assert "Hashtags: 0 hashtags" in prompt_of(model.calls_to("linkedin_writer")[0])
     assert revision_of(state)["text"] == TEXT
     assert check_named(state, "hashtags")["passed"]
+
+
+def test_the_revision_records_the_length_and_hashtag_targets_the_request_set(model):
+    plan = [
+        {
+            "agent": "linkedin_writer",
+            "instructions": "only 5 hashtags please",
+            "length": 1000,
+        }
+    ]
+    _, state = run_plan(plan, {"topic-1": topic()})
+
+    [piece] = state["content_pieces"].values()
+    assert piece["revisions"][-1]["check_targets"] == {"length": 1000, "hashtags": [5, 5]}
+
+
+def test_a_revision_without_request_targets_records_none(model):
+    _, state = run_plan([{"agent": "linkedin_writer"}], {"topic-1": topic()})
+
+    [piece] = state["content_pieces"].values()
+    assert "check_targets" not in piece["revisions"][-1]

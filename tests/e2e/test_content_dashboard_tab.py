@@ -215,7 +215,7 @@ def test_the_history_lists_every_revision_and_view_opens_an_older_one(monkeypatc
     assert "Second version" in _markdown(tab)
     assert not [i for i in tab.info if "older Revision" in i.value]
 
-    at.tabs[1].button(key="view_revision_1").click().run()
+    at.tabs[1].button(key="view_revision_piece-1_1").click().run()
 
     tab = at.tabs[1]
     assert "First version" in _markdown(tab)
@@ -223,14 +223,14 @@ def test_the_history_lists_every_revision_and_view_opens_an_older_one(monkeypatc
     assert any("older Revision 1" in i.value for i in tab.info)
     assert [d for d in tab.dataframe if "Check" in d.value.columns]  # its score, too
 
-    at.tabs[1].button(key="view_revision_2").click().run()
+    at.tabs[1].button(key="view_revision_piece-1_2").click().run()
     assert "Second version" in _markdown(at.tabs[1])
 
 
 def test_viewing_an_older_revision_does_not_change_the_state(monkeypatch):
     at = _scripted(monkeypatch, {"piece-1": _refined_blog()})
     at.tabs[1].selectbox[0].select("piece-1").run()
-    at.tabs[1].button(key="view_revision_1").click().run()
+    at.tabs[1].button(key="view_revision_piece-1_1").click().run()
 
     [table] = [d.value for d in at.tabs[1].dataframe if "Kind" in d.value.columns]
     assert table.iloc[0]["Revision"] == 2
@@ -239,9 +239,11 @@ def test_viewing_an_older_revision_does_not_change_the_state(monkeypatch):
 def test_restoring_revision_1_adds_a_revision_showing_its_content(monkeypatch):
     at = _scripted(monkeypatch, {"piece-1": _refined_blog()})
     at.tabs[1].selectbox[0].select("piece-1").run()
-    assert [b.key for b in at.tabs[1].button if "restore" in b.key] == ["restore_revision_1"]
+    assert [b.key for b in at.tabs[1].button if "restore" in b.key] == [
+        "restore_revision_piece-1_1"
+    ]
 
-    at.tabs[1].button(key="restore_revision_1").click().run()
+    at.tabs[1].button(key="restore_revision_piece-1_1").click().run()
 
     tab = at.tabs[1]
     [history] = [d.value for d in tab.dataframe if "Origin" in d.value.columns]
@@ -253,12 +255,12 @@ def test_restoring_revision_1_adds_a_revision_showing_its_content(monkeypatch):
 
 def test_export_buttons_appear_on_an_opened_piece(monkeypatch):
     at = _scripted(monkeypatch, {"piece-1": _blog()})
-    assert [b.proto.label for b in at.tabs[1].get("download_button")] == ["Download Topic bundle"]
+    assert [b.proto.label for b in at.tabs[1].get("download_button")] == ["Download AI bundle"]
 
     at.tabs[1].selectbox[0].select("piece-1").run()
 
     labels = [b.proto.label for b in at.tabs[1].get("download_button")]
-    assert labels == ["Download Topic bundle", "Download Markdown", "Download HTML"]
+    assert labels == ["Download AI bundle", "Download Markdown", "Download HTML"]
 
 
 def test_the_topic_bundle_button_appears_only_when_the_topic_has_pieces(monkeypatch):
@@ -270,4 +272,29 @@ def test_the_topic_bundle_button_appears_only_when_the_topic_has_pieces(monkeypa
     at = _scripted(monkeypatch, {"piece-1": _refined_blog()})
 
     labels = [b.proto.label for b in at.tabs[1].get("download_button")]
-    assert labels == ["Download Topic bundle"]
+    assert labels == ["Download AI bundle"]
+
+
+def test_the_edit_form_says_it_starts_from_the_latest_revision_when_an_older_one_is_viewed(
+    monkeypatch,
+):
+    at = _scripted(monkeypatch, {"piece-1": _refined_blog()})
+    at.tabs[1].selectbox[0].select("piece-1").run()
+    at.tabs[1].button(key="view_revision_piece-1_1").click().run()
+
+    at.tabs[1].button(key="edit_piece").click().run()
+
+    assert any("Editing starts from the latest Revision 2" in i.value for i in at.tabs[1].info)
+
+
+def test_the_view_and_restore_buttons_are_keyed_by_the_piece(monkeypatch):
+    at = _scripted(monkeypatch, {"piece-1": _refined_blog()})
+    at.tabs[1].selectbox[0].select("piece-1").run()
+
+    keys = [b.key for b in at.tabs[1].button if b.key and "revision" in b.key]
+
+    assert keys == [
+        "view_revision_piece-1_1",
+        "restore_revision_piece-1_1",
+        "view_revision_piece-1_2",
+    ]

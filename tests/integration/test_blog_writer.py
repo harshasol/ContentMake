@@ -1013,3 +1013,18 @@ def test_a_chat_refinement_after_a_restore_starts_from_the_restored_text(model):
     assert BODY in refine and HAND_EDIT_BODY not in refine
     origins = [r["origin"] for r in state["content_pieces"]["piece-1"]["revisions"]]
     assert origins == ["draft", "hand_edit", "restore", "refinement"]
+
+
+def test_the_revision_records_the_length_the_request_set(model):
+    model.reply = blog_draft(body=PASSING_BODY)
+    plan = [{"agent": "blog_writer", "instructions": "cut it to 600 words", "length": 600}]
+    _, state = run_plan(plan, {"topic-1": topic()})
+
+    assert revision_of(state)["check_targets"] == {"length": 600}
+
+
+def test_a_revision_without_a_requested_length_records_no_targets(model):
+    model.reply = blog_draft(body=PASSING_BODY)
+    _, state = run_plan(BLOG, {"topic-1": topic()})
+
+    assert "check_targets" not in revision_of(state)
