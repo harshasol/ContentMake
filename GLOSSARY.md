@@ -29,7 +29,7 @@ One generated deliverable of a single format: an SEO Blog, a LinkedIn Post, or a
 _Avoid_: Output, asset, artifact, post (when meaning any format)
 
 **Revision**:
-One saved version of a Content Piece's text, created by a writer's draft, a chat refinement, or a hand edit; refinements always start from the latest Revision. A Revision a writer makes also carries its Quality Score.
+One saved version of a Content Piece's text, created by a writer's draft, a chat refinement, a hand edit, or a *restore* (a new Revision copying an older one, content and Quality Score, and naming it; earlier Revisions are never changed); refinements always start from the latest Revision. A Revision a writer makes also carries its Quality Score.
 _Avoid_: Version, draft, edit
 
 **Attempt**:

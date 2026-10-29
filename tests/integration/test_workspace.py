@@ -411,3 +411,63 @@ def test_an_unknown_piece_is_none():
 
     assert Workspace(graph, "t1").piece("nope") is None
     assert Workspace(graph, "fresh").piece("piece-1") is None
+
+
+# Restore an older Revision (#64)
+
+
+def test_restoring_a_revision_adds_a_copy_with_its_score_and_names_its_source():
+    graph = build_graph()
+    seed(graph)
+    workspace = Workspace(graph, "t1")
+    before = workspace.piece("piece-1").revisions
+
+    workspace.restore("piece-1", 1)
+
+    after = workspace.piece("piece-1").revisions
+    assert after[:2] == before  # the history is otherwise unchanged
+    restored = after[2]
+    assert restored["origin"] == "restore"
+    assert restored["restored_from"] == 1
+    assert restored["text"] == "a"
+    assert restored["quality_score"]["score"] == 70
+    assert restored["created_at"] > before[1]["created_at"]
+    assert workspace.piece("piece-1").latest == restored
+
+
+def test_restoring_an_image_revision_makes_the_older_image_the_latest():
+    graph = build_graph()
+    seed(graph)
+    old = {"file_path": "old.png", "prompt": "p1", "alt_text": "alt1"}
+    new = {"file_path": "new.png", "prompt": "p2", "alt_text": "alt2"}
+    config = {"configurable": {"thread_id": "t1"}}
+    pieces = graph.get_state(config).values["content_pieces"]
+    pieces["piece-2"]["revisions"] = [
+        {**REVISION, "text": "alt1", "image": old},
+        {**REVISION, "text": "alt2", "image": new},
+    ]
+    graph.update_state(config, {"content_pieces": pieces}, as_node="query_handler")
+    workspace = Workspace(graph, "t1")
+
+    workspace.restore("piece-2", 1)
+
+    piece = workspace.piece("piece-2")
+    assert len(piece.revisions) == 3
+    assert (piece.latest["origin"], piece.latest["image"], piece.latest["text"]) == (
+        "restore",
+        old,
+        "alt1",
+    )
+
+
+def test_restoring_an_unknown_piece_or_revision_is_rejected():
+    graph = build_graph()
+    seed(graph)
+    workspace = Workspace(graph, "t1")
+
+    with pytest.raises(KeyError):
+        workspace.restore("nope", 1)
+    for number in (0, 3):
+        with pytest.raises(KeyError):
+            workspace.restore("piece-1", number)
+    assert len(workspace.piece("piece-1").revisions) == 2

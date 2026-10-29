@@ -87,7 +87,7 @@ class Topic(TypedDict):
     piece_ids: NotRequired[list[str]]
 
 
-RevisionOrigin = Literal["draft", "refinement", "hand_edit"]
+RevisionOrigin = Literal["draft", "refinement", "hand_edit", "restore"]
 PLACEHOLDER_MODEL = "placeholder"
 
 
@@ -139,6 +139,8 @@ class Revision(TypedDict):
     quality_score: NotRequired[QualityScore]
     # An image Revision's image: its file and how it was made.
     image: NotRequired[ImageMetadata]
+    # A *restore* Revision: the number (from 1) of the Revision it copies.
+    restored_from: NotRequired[int]
 
 
 class ContentPiece(TypedDict):

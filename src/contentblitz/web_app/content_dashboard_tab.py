@@ -52,4 +52,4 @@ def _open_piece(workspace: Workspace, groups: list[TopicPieces]) -> None:
         key="open_piece",
     )
     if piece_id and (piece := workspace.piece(piece_id)):
-        piece_detail(piece, revision_history(piece))
+        piece_detail(piece, revision_history(piece, workspace))

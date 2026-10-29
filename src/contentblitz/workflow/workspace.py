@@ -7,6 +7,7 @@ UI stays thin and every action can be tested against the real graph.
 
 import uuid
 from dataclasses import dataclass
+from datetime import UTC, datetime
 from typing import Any, Literal
 
 from langchain_core.messages import AnyMessage, HumanMessage
@@ -21,7 +22,7 @@ from contentblitz.workflow.state import (
     ResearchBrief,
     Revision,
 )
-from contentblitz.workflow.topics import active_topic, find_revision
+from contentblitz.workflow.topics import active_topic, add_revision, find_revision
 
 
 @dataclass(frozen=True)
@@ -219,6 +220,32 @@ class Workspace:
         topic = (state.get("topics") or {}).get(piece["topic_id"]) or {}
         return PieceDetail(
             piece_id, piece["kind"], piece["title"], topic.get("name", ""), piece["revisions"]
+        )
+
+    def restore(self, piece_id: str, revision_number: int) -> None:
+        """Restore Revision `revision_number` (from 1) of a piece: add a new latest Revision with
+        origin *restore* copying its content and Quality Score, and naming it in `restored_from`.
+        Earlier Revisions are never changed, so the next refinement starts from the restored one
+        (#64). An unknown piece or Revision raises `KeyError`."""
+        pieces = self._state().get("content_pieces") or {}
+        if piece_id not in pieces:
+            raise KeyError(piece_id)
+        revisions = pieces[piece_id]["revisions"]
+        if not 1 <= revision_number <= len(revisions):
+            raise KeyError(revision_number)
+        source = revisions[revision_number - 1]
+        not_copied = ("origin", "created_at", "brand_profile")
+        copied = {k: v for k, v in source.items() if k not in not_copied}
+        restored: Revision = {
+            **copied,
+            "origin": "restore",
+            "created_at": datetime.now(UTC).isoformat(timespec="seconds"),
+            "restored_from": revision_number,
+        }
+        self.graph.update_state(
+            self._config,
+            add_revision(self._state(), piece_id, restored),
+            as_node="query_handler",
         )
 
     def send(self, text: str, brand_profile_id: str = DEFAULT_PROFILE_ID) -> None:
