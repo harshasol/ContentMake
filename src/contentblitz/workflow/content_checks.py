@@ -409,13 +409,9 @@ def hashtags(post: Post, hashtag_range: tuple[int, int]) -> CheckResult:
     if duplicates:
         problems.append(f"{', '.join(duplicates)} duplicate earlier hashtags")
     if malformed:
-        problems.append(
-            f"{', '.join(malformed)} must be # followed by letters and digits only"
-        )
+        problems.append(f"{', '.join(malformed)} must be # followed by letters and digits only")
     if misplaced:
-        problems.append(
-            f"{', '.join(misplaced)} in the body must move to the closing hashtag line"
-        )
+        problems.append(f"{', '.join(misplaced)} in the body must move to the closing hashtag line")
     return {
         "name": "hashtags",
         "passed": not problems,

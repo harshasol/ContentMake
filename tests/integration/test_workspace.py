@@ -1,0 +1,473 @@
+"""The workspace module works on one conversation of the real compiled graph (#23, #59).
+
+The model is faked at the LLM integration module and the data folder is a temporary directory.
+"""
+
+import io
+
+import pytest
+from langchain_core.messages import AIMessage, HumanMessage
+from PIL import Image
+
+from contentblitz.agents import query_handler as qh
+from contentblitz.core.config import Settings
+from contentblitz.integrations import llm
+from contentblitz.workflow import graph as workflow
+from contentblitz.workflow.graph import build_graph
+from contentblitz.workflow.report import render_report
+from contentblitz.workflow.routing import RoutingDecision
+from contentblitz.workflow.workspace import ChatMessage, Workspace, new_thread_id
+
+
+@pytest.fixture
+def model(monkeypatch):
+    """The routing model answers every message with a chat reply `reply to <message>`."""
+    monkeypatch.setattr(qh, "get_settings", lambda: Settings(_env_file=None, openai_api_key="x"))
+
+    def complete(agent, messages, schema):
+        text = messages[-1]["content"]
+        return RoutingDecision(intent="chat", reply=f"reply to {text}")
+
+    monkeypatch.setattr(qh.llm, "complete_structured", complete)
+
+
+def test_a_new_conversation_has_no_messages():
+    assert Workspace(build_graph(), new_thread_id()).messages() == []
+
+
+def test_thread_ids_are_unique():
+    assert new_thread_id() != new_thread_id()
+
+
+def test_messages_are_read_from_the_graph_state_in_order(model):
+    workspace = Workspace(build_graph(), "t1")
+
+    workspace.send("first")
+    workspace.send("second")
+
+    assert [(m.role, m.text) for m in workspace.messages()] == [
+        ("user", "first"),
+        ("assistant", "reply to first"),
+        ("user", "second"),
+        ("assistant", "reply to second"),
+    ]
+
+
+def test_another_workspace_on_the_same_thread_sees_the_conversation(model):
+    graph = build_graph()
+    Workspace(graph, "t1").send("hello")
+
+    again = Workspace(graph, "t1").messages()
+
+    assert [m.text for m in again] == ["hello", "reply to hello"]
+    assert Workspace(graph, "other").messages() == []
+
+
+def test_echo_mode_works_without_an_api_key(monkeypatch):
+    monkeypatch.setattr(qh, "get_settings", lambda: Settings(_env_file=None, openai_api_key=None))
+    workspace = Workspace(build_graph(), "t1")
+
+    workspace.send("hello")
+
+    assert [m.text for m in workspace.messages()] == [
+        "hello",
+        "(No model API key configured, echoing) hello",
+    ]
+
+
+def test_every_message_of_a_multi_message_run_is_listed(monkeypatch):
+    def two_messages(state):
+        return {"messages": [AIMessage(content="plan"), AIMessage(content="step")]}
+
+    monkeypatch.setattr(workflow, "query_handler", two_messages)
+    workspace = Workspace(build_graph(), "t1")
+
+    workspace.send("go")
+
+    assert [m.text for m in workspace.messages()] == ["go", "plan", "step"]
+
+
+def test_an_image_message_carries_the_images_metadata(monkeypatch):
+    def generate(prompt, aspect, config=None, client=None):
+        buffer = io.BytesIO()
+        Image.new("RGB", (1024, 1024), (20, 120, 140)).save(buffer, format="PNG")
+        return llm.GeneratedImage(buffer.getvalue(), "openai/gpt-image-1")
+
+    def complete(agent, messages, schema):
+        return schema(
+            prompt="A robot doctor in a bright clinic.",
+            use="general",
+            aspect=None,
+            alt_text="A robot doctor",
+        )
+
+    monkeypatch.setattr(llm, "generate_image", generate)
+    monkeypatch.setattr(llm, "complete_structured", complete)
+    graph = build_graph()
+    config = {"configurable": {"thread_id": "t1"}}
+    graph.update_state(
+        config,
+        {
+            "messages": [("human", "an image of a robot doctor")],
+            "topics": {"topic-1": {"name": "AI", "research": None, "brief": None, "piece_ids": []}},
+            "active_topic_id": "topic-1",
+            "plan": [{"agent": "image_generator", "instructions": "a robot doctor"}],
+            "completed_steps": [],
+            "abort_reason": None,
+        },
+        as_node="query_handler",
+    )
+    graph.invoke(None, config)
+
+    messages = Workspace(graph, "t1").messages()
+
+    [image_message] = [m for m in messages if m.image]
+    assert image_message.role == "assistant"
+    assert "robot doctor" in image_message.image["prompt"]
+    assert image_message.image["model"] == "openai/gpt-image-1"
+    assert all(isinstance(m, ChatMessage) for m in messages)
+
+
+def test_refresh_research_without_an_active_topic_is_refused_in_the_chat(model):
+    workspace = Workspace(build_graph(), "t1")
+
+    assert not workspace.has_active_topic()
+    workspace.refresh_research()
+
+    assert [(m.role, m.text) for m in workspace.messages()] == [
+        ("assistant", qh.NO_TOPIC_TO_REFRESH)
+    ]
+
+
+def test_refresh_research_sends_the_command_with_the_brand_profile_and_no_user_message(
+    monkeypatch,
+):
+    seen = []
+
+    def handler(state):
+        seen.append((state.get("command"), state.get("brand_profile_id"), state.get("messages")))
+        return {"messages": [AIMessage(content="refreshing")], "command": None}
+
+    monkeypatch.setattr(workflow, "query_handler", handler)
+    workspace = Workspace(build_graph(), "t1")
+
+    workspace.refresh_research()
+
+    assert seen == [("refresh_research", "default", [])]
+    assert [(m.role, m.text) for m in workspace.messages()] == [("assistant", "refreshing")]
+
+
+def _brief(**changes):
+    source = {
+        "number": 1,
+        "title": "AI in radiology",
+        "url": "https://example.com/ai",
+        "site": "example.com",
+        "retrieved_at": "2026-10-28T09:00:00+00:00",
+    }
+    brief = {
+        "summary": "AI helps radiologists.",
+        "key_findings": [{"statement": "Reads scans faster.", "source_numbers": [1]}],
+        "statistics": [],
+        "angles": [{"title": "Speed", "hook": "Faster reads"}],
+        "target_keyword": "ai radiology",
+        "secondary_keywords": ["scans"],
+        "sources": [source],
+        "created_at": "2026-10-28T09:05:00+00:00",
+        "model": "gpt-4o",
+        "research_gathered_at": "2026-10-28T09:00:00+00:00",
+    }
+    return {**brief, **changes}
+
+
+def _seed(brief, active="topic-1"):
+    graph = build_graph()
+    topic = {"name": "AI in radiology", "research": None, "brief": brief, "piece_ids": []}
+    graph.update_state(
+        {"configurable": {"thread_id": "t1"}},
+        {"topics": {"topic-1": topic}, "active_topic_id": active},
+        as_node="query_handler",
+    )
+    return Workspace(graph, "t1")
+
+
+def test_research_is_the_active_topics_brief_and_rendered_report():
+    brief = _brief()
+
+    research = _seed(brief).research()
+
+    assert research.topic_name == "AI in radiology"
+    assert research.brief == brief
+    assert research.report == render_report("AI in radiology", brief)
+    assert "[[1]](https://example.com/ai)" in research.report
+
+
+def test_research_is_none_without_a_brief_or_an_active_topic():
+    assert Workspace(build_graph(), "new").research() is None
+    assert _seed(None).research() is None
+    assert _seed(_brief(), active=None).research() is None
+
+
+def test_the_configuration_shows_which_keys_are_set_and_never_their_values():
+    from contentblitz.core.config import get_model_config
+
+    settings = Settings(
+        _env_file=None, openai_api_key="sk-secret-openai", tavily_api_key="tvly-secret"
+    )
+    view = Workspace(build_graph(), new_thread_id()).configuration(settings, get_model_config())
+
+    assert view.provider_keys == {
+        "OpenAI": True,
+        "Anthropic": False,
+        "Gemini": False,
+        "SerpAPI": False,
+        "Tavily": True,
+    }
+    assert "secret" not in repr(view)
+
+
+def test_the_configuration_describes_models_search_images_and_thresholds():
+    from contentblitz.core.config import get_model_config
+
+    config = get_model_config()
+    view = Workspace(build_graph(), new_thread_id()).configuration(Settings(_env_file=None), config)
+
+    assert view.agents["blog_writer"] == (config.agents["blog_writer"].primary, [])
+    assert set(view.agents) == set(config.agents)
+    assert view.search_providers == config.search.providers
+    assert view.image_models == config.image.models
+    assert view.thresholds["Pass mark"] == "7"
+    assert view.thresholds["Blog words"] == "900–1800"
+
+
+REVISION = {"origin": "draft", "created_at": "2026-10-29T00:00:00+00:00"}
+
+
+def scored(text, points):
+    quality = {"score": points, "passed": True, "checks": [], "review": None}
+    return {**REVISION, "text": text, "quality_score": {**quality, "reviewer_unavailable": False}}
+
+
+def seed(graph, thread="t1"):
+    """AI (a blog with two Revisions, an image), Yoga (a post, active) and an empty Topic."""
+    pieces = {
+        "piece-1": {
+            "kind": "blog",
+            "topic_id": "topic-1",
+            "title": "AI Blog",
+            "revisions": [scored("a", 70), scored("b", 88)],
+        },
+        "piece-2": {
+            "kind": "image",
+            "topic_id": "topic-1",
+            "title": "AI image",
+            "revisions": [{**REVISION, "text": "alt"}],
+        },
+        "piece-3": {
+            "kind": "linkedin_post",
+            "topic_id": "topic-2",
+            "title": "Yoga post",
+            "revisions": [scored("c", 91)],
+        },
+    }
+    topics = {
+        "topic-1": {"name": "AI", "piece_ids": ["piece-1", "piece-2"]},
+        "topic-2": {"name": "Yoga", "piece_ids": ["piece-3"]},
+        "topic-3": {"name": "Empty", "piece_ids": []},
+    }
+    graph.update_state(
+        {"configurable": {"thread_id": thread}},
+        {"topics": topics, "active_topic_id": "topic-2", "content_pieces": pieces},
+        as_node="query_handler",
+    )
+
+
+def test_the_active_topics_pieces_show_kind_title_latest_revision_and_score():
+    graph = build_graph()
+    seed(graph)
+
+    [group] = Workspace(graph, "t1").dashboard(all_topics=False)
+
+    assert group.topic == "Yoga"
+    [piece] = group.pieces
+    assert (piece.piece_id, piece.kind, piece.title, piece.revision, piece.score) == (
+        "piece-3",
+        "linkedin_post",
+        "Yoga post",
+        1,
+        91,
+    )
+
+
+def test_all_topics_are_grouped_by_topic_and_images_have_no_score():
+    graph = build_graph()
+    seed(graph)
+
+    groups = Workspace(graph, "t1").dashboard(all_topics=True)
+
+    assert [g.topic for g in groups] == ["AI", "Yoga"]  # a Topic without pieces is left out
+    blog, image = groups[0].pieces
+    assert (blog.revision, blog.score) == (2, 88)
+    assert (image.kind, image.revision, image.score) == ("image", 1, None)
+
+
+def test_an_empty_conversation_has_nothing_to_list():
+    workspace = Workspace(build_graph(), "fresh")
+
+    assert workspace.dashboard(all_topics=False) == []
+    assert workspace.dashboard(all_topics=True) == []
+
+
+def _two_topics(graph, thread="t1"):
+    topics = {
+        "topic-1": {"name": "AI in healthcare", "research": None, "brief": None, "piece_ids": []},
+        "topic-2": {"name": "Yoga", "research": None, "brief": None, "piece_ids": []},
+    }
+    graph.update_state(
+        {"configurable": {"thread_id": thread}},
+        {"topics": topics, "active_topic_id": "topic-1"},
+        as_node="query_handler",
+    )
+
+
+def test_the_topic_selector_lists_every_topic_and_the_active_one():
+    graph = build_graph()
+    workspace = Workspace(graph, "t1")
+    assert workspace.topics() == [] and workspace.active_topic_id() is None
+    _two_topics(graph)
+
+    assert workspace.topics() == [("topic-1", "AI in healthcare"), ("topic-2", "Yoga")]
+    assert workspace.active_topic_id() == "topic-1"
+
+
+def test_choosing_a_topic_makes_it_active_in_the_conversation_state():
+    graph = build_graph()
+    _two_topics(graph)
+
+    Workspace(graph, "t1").select_topic("topic-2")
+
+    assert Workspace(graph, "t1").active_topic_id() == "topic-2"
+
+
+def test_choosing_new_topic_clears_the_active_topic():
+    graph = build_graph()
+    _two_topics(graph)
+    workspace = Workspace(graph, "t1")
+
+    workspace.select_topic(None)
+
+    assert workspace.active_topic_id() is None
+    assert [name for _, name in workspace.topics()] == ["AI in healthcare", "Yoga"]
+    assert workspace.research() is None
+
+
+def test_an_unknown_topic_is_rejected():
+    graph = build_graph()
+    _two_topics(graph)
+
+    with pytest.raises(KeyError):
+        Workspace(graph, "t1").select_topic("topic-9")
+
+
+def test_the_next_content_request_after_new_topic_makes_a_topic_without_a_question(monkeypatch):
+    monkeypatch.setattr(qh, "get_settings", lambda: Settings(_env_file=None, openai_api_key="x"))
+    decision = RoutingDecision(
+        intent="new_content", topic_name="AI in radiology", same_topic=False, formats=["blog"]
+    )
+    monkeypatch.setattr(qh.llm, "complete_structured", lambda agent, messages, schema: decision)
+    graph = build_graph()
+    _two_topics(graph)
+    workspace = Workspace(graph, "t1")
+    workspace.select_topic(None)
+    state = {**workspace._state(), "messages": [HumanMessage(content="a blog on AI in radiology")]}
+
+    update = qh.query_handler(state)
+
+    assert update.get("pending_topic_question") is None
+    assert [s["agent"] for s in update["plan"]] == ["research", "content_strategist", "blog_writer"]
+    assert update["topics"][update["active_topic_id"]]["name"] == "AI in radiology"
+
+
+def test_a_piece_comes_with_all_its_revisions_oldest_first():
+    graph = build_graph()
+    seed(graph)
+
+    piece = Workspace(graph, "t1").piece("piece-1")
+
+    assert (piece.piece_id, piece.kind, piece.title, piece.topic) == (
+        "piece-1",
+        "blog",
+        "AI Blog",
+        "AI",
+    )
+    assert [r["text"] for r in piece.revisions] == ["a", "b"]
+    assert piece.latest["text"] == "b"
+    assert piece.revision(1)["text"] == "a"
+
+
+def test_an_unknown_piece_is_none():
+    graph = build_graph()
+    seed(graph)
+
+    assert Workspace(graph, "t1").piece("nope") is None
+    assert Workspace(graph, "fresh").piece("piece-1") is None
+
+
+# Restore an older Revision (#64)
+
+
+def test_restoring_a_revision_adds_a_copy_with_its_score_and_names_its_source():
+    graph = build_graph()
+    seed(graph)
+    workspace = Workspace(graph, "t1")
+    before = workspace.piece("piece-1").revisions
+
+    workspace.restore("piece-1", 1)
+
+    after = workspace.piece("piece-1").revisions
+    assert after[:2] == before  # the history is otherwise unchanged
+    restored = after[2]
+    assert restored["origin"] == "restore"
+    assert restored["restored_from"] == 1
+    assert restored["text"] == "a"
+    assert restored["quality_score"]["score"] == 70
+    assert restored["created_at"] > before[1]["created_at"]
+    assert workspace.piece("piece-1").latest == restored
+
+
+def test_restoring_an_image_revision_makes_the_older_image_the_latest():
+    graph = build_graph()
+    seed(graph)
+    old = {"file_path": "old.png", "prompt": "p1", "alt_text": "alt1"}
+    new = {"file_path": "new.png", "prompt": "p2", "alt_text": "alt2"}
+    config = {"configurable": {"thread_id": "t1"}}
+    pieces = graph.get_state(config).values["content_pieces"]
+    pieces["piece-2"]["revisions"] = [
+        {**REVISION, "text": "alt1", "image": old},
+        {**REVISION, "text": "alt2", "image": new},
+    ]
+    graph.update_state(config, {"content_pieces": pieces}, as_node="query_handler")
+    workspace = Workspace(graph, "t1")
+
+    workspace.restore("piece-2", 1)
+
+    piece = workspace.piece("piece-2")
+    assert len(piece.revisions) == 3
+    assert (piece.latest["origin"], piece.latest["image"], piece.latest["text"]) == (
+        "restore",
+        old,
+        "alt1",
+    )
+
+
+def test_restoring_an_unknown_piece_or_revision_is_rejected():
+    graph = build_graph()
+    seed(graph)
+    workspace = Workspace(graph, "t1")
+
+    with pytest.raises(KeyError):
+        workspace.restore("nope", 1)
+    for number in (0, 3):
+        with pytest.raises(KeyError):
+            workspace.restore("piece-1", number)
+    assert len(workspace.piece("piece-1").revisions) == 2

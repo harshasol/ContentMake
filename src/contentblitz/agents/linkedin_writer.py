@@ -46,6 +46,7 @@ from contentblitz.workflow.quality_loop import Attempt, QualityFormat, quality_l
 from contentblitz.workflow.quality_score import QualityScore
 from contentblitz.workflow.routing import Template
 from contentblitz.workflow.state import (
+    CheckTargets,
     ContentBlitzState,
     ContentPiece,
     PlanStep,
@@ -54,6 +55,7 @@ from contentblitz.workflow.state import (
     RevisionOrigin,
     Topic,
 )
+from contentblitz.workflow.statistics import brief_facts
 from contentblitz.workflow.topics import (
     active_topic,
     add_piece,
@@ -145,8 +147,7 @@ class LinkedInDraft(BaseModel):
 def _brief_text(brief: ResearchBrief) -> str:
     findings = "\n".join(f"- {f['statement']}" for f in brief["key_findings"])
     statistics = "\n".join(
-        f"- {s['figure']}: {s['description']} "
-        f"({'verified' if s['verified'] else 'unverified'})"
+        f"- {s['figure']}: {s['description']} ({'verified' if s['verified'] else 'unverified'})"
         for s in brief["statistics"]
     )
     angles = "\n".join(f"- {a['title']}: {a['hook']}" for a in brief["angles"])
@@ -158,13 +159,6 @@ def _brief_text(brief: ResearchBrief) -> str:
         f"Content angles:\n{angles or 'none'}\n\n"
         f"Keywords: {keywords}"
     )
-
-
-def _brief_facts(brief: ResearchBrief) -> str:
-    """The Brief's findings and statistics, which every figure in the post must come from."""
-    findings = [f["statement"] for f in brief["key_findings"]]
-    statistics = [f"{s['figure']}: {s['description']}" for s in brief["statistics"]]
-    return "\n".join([*findings, *statistics])
 
 
 def _step(state: ContentBlitzState) -> PlanStep:
@@ -310,7 +304,7 @@ def _refined_latest_revision(state: ContentBlitzState) -> dict | None:
 
 
 def _checks(state: ContentBlitzState, draft: dict, avoid: list[str]) -> list[CheckResult]:
-    post = Post(text=draft["post"], brief_facts=_brief_facts(_topic(state)["brief"]))
+    post = Post(text=draft["post"], brief_facts=brief_facts(_topic(state)["brief"]))
     rules = get_model_config().quality.linkedin
     return check_linkedin(post, rules, _step(state).get("length"), _hashtag_range(state), avoid)
 
@@ -349,15 +343,23 @@ def _now() -> str:
     return datetime.now(UTC).isoformat(timespec="seconds")
 
 
-def _revision(attempt: Attempt, origin: RevisionOrigin) -> Revision:
+def _revision(state: ContentBlitzState, attempt: Attempt, origin: RevisionOrigin) -> Revision:
     draft = attempt["draft"]
-    return {
+    revision: Revision = {
         "text": draft["post"],
         "template": draft["template"],
         "origin": origin,
         "created_at": _now(),
         "quality_score": attempt["quality_score"],
     }
+    targets: CheckTargets = {}
+    if chars := _step(state).get("length"):
+        targets["length"] = chars
+    if tags := _hashtag_range(state):
+        targets["hashtags"] = list(tags)
+    if targets:
+        revision["check_targets"] = targets
+    return revision
 
 
 def _posted(state: ContentBlitzState, attempt: Attempt) -> ContentBlitzState:
@@ -372,7 +374,7 @@ def _finalise(state: ContentBlitzState, attempt: Attempt) -> ContentBlitzState:
         "kind": "linkedin_post",
         "topic_id": state["active_topic_id"],
         "title": _title(attempt["draft"]["post"]),
-        "revisions": [_revision(attempt, "draft")],
+        "revisions": [_revision(state, attempt, "draft")],
     }
     return {**add_piece(state, new_piece_id(state), piece), **_posted(state, attempt)}
 
@@ -380,7 +382,7 @@ def _finalise(state: ContentBlitzState, attempt: Attempt) -> ContentBlitzState:
 def _finalise_refinement(state: ContentBlitzState, attempt: Attempt) -> ContentBlitzState:
     """Adds the kept Attempt to the refined post as a new Revision, and posts it. The post keeps
     its title, so the marketer can still refer to it by the name they know."""
-    revision = _revision(attempt, "refinement")
+    revision = _revision(state, attempt, "refinement")
     return {**add_revision(state, _target(state), revision), **_posted(state, attempt)}
 
 

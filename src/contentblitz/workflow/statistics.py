@@ -13,7 +13,7 @@ import re
 from typing import TYPE_CHECKING
 
 if TYPE_CHECKING:  # state imports the content checks, which import this module
-    from contentblitz.workflow.state import ResearchSource
+    from contentblitz.workflow.state import ResearchBrief, ResearchSource
 
 # A number, with any thousands separators (a comma or a space between groups of three digits)
 # kept so it can be told apart from a year.
@@ -75,3 +75,10 @@ def is_grounded(figure: str, text: str) -> bool:
     """Whether the figure's number appears in the text, matched as `is_verified` matches."""
     plain = re.sub(r"[$€£¥, ]", "", figure)
     return _found(plain, {p for _, p in _numbers(text)})
+
+
+def brief_facts(brief: "ResearchBrief") -> str:
+    """The Brief's findings and statistics, which every figure in a post must come from."""
+    findings = [f["statement"] for f in brief["key_findings"]]
+    statistics = [f"{s['figure']}: {s['description']}" for s in brief["statistics"]]
+    return "\n".join([*findings, *statistics])

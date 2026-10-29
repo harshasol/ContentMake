@@ -87,7 +87,7 @@ class Topic(TypedDict):
     piece_ids: NotRequired[list[str]]
 
 
-RevisionOrigin = Literal["draft", "refinement", "hand_edit"]
+RevisionOrigin = Literal["draft", "refinement", "hand_edit", "restore"]
 PLACEHOLDER_MODEL = "placeholder"
 
 
@@ -118,6 +118,14 @@ class BrandProfileRecord(TypedDict):
     updated_at: str  # ISO 8601, UTC: which version of the profile
 
 
+class CheckTargets(TypedDict, total=False):
+    """The targets a request set that a text Revision's rule checks used: a blog's length in
+    words, a LinkedIn post's length in characters and hashtag range. Absent means the defaults."""
+
+    length: int
+    hashtags: list[int]  # [min, max]
+
+
 class Revision(TypedDict):
     """One saved version of a Content Piece's text; refinements start from the latest.
 
@@ -137,8 +145,12 @@ class Revision(TypedDict):
     template: NotRequired[Template]
     # How it measured up when it was made: the score and each check's result. Text formats only.
     quality_score: NotRequired[QualityScore]
+    # The request-set targets its rule checks used, so a hand edit is checked the same way.
+    check_targets: NotRequired[CheckTargets]
     # An image Revision's image: its file and how it was made.
     image: NotRequired[ImageMetadata]
+    # A *restore* Revision: the number (from 1) of the Revision it copies.
+    restored_from: NotRequired[int]
 
 
 class ContentPiece(TypedDict):
@@ -184,6 +196,8 @@ class ContentBlitzState(TypedDict, total=False):
     # Set by an agent to stop the plan: the dispatcher posts it and runs no more steps.
     abort_reason: str | None
     pending_topic_question: PendingTopicQuestion | None
+    # A direct command from the sidebar that skips routing (#67); the Query Handler clears it.
+    command: Literal["refresh_research"] | None
     # Conversation input from the sidebar: the active Brand Profile's id (None means Default).
     brand_profile_id: str | None
     # The active Brand Profile, loaded through the store at the start of each run as a

@@ -15,6 +15,7 @@ from contentblitz.core.config import DEFAULT_CONFIG_PATH
 from contentblitz.integrations import llm
 from contentblitz.workflow.brand_profiles import BrandProfileStore
 from contentblitz.workflow.graph import build_graph
+from contentblitz.workflow.workspace import Workspace
 
 # What a Revision records when the conversation's active Brand Profile is Default (#52).
 DEFAULT_RECORD = {"id": "default", "name": "Default", "updated_at": "2026-10-29T00:00:00+00:00"}
@@ -959,3 +960,71 @@ def test_refining_a_blog_whose_topic_has_no_brief_says_so_and_changes_nothing(mo
     )
     assert model.calls == []
     assert state["content_pieces"]["piece-1"]["revisions"] == [HAND_EDIT]
+
+
+def test_a_refinement_after_a_workspace_hand_edit_starts_from_the_edited_text(model):
+    model.reply = PASSING
+    graph = build_graph()
+    blog = {
+        "kind": "blog",
+        "topic_id": "topic-1",
+        "title": "AI in Healthcare: How Hospitals Read Scans Faster",
+        "revisions": [DRAFT_REVISION],
+    }
+    graph.update_state(
+        config(),
+        {
+            "topics": {"topic-1": topic() | {"piece_ids": ["piece-1"]}},
+            "active_topic_id": "topic-1",
+            "content_pieces": {"piece-1": blog},
+        },
+        as_node="query_handler",
+    )
+    Workspace(graph, "t1").edit("piece-1", HAND_EDIT_BODY, META_155)
+
+    plan = [{"agent": "blog_writer", "target": "piece-1", "instructions": "tighten it"}]
+    _, state = run_plan(plan, graph=graph)
+
+    assert HAND_EDIT_BODY in prompt_of(model.calls_to("blog_writer")[0])
+    assert [r["origin"] for r in state["content_pieces"]["piece-1"]["revisions"]] == [
+        "draft",
+        "hand_edit",
+        "refinement",
+    ]
+
+
+def test_a_chat_refinement_after_a_restore_starts_from_the_restored_text(model):
+    model.reply = PASSING
+    graph = build_graph()
+    blog = {
+        "kind": "blog",
+        "topic_id": "topic-1",
+        "title": "AI in Healthcare",
+        "revisions": [DRAFT_REVISION, HAND_EDIT],
+    }
+    seeded = topic() | {"piece_ids": ["piece-1"]}
+    run_plan([], {"topic-1": seeded}, graph=graph, pieces={"piece-1": blog})
+    Workspace(graph, "t1").restore("piece-1", 1)  # back to the draft
+
+    plan = [{"agent": "blog_writer", "target": "piece-1", "instructions": "tighten it"}]
+    _, state = run_plan(plan, graph=graph)
+
+    refine = prompt_of(model.calls_to("blog_writer")[0])
+    assert BODY in refine and HAND_EDIT_BODY not in refine
+    origins = [r["origin"] for r in state["content_pieces"]["piece-1"]["revisions"]]
+    assert origins == ["draft", "hand_edit", "restore", "refinement"]
+
+
+def test_the_revision_records_the_length_the_request_set(model):
+    model.reply = blog_draft(body=PASSING_BODY)
+    plan = [{"agent": "blog_writer", "instructions": "cut it to 600 words", "length": 600}]
+    _, state = run_plan(plan, {"topic-1": topic()})
+
+    assert revision_of(state)["check_targets"] == {"length": 600}
+
+
+def test_a_revision_without_a_requested_length_records_no_targets(model):
+    model.reply = blog_draft(body=PASSING_BODY)
+    _, state = run_plan(BLOG, {"topic-1": topic()})
+
+    assert "check_targets" not in revision_of(state)

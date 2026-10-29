@@ -44,9 +44,7 @@ def test_learning_a_voice_makes_one_structured_call_to_brand_voice_with_the_samp
         ("x" * 10_001, "too long"),
     ],
 )
-def test_a_sample_outside_300_to_10000_characters_is_refused_without_a_call(
-    calls, sample, message
-):
+def test_a_sample_outside_300_to_10000_characters_is_refused_without_a_call(calls, sample, message):
     with pytest.raises(LearnVoiceError, match=message) as refused:
         learn_voice(sample)
 

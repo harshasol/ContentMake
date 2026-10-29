@@ -294,7 +294,7 @@ def _now() -> str:
 
 def _revision(state: ContentBlitzState, attempt: Attempt, origin: RevisionOrigin) -> Revision:
     draft = attempt["draft"]
-    return {
+    revision: Revision = {
         "text": draft["body"],
         "meta_description": draft["meta_description"],
         "target_keyword": _keyword(state),
@@ -303,6 +303,9 @@ def _revision(state: ContentBlitzState, attempt: Attempt, origin: RevisionOrigin
         "created_at": _now(),
         "quality_score": attempt["quality_score"],
     }
+    if words := _step(state).get("length"):
+        revision["check_targets"] = {"length": words}
+    return revision
 
 
 def _posted(attempt: Attempt) -> ContentBlitzState:

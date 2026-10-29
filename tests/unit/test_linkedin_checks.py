@@ -269,8 +269,12 @@ def test_an_ending_with_no_question_or_invitation_fails():
 
 def test_a_question_earlier_in_the_post_is_not_the_call_to_action():
     body = BODY.replace("Hospitals are adopting it quickly.", "Are hospitals ready?")
-    result = check("call to action", with_tags(TAGS, body.replace(
-        "What would you do with the time it saves?", "AI is here to stay.")))
+    result = check(
+        "call to action",
+        with_tags(
+            TAGS, body.replace("What would you do with the time it saves?", "AI is here to stay.")
+        ),
+    )
     assert not result["passed"]
 
 

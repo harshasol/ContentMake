@@ -28,6 +28,7 @@ def test_chat_round_trip(monkeypatch):
         "Research",
         "Brand Profiles",
         "Usage",
+        "Settings",
     ]
 
     at.chat_input[0].set_value("hello").run()
@@ -197,3 +198,103 @@ def test_chat_shows_a_notice_when_the_image_file_is_missing(monkeypatch, tmp_pat
     message = at.chat_message[-1]
     assert not message.image
     assert "missing" in message.warning[0].value
+
+
+def test_a_new_thread_id_is_put_in_the_url(monkeypatch):
+    monkeypatch.setattr(graph, "query_handler", lambda s: {"messages": [AIMessage("ok")]})
+    st.cache_resource.clear()
+    at = AppTest.from_file(APP, default_timeout=30).run()
+
+    assert at.query_params["thread"]
+    assert chat_messages(at) == []
+
+
+def test_opening_the_url_with_a_thread_id_shows_the_same_conversation(monkeypatch):
+    monkeypatch.setattr(graph, "query_handler", lambda s: {"messages": [AIMessage("ok")]})
+    st.cache_resource.clear()
+    first = AppTest.from_file(APP, default_timeout=30).run()
+    first.chat_input[0].set_value("hello").run()
+    thread = first.query_params["thread"]
+
+    reloaded = AppTest.from_file(APP, default_timeout=30)
+    reloaded.query_params["thread"] = thread
+    reloaded.run()
+
+    assert reloaded.query_params["thread"] == thread
+    assert chat_messages(reloaded) == [("user", "hello"), ("assistant", "ok")]
+
+
+def test_the_settings_tab_shows_set_or_not_without_key_values(monkeypatch):
+    from contentblitz.workflow import workspace as workspace_module
+
+    secret = "sk-very-secret-value"
+    monkeypatch.setattr(
+        workspace_module, "get_settings", lambda: Settings(_env_file=None, openai_api_key=secret)
+    )
+    st.cache_resource.clear()
+    at = AppTest.from_file(APP, default_timeout=30).run()
+
+    assert not at.exception
+    assert [t.label for t in at.tabs] == [
+        "Chat",
+        "Content Dashboard",
+        "Research",
+        "Brand Profiles",
+        "Usage",
+        "Settings",
+    ]
+    text = " ".join(m.value for m in at.tabs[5].markdown)
+    assert "✓ OpenAI" in text and "✗ Anthropic" in text
+    assert secret not in text
+
+
+def test_new_conversation_starts_an_empty_conversation_with_a_new_thread(monkeypatch):
+    st.cache_resource.clear()
+    monkeypatch.setattr(qh, "get_settings", lambda: Settings(_env_file=None, openai_api_key=None))
+    at = AppTest.from_file(APP, default_timeout=30).run()
+    at.chat_input[0].set_value("hello").run()
+    old = at.query_params["thread"]
+    assert len(at.chat_message) == 2
+
+    at.button(key="new_conversation").click().run()
+
+    assert at.query_params["thread"] != old
+    assert len(at.chat_message) == 0
+
+
+def test_refresh_research_is_disabled_without_an_active_topic(monkeypatch):
+    st.cache_resource.clear()
+    monkeypatch.setattr(qh, "get_settings", lambda: Settings(_env_file=None, openai_api_key=None))
+
+    at = AppTest.from_file(APP, default_timeout=30).run()
+
+    assert at.sidebar.button[0].label == "Refresh research"
+    assert at.sidebar.button[0].disabled
+
+
+def test_refresh_research_button_runs_the_command_and_its_messages_appear_in_the_chat(
+    monkeypatch,
+):
+    def handler(state):
+        if state.get("command") == "refresh_research":
+            return {"messages": [AIMessage(content="refreshed")], "command": None}
+        return {
+            "messages": [AIMessage(content="ok")],
+            "topics": {"topic-1": {"name": "AI", "brief": None, "piece_ids": []}},
+            "active_topic_id": "topic-1",
+        }
+
+    st.cache_resource.clear()
+    monkeypatch.setattr(graph, "query_handler", handler)
+    at = AppTest.from_file(APP, default_timeout=30).run()
+    at.chat_input[0].set_value("research AI").run()
+    assert not at.sidebar.button[0].disabled
+
+    at.sidebar.button[0].click().run()
+
+    assert not at.exception
+    assert chat_messages(at) == [
+        ("user", "research AI"),
+        ("assistant", "ok"),
+        ("assistant", "refreshed"),
+    ]
