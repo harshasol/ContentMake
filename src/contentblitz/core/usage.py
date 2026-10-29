@@ -6,6 +6,7 @@ with an in-memory index. The Usage tab and the per-run caption read the same que
 
 import json
 import logging
+from collections import defaultdict
 from dataclasses import dataclass
 from datetime import date, datetime
 from pathlib import Path
@@ -77,6 +78,62 @@ def _sum(events: list[UsageEvent]) -> Totals:
     )
 
 
+@dataclass(frozen=True)
+class Breakdown:
+    """The events sharing one `name` (an agent, a model or a search provider), summed."""
+
+    name: str
+    calls: int
+    tokens_in: int
+    tokens_out: int
+    cost_usd: float
+    avg_latency_s: float
+    cached: int
+    estimated: bool
+
+    @property
+    def tokens(self) -> int:
+        return self.tokens_in + self.tokens_out
+
+
+@dataclass(frozen=True)
+class RunRow:
+    """One run: when it started, the first line of the marketer's request (None when the run
+    wasn't started by a request or predates the record), and what it cost."""
+
+    run_id: str
+    ts: str
+    request: str | None
+    cost_usd: float
+    tokens: int
+    duration_s: float
+    fallback: bool
+    estimated: bool
+
+
+@dataclass(frozen=True)
+class FallbackRow:
+    ts: str
+    agent: str
+    failed: str  # the provider that failed (the configured one when no attempt was recorded)
+    used: str
+    error: str
+
+
+def _breakdown(name: str, events: list[UsageEvent]) -> Breakdown:
+    totals = _sum(events)
+    return Breakdown(
+        name=name,
+        calls=totals.calls,
+        tokens_in=totals.tokens_in,
+        tokens_out=totals.tokens_out,
+        cost_usd=totals.cost_usd,
+        avg_latency_s=round(sum(e.latency_s for e in events) / len(events), 10),
+        cached=totals.cached,
+        estimated=totals.estimated,
+    )
+
+
 def _short(tokens: int) -> str:
     return f"{tokens / 1000:.1f}k" if tokens >= 1000 else str(tokens)
 
@@ -94,27 +151,40 @@ def format_caption(cost_usd: float, tokens: int, cached: int = 0, fallbacks: int
 class UsageLedger:
     def __init__(self, path: Path):
         self.path = path
-        self.events: list[UsageEvent] = self._load()
+        self.events: list[UsageEvent] = []
+        self.requests: dict[str, str] = {}  # run id -> the marketer's request
+        self._load()
 
-    def _load(self) -> list[UsageEvent]:
+    def _load(self) -> None:
         if not self.path.exists():
-            return []
-        events = []
+            return
         for line in self.path.read_text(encoding="utf-8").splitlines():
             try:
-                events.append(UsageEvent.model_validate_json(line))
-            except (ValidationError, ValueError):
+                data = json.loads(line)
+                if isinstance(data, dict) and "request" in data and "agent" not in data:
+                    self.requests[str(data["run_id"])] = str(data["request"])
+                else:
+                    self.events.append(UsageEvent.model_validate(data))
+            except (ValidationError, ValueError, KeyError):
                 continue  # a torn or foreign line must not hide the rest
-        return events
 
-    def record(self, event: UsageEvent) -> None:
+    def _append(self, record: dict) -> None:
         self.path.parent.mkdir(parents=True, exist_ok=True)
         with self.path.open("a", encoding="utf-8") as file:
-            file.write(json.dumps(event.model_dump(), ensure_ascii=False) + "\n")
+            file.write(json.dumps(record, ensure_ascii=False) + "\n")
+
+    def record(self, event: UsageEvent) -> None:
+        self._append(event.model_dump())
         self.events.append(event)
+
+    def record_request(self, run_id: str, request: str) -> None:
+        """Remember what the marketer asked in run `run_id`, for the recent-runs list."""
+        self._append({"run_id": run_id, "request": request})
+        self.requests[run_id] = request
 
     def clear(self) -> None:
         self.events = []
+        self.requests = {}
         self.path.unlink(missing_ok=True)
 
     def select(
@@ -139,6 +209,69 @@ class UsageLedger:
         day: date | None = None,
     ) -> Totals:
         return _sum(self.select(run_id, conversation_id, day))
+
+    def _grouped(self, key, events: list[UsageEvent]) -> list[Breakdown]:
+        groups: dict[str, list[UsageEvent]] = defaultdict(list)
+        for e in events:
+            groups[key(e)].append(e)
+        rows = [_breakdown(name, group) for name, group in groups.items()]
+        return sorted(rows, key=lambda r: (-r.cost_usd, r.name))
+
+    def by_agent(self) -> list[Breakdown]:
+        """Calls, tokens, cost, average latency and cache hits per agent, dearest first."""
+        return self._grouped(lambda e: e.agent, self.events)
+
+    def by_model(self) -> list[Breakdown]:
+        """The same per model (or search provider) that answered."""
+        return self._grouped(lambda e: e.model, self.events)
+
+    def searches_per_provider(self) -> list[Breakdown]:
+        return self._grouped(lambda e: e.model, [e for e in self.events if e.kind == "search"])
+
+    def cache_hit_rate(self) -> float | None:
+        """The share of recorded calls answered from a cache, or None before any call."""
+        return sum(e.cached for e in self.events) / len(self.events) if self.events else None
+
+    def recent_runs(self, limit: int = 20) -> list[RunRow]:
+        """The latest runs, newest first; calls outside a run are not listed."""
+        runs: dict[str, list[UsageEvent]] = defaultdict(list)
+        for e in self.events:
+            if e.run_id is not None:
+                runs[e.run_id].append(e)
+        rows = []
+        for run_id, events in runs.items():
+            totals = _sum(events)
+            request = (self.requests.get(run_id) or "").strip()
+            rows.append(
+                RunRow(
+                    run_id=run_id,
+                    ts=min(e.ts for e in events),
+                    request=request.splitlines()[0] if request else None,
+                    cost_usd=totals.cost_usd,
+                    tokens=totals.tokens,
+                    duration_s=round(sum(e.latency_s for e in events), 10),
+                    fallback=bool(totals.fallbacks),
+                    estimated=totals.estimated,
+                )
+            )
+        return sorted(rows, key=lambda r: r.ts, reverse=True)[:limit]
+
+    def fallback_events(self) -> list[FallbackRow]:
+        """Every call a fallback answered, newest first."""
+        rows = []
+        for e in sorted(self.events, key=lambda e: e.ts, reverse=True):
+            if not e.fallback:
+                continue
+            rows.append(
+                FallbackRow(
+                    ts=e.ts,
+                    agent=e.agent,
+                    failed=e.failed[0]["provider"] if e.failed else (e.primary or ""),
+                    used=e.model,
+                    error="; ".join(f["error"] for f in e.failed if f.get("error")),
+                )
+            )
+        return rows
 
     def caption(self, run_id: str) -> str | None:
         """The run's one-line cost summary, or None when the run made no recorded call."""
