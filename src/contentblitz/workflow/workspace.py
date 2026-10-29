@@ -12,7 +12,8 @@ from typing import Any, Literal
 from langchain_core.messages import AnyMessage, HumanMessage
 
 from contentblitz.workflow.brand_profiles import DEFAULT_PROFILE_ID
-from contentblitz.workflow.state import ContentBlitzState, ImageMetadata
+from contentblitz.workflow.report import render_report
+from contentblitz.workflow.state import ContentBlitzState, ImageMetadata, ResearchBrief
 from contentblitz.workflow.topics import active_topic, find_revision
 
 
@@ -24,6 +25,16 @@ class ChatMessage:
     role: Literal["user", "assistant"]
     text: str
     image: ImageMetadata | None = None
+
+
+@dataclass(frozen=True)
+class Research:
+    """The active Topic's research as the Research tab shows it (#65): its Research Brief and the
+    rendered report (`render_report`, #15)."""
+
+    topic_name: str
+    brief: ResearchBrief
+    report: str
 
 
 def new_thread_id() -> str:
@@ -52,6 +63,14 @@ class Workspace:
             for m in state.get("messages", [])
             if m.type in ("human", "ai")
         ]
+
+    def research(self) -> Research | None:
+        """The active Topic's Research Brief and report, or None when there is no active Topic or
+        it has no Brief."""
+        topic = active_topic(self._state())
+        if not topic or not topic.get("brief"):
+            return None
+        return Research(topic["name"], topic["brief"], render_report(topic["name"], topic["brief"]))
 
     def send(self, text: str, brand_profile_id: str = DEFAULT_PROFILE_ID) -> None:
         """Send the marketer's message and run the workflow; read the replies with `messages()`."""
