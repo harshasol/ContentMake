@@ -28,6 +28,7 @@ def test_chat_round_trip(monkeypatch):
         "Research",
         "Brand Profiles",
         "Usage",
+        "Settings",
     ]
 
     at.chat_input[0].set_value("hello").run()
@@ -221,3 +222,41 @@ def test_opening_the_url_with_a_thread_id_shows_the_same_conversation(monkeypatc
 
     assert reloaded.query_params["thread"] == thread
     assert chat_messages(reloaded) == [("user", "hello"), ("assistant", "ok")]
+
+
+def test_the_settings_tab_shows_set_or_not_without_key_values(monkeypatch):
+    from contentblitz.web_app import settings_tab
+
+    secret = "sk-very-secret-value"
+    monkeypatch.setattr(
+        settings_tab, "get_settings", lambda: Settings(_env_file=None, openai_api_key=secret)
+    )
+    st.cache_resource.clear()
+    at = AppTest.from_file(APP, default_timeout=30).run()
+
+    assert not at.exception
+    assert [t.label for t in at.tabs] == [
+        "Chat",
+        "Content Dashboard",
+        "Research",
+        "Brand Profiles",
+        "Usage",
+        "Settings",
+    ]
+    text = " ".join(m.value for m in at.tabs[5].markdown)
+    assert "✓ OpenAI" in text and "✗ Anthropic" in text
+    assert secret not in text
+
+
+def test_new_conversation_starts_an_empty_conversation_with_a_new_thread(monkeypatch):
+    st.cache_resource.clear()
+    monkeypatch.setattr(qh, "get_settings", lambda: Settings(_env_file=None, openai_api_key=None))
+    at = AppTest.from_file(APP, default_timeout=30).run()
+    at.chat_input[0].set_value("hello").run()
+    old = at.query_params["thread"]
+    assert len(at.chat_message) == 2
+
+    at.button(key="new_conversation").click().run()
+
+    assert at.query_params["thread"] != old
+    assert len(at.chat_message) == 0

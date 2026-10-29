@@ -6,6 +6,7 @@ import streamlit as st
 
 from contentblitz.web_app.brand_profiles_tab import brand_profiles_tab
 from contentblitz.web_app.research_tab import research_tab as show_research_tab
+from contentblitz.web_app.settings_tab import settings_tab
 from contentblitz.workflow.brand_profiles import DEFAULT_PROFILE_ID, BrandProfileStore
 from contentblitz.workflow.graph import build_graph
 from contentblitz.workflow.image_files import image_caption
@@ -83,8 +84,8 @@ with st.sidebar:
     st.selectbox("Topic", ["New Topic"], disabled=True)
     st.button("Refresh research", disabled=True)
 
-chat_tab, dashboard_tab, research_tab, brands_tab, usage_tab = st.tabs(
-    ["Chat", "Content Dashboard", "Research", "Brand Profiles", "Usage"]
+chat_tab, dashboard_tab, research_tab, brands_tab, usage_tab, settings_pane = st.tabs(
+    ["Chat", "Content Dashboard", "Research", "Brand Profiles", "Usage", "Settings"]
 )
 
 with chat_tab:
@@ -110,3 +111,6 @@ with brands_tab:
 
 with usage_tab:
     st.info("Token usage, cost and fallback events per agent will appear here.")
+
+with settings_pane:
+    settings_tab(workspace)
