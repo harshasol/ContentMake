@@ -174,7 +174,6 @@ def test_shipped_config_sizes_each_image_model_for_each_aspect():
         "openai/dall-e-3": ["1792x1024", "1024x1024", "1024x1792"],
     }
     assert [image.quality_for(m) for m in image.models] == ["medium", "standard"]
-    assert "illustration" in image.default_style
 
 
 def test_image_settings_are_read_from_config_and_default_when_missing(tmp_path):
@@ -192,17 +191,14 @@ def test_image_settings_are_read_from_config_and_default_when_missing(tmp_path):
         "image:\n  models: [openai/dall-e-2]\n"
         "  sizes:\n    openai/dall-e-2: {landscape: 512x512}\n"
         "  quality:\n    openai/dall-e-2: hd\n"
-        "  default_style: flat pastel vector art\n"
     )
     assert configured.size_for("openai/dall-e-2", "landscape") == "512x512"
     assert configured.quality_for("openai/dall-e-2") == "hd"
-    assert configured.default_style == "flat pastel vector art"
 
     defaults = image_config("image:\n  models: [openai/gpt-image-1]\n")
     assert defaults.size_for("openai/gpt-image-1", "landscape") == "1536x1024"
     assert defaults.size_for("openai/gpt-image-1", "portrait") == "1024x1536"
     assert defaults.quality_for("openai/gpt-image-1") == "medium"
-    assert defaults.default_style
 
 
 def test_the_placeholder_colour_is_read_from_config_and_defaults_when_missing(tmp_path):

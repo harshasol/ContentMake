@@ -24,7 +24,6 @@ from contentblitz.workflow.brand_profiles import (
 
 MEDIUMS = list(get_args(Medium))
 LIST_FIELDS = ("tone", "dos", "donts", "words_to_avoid")
-STYLE_FIELDS = ("colours", "mood", "medium", "notes")
 
 
 def _lines(text: str) -> list[str]:
@@ -117,7 +116,7 @@ def _save() -> None:
         else:
             store.create(form_fields())
     except BrandProfileError as error:
-        st.session_state.bp_error = (error.field, error.message)
+        st.session_state.bp_error = error
         return
     _close()
 
@@ -142,21 +141,21 @@ def _close() -> None:
 
 def _field_error(name: str) -> None:
     """The store's error, shown under the field it is about."""
-    error = st.session_state.get("bp_error")
-    if not error or not error[0]:
+    error: BrandProfileError | None = st.session_state.get("bp_error")
+    if not error or not error.field:
         return
-    path = error[0].split(".")
+    path = error.field.split(".")
     at = path[1] if path[0] == "visual_style" and len(path) > 1 else path[0]
     if at == name:
-        st.error(error[1])
+        st.error(error.message)
 
 
 def _form() -> None:
     editing = st.session_state.get("bp_editing")
     st.subheader("Edit Brand Profile" if editing else "New Brand Profile")
-    error = st.session_state.get("bp_error")
-    if error and not error[0]:
-        st.error(error[1])
+    error: BrandProfileError | None = st.session_state.get("bp_error")
+    if error and not error.field:
+        st.error(error.message)
     st.text_input("Name", key="bp_name")
     _field_error("name")
     st.text_input("Target audience", key="bp_audience")

@@ -1,12 +1,15 @@
-"""The active Brand Profile's voice, as the writers' drafting and revising prompts give it.
+"""A Brand Profile's voice as prompt text: the one place that says which fields make it up.
 
-The SEO Blog Writer and the LinkedIn Writer get the profile's audience, tone descriptors, do's
-and don'ts, words to avoid and, when it has one, its learned voice description. The writing
-sample is never sent: the learned description stands in for it, which saves tokens. Research,
-the Content Strategist and the Query Handler stay brand-neutral. See spec #22.
+The writers' drafting and revising prompts (`brand_voice(state)`) and the AI reviewer's
+brand-voice score (`voice_text(profile)`) both give it: the profile's name, audience, tone
+descriptors, do's and don'ts, words to avoid and, when it has one, its learned voice
+description. The writing sample is never sent: the learned description stands in for it, which
+saves tokens. Research, the Content Strategist and the Query Handler stay brand-neutral. See
+spec #22.
 """
 
 from contentblitz.workflow.active_brand_profile import active_brand_profile
+from contentblitz.workflow.brand_profiles import BrandProfile
 from contentblitz.workflow.state import ContentBlitzState
 
 
@@ -14,9 +17,8 @@ def _listed(items: list[str]) -> str:
     return "\n".join(f"- {item}" for item in items) or "- none"
 
 
-def brand_voice(state: ContentBlitzState) -> str:
-    """The active Brand Profile's voice, for a writer's prompt."""
-    profile = active_brand_profile(state)
+def voice_text(profile: BrandProfile) -> str:
+    """`profile`'s voice, for a prompt."""
     parts = [
         f"Brand Profile: {profile.name}",
         f"Write for: {profile.audience or 'a general audience'}",
@@ -28,3 +30,8 @@ def brand_voice(state: ContentBlitzState) -> str:
     if profile.voice_description:
         parts.append(f"The brand's voice: {profile.voice_description}")
     return "\n".join(parts)
+
+
+def brand_voice(state: ContentBlitzState) -> str:
+    """The active Brand Profile's voice, for a writer's prompt."""
+    return voice_text(active_brand_profile(state))

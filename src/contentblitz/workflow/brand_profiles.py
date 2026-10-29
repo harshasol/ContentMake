@@ -25,14 +25,15 @@ NAME_MAX_LENGTH = 60
 Medium = Literal["photo", "illustration", "3D", "flat graphic"]
 
 
-def _text(max_length: int, min_length: int = 0) -> Any:
+def _bounded_str(max_length: int, min_length: int = 0) -> Any:
+    """A str type with surrounding whitespace stripped and its length bounded."""
     return Annotated[
         str,
         StringConstraints(strip_whitespace=True, min_length=min_length, max_length=max_length),
     ]
 
 
-Rule = _text(200, min_length=1)
+Rule = _bounded_str(200, min_length=1)
 Colour = Annotated[str, StringConstraints(pattern=f"^{HEX_COLOUR}$")]
 
 
@@ -42,9 +43,26 @@ class VisualStyle(BaseModel):
     model_config = ConfigDict(extra="forbid")
 
     colours: list[Colour] = Field(default_factory=list, max_length=6)
-    mood: _text(200) = ""
+    mood: _bounded_str(200) = ""
     medium: Medium = "illustration"
-    notes: _text(500) = ""
+    notes: _bounded_str(500) = ""
+
+    @property
+    def primary(self) -> str | None:
+        """The primary colour (the first), or None when there are no colours."""
+        return self.colours[0] if self.colours else None
+
+
+def describe_visual_style(style: VisualStyle) -> str:
+    """A visual style as the image prompt optimiser reads it: its colours (primary named),
+    mood, medium and notes, leaving out any that are empty."""
+    parts = [
+        f"colours {', '.join(style.colours)} (primary {style.primary})" if style.colours else "",
+        f"mood: {style.mood}" if style.mood else "",
+        f"medium: {style.medium}",
+        f"notes: {style.notes}" if style.notes else "",
+    ]
+    return "; ".join(part for part in parts if part)
 
 
 class BrandProfileFields(BaseModel):
@@ -52,14 +70,16 @@ class BrandProfileFields(BaseModel):
 
     model_config = ConfigDict(extra="forbid")
 
-    name: _text(NAME_MAX_LENGTH, min_length=1)
-    audience: _text(300) = ""
-    tone: list[_text(40, min_length=1)] = Field(min_length=1, max_length=6)
+    name: _bounded_str(NAME_MAX_LENGTH, min_length=1)
+    audience: _bounded_str(300) = ""
+    tone: list[_bounded_str(40, min_length=1)] = Field(min_length=1, max_length=6)
     dos: list[Rule] = Field(default_factory=list, max_length=20)
     donts: list[Rule] = Field(default_factory=list, max_length=20)
-    words_to_avoid: list[_text(60, min_length=1)] = Field(default_factory=list, max_length=50)
-    writing_sample: _text(10_000) | None = None
-    voice_description: _text(1_000) | None = None
+    words_to_avoid: list[_bounded_str(60, min_length=1)] = Field(
+        default_factory=list, max_length=50
+    )
+    writing_sample: _bounded_str(10_000) | None = None
+    voice_description: _bounded_str(1_000) | None = None
     visual_style: VisualStyle = Field(default_factory=VisualStyle)
 
 
@@ -84,8 +104,8 @@ DEFAULT_PROFILE = BrandProfile(
     tone=["clear", "professional", "helpful"],
     dos=["explain jargon in plain words", "back claims with evidence"],
     donts=["overstate claims"],
+    # No colours, so a placeholder under Default uses the configured placeholder colour.
     visual_style=VisualStyle(
-        colours=["#4A5568"],
         mood="calm and professional",
         medium="illustration",
         notes="clean and modern, with plenty of negative space",

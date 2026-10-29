@@ -7,7 +7,7 @@ import pytest
 import textstat
 
 from contentblitz.core.config import BlogQuality
-from contentblitz.workflow.content_checks import Draft, check_blog
+from contentblitz.workflow.content_checks import Draft, check_blog, words_to_avoid
 
 KEYWORD = "AI tools"
 
@@ -378,6 +378,12 @@ def test_words_to_avoid_are_not_matched_inside_longer_words_or_split_phrases():
     result = avoid_check(body)
     assert result["passed"]
     assert result["measured"] == "none found"
+
+
+def test_words_to_avoid_treat_a_hyphen_and_a_space_as_the_same_separator():
+    # Deliberate: "game-changer" and "game changer" are the same phrase to a reader.
+    assert words_to_avoid("A real game changer.", ["game-changer"])["measured"] == "game-changer"
+    assert words_to_avoid("A real game-changer.", ["game changer"])["measured"] == "game changer"
 
 
 def test_words_to_avoid_in_the_meta_description_are_found_but_not_in_the_sources():

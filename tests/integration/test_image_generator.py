@@ -15,7 +15,8 @@ from langchain_core.messages import HumanMessage
 from langsmith import tracing_context
 from PIL import Image
 
-from contentblitz.agents.image_generator import make_image, optimise_prompt
+from contentblitz.agents.image_generator import make_image
+from contentblitz.core.config import get_model_config
 from contentblitz.integrations import llm
 from contentblitz.workflow.active_brand_profile import load_brand_profile
 from contentblitz.workflow.brand_profiles import BrandProfileStore
@@ -297,15 +298,6 @@ def test_the_optimiser_needs_no_brief(models):
     prompt = prompt_of(models.prompt_calls[0])
     assert "AI in radiology" in prompt
     assert "Research Brief: none" in prompt
-
-
-def test_the_optimiser_uses_a_visual_style_it_is_given_instead_of_the_default(models):
-    # The Brand Profile (#22) passes its visual style here; the workflow doesn't yet.
-    optimise_prompt(REQUEST, topic(), visual_style="bold neon cyberpunk photography")
-
-    prompt = prompt_of(models.prompt_calls[0])
-    assert "bold neon cyberpunk photography" in prompt
-    assert "clean, modern editorial illustration" not in prompt
 
 
 def test_a_second_image_on_the_same_topic_is_a_separate_content_piece(models, data_dir):
@@ -929,7 +921,6 @@ def assert_given_teal_style(models):
     for fact in ["#0D9488", "#F59E0B", "optimistic and warm", "illustration", "rounded shapes"]:
         assert fact in prompt, fact
     assert "calm and professional" not in prompt  # Default's style
-    assert "clean, modern editorial illustration" not in prompt  # config's default style
     [drawn] = models.image_calls
     assert drawn["prompt"].endswith(NO_TEXT_RULE)
 
@@ -974,3 +965,13 @@ def test_a_profile_without_colours_gets_the_configured_placeholder_colour(
     _, state = run_plan(image_step(), {"topic-1": topic()}, brand_profile_id=profile.id)
 
     assert placeholder_pixel(state) == DEFAULT_COLOUR
+
+
+def test_the_placeholder_under_default_is_in_the_configured_placeholder_colour(
+    image_models, monkeypatch
+):
+    monkeypatch.setenv("OPENAI_API_KEY", "")
+    monkeypatch.setattr(get_model_config().image, "placeholder_colour", "#123ABC")
+    _, state = run_plan(image_step(), {"topic-1": topic()})
+
+    assert placeholder_pixel(state) == (0x12, 0x3A, 0xBC)

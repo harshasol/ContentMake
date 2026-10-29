@@ -189,5 +189,5 @@ class ContentBlitzState(TypedDict, total=False):
     # The active Brand Profile, loaded through the store at the start of each run as a
     # `BrandProfile.model_dump(mode="json")`. Read it with `active_brand_profile(state)`.
     brand_profile: dict
-    # Set once the conversation has been told its active Brand Profile was deleted.
-    brand_profile_fallback_noticed: bool
+    # The ids of the deleted Brand Profiles the conversation has been told about, once each.
+    missing_brand_profiles_noticed: list[str]
