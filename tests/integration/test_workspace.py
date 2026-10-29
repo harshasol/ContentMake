@@ -14,6 +14,7 @@ from contentblitz.core.config import Settings
 from contentblitz.integrations import llm
 from contentblitz.workflow import graph as workflow
 from contentblitz.workflow.graph import build_graph
+from contentblitz.workflow.report import render_report
 from contentblitz.workflow.routing import RoutingDecision
 from contentblitz.workflow.workspace import ChatMessage, Workspace, new_thread_id
 
@@ -125,3 +126,54 @@ def test_an_image_message_carries_the_images_metadata(monkeypatch):
     assert "robot doctor" in image_message.image["prompt"]
     assert image_message.image["model"] == "openai/gpt-image-1"
     assert all(isinstance(m, ChatMessage) for m in messages)
+
+
+def _brief(**changes):
+    source = {
+        "number": 1,
+        "title": "AI in radiology",
+        "url": "https://example.com/ai",
+        "site": "example.com",
+        "retrieved_at": "2026-10-28T09:00:00+00:00",
+    }
+    brief = {
+        "summary": "AI helps radiologists.",
+        "key_findings": [{"statement": "Reads scans faster.", "source_numbers": [1]}],
+        "statistics": [],
+        "angles": [{"title": "Speed", "hook": "Faster reads"}],
+        "target_keyword": "ai radiology",
+        "secondary_keywords": ["scans"],
+        "sources": [source],
+        "created_at": "2026-10-28T09:05:00+00:00",
+        "model": "gpt-4o",
+        "research_gathered_at": "2026-10-28T09:00:00+00:00",
+    }
+    return {**brief, **changes}
+
+
+def _seed(brief, active="topic-1"):
+    graph = build_graph()
+    topic = {"name": "AI in radiology", "research": None, "brief": brief, "piece_ids": []}
+    graph.update_state(
+        {"configurable": {"thread_id": "t1"}},
+        {"topics": {"topic-1": topic}, "active_topic_id": active},
+        as_node="query_handler",
+    )
+    return Workspace(graph, "t1")
+
+
+def test_research_is_the_active_topics_brief_and_rendered_report():
+    brief = _brief()
+
+    research = _seed(brief).research()
+
+    assert research.topic_name == "AI in radiology"
+    assert research.brief == brief
+    assert research.report == render_report("AI in radiology", brief)
+    assert "[[1]](https://example.com/ai)" in research.report
+
+
+def test_research_is_none_without_a_brief_or_an_active_topic():
+    assert Workspace(build_graph(), "new").research() is None
+    assert _seed(None).research() is None
+    assert _seed(_brief(), active=None).research() is None
