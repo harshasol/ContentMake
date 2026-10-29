@@ -1157,3 +1157,50 @@ def test_a_held_plan_rebuilt_for_a_new_topic_keeps_its_source_piece(monkeypatch,
         "instructions": None,
         "source_piece": "piece-1",
     }
+
+
+def builds_on(**source):
+    decision = new_content("linkedin_post", same_topic=True)(None)
+    return lambda _: decision.model_copy(update=source)
+
+
+def test_that_blog_resolves_to_the_active_topics_latest_blog_when_no_id_is_given(
+    monkeypatch, with_api_key
+):
+    fake_router(monkeypatch, builds_on(source_kind="blog"))
+    start = with_pieces(
+        **{
+            "piece-1": piece("blog", "AI in the clinic"),
+            "piece-2": piece("image", "Robot doctor"),
+            "piece-3": piece("blog", "AI at the front desk"),
+            "piece-4": piece("blog", "Remote blog", topic_id="topic-2"),
+        }
+    )
+    graph = build_graph()
+    send_with(graph, "turn that blog into a LinkedIn post", start)
+
+    [step] = graph.get_state(config()).values["plan"]
+    assert step["source_piece"] == "piece-3"
+
+
+def test_a_source_piece_on_another_topic_is_not_used(monkeypatch, with_api_key):
+    fake_router(monkeypatch, builds_on(source_piece="piece-2"))
+    start = with_pieces(**{"piece-2": piece("blog", "Remote blog", topic_id="topic-2")})
+    graph = build_graph()
+    send_with(graph, "turn the remote blog into a LinkedIn post", start)
+
+    [step] = graph.get_state(config()).values["plan"]
+    assert "source_piece" not in step
+
+
+def test_a_length_in_words_reaches_only_the_blog_step(monkeypatch, with_api_key):
+    decision = new_content("blog", "linkedin_post", same_topic=True)(None)
+    in_words = {"length": 600, "length_unit": "words"}
+    fake_router(monkeypatch, lambda _: decision.model_copy(update=in_words))
+    graph = build_graph()
+    send_with(graph, "a 600-word blog and a LinkedIn post", researched_topic())
+
+    assert graph.get_state(config()).values["plan"] == [
+        {"agent": "blog_writer", "instructions": None, "length": 600},
+        {"agent": "linkedin_writer", "instructions": None},
+    ]

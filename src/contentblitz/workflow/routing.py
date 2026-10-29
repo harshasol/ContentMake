@@ -4,14 +4,17 @@ from typing import Literal
 
 from pydantic import BaseModel, ConfigDict, Field
 
-from contentblitz.workflow.formats import Format
+from contentblitz.workflow.formats import (
+    BlogTemplate,
+    Format,
+    LengthUnit,
+    LinkedInTemplate,
+    PieceKind,
+)
 
 Intent = Literal["new_content", "refine", "chat", "unclear"]
 TopicAnswer = Literal["new", "continue"]
-BlogTemplate = Literal["how-to", "listicle", "comparison", "thought leadership"]
-LinkedInTemplate = Literal["industry insights", "personal story", "tips", "announcement"]
 Template = Literal[BlogTemplate, LinkedInTemplate]
-LengthUnit = Literal["words", "characters"]
 
 
 def _drop_defaults(schema: dict) -> None:
@@ -36,6 +39,9 @@ class RoutingDecision(BaseModel):
         None,
         description="For new_content: the id of the Content Piece the new one builds on, only "
         "if the request points at one ('turn that blog into a LinkedIn post').",
+    )
+    source_kind: PieceKind | None = Field(
+        None, description="For new_content: the kind of that piece ('that blog' → 'blog')."
     )
     instructions: str | None = Field(None, description="Instructions to pass on to the writers.")
     target_keyword: str | None = Field(

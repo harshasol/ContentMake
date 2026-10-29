@@ -37,13 +37,14 @@ from contentblitz.workflow.content_checks import (
     char_range,
     check_linkedin,
     hashtag_range,
+    range_text,
 )
-from contentblitz.workflow.formats import PIECE_FORMATS
+from contentblitz.workflow.formats import PIECE_FORMATS, LinkedInTemplate
 from contentblitz.workflow.plan import current_step
 from contentblitz.workflow.progress import progress_message
 from contentblitz.workflow.quality_loop import Attempt, QualityFormat, quality_loop, quality_text
 from contentblitz.workflow.quality_score import QualityScore, Review
-from contentblitz.workflow.routing import LinkedInTemplate, Template
+from contentblitz.workflow.routing import Template
 from contentblitz.workflow.state import (
     ContentBlitzState,
     ContentPiece,
@@ -124,8 +125,12 @@ Take every fact and figure from the Research Brief, not from it.
 
 {text}"""
 
-_NUMBER_WORDS = "zero one two three four five six seven eight nine ten eleven twelve".split()
-_HASHTAG_COUNT = re.compile(rf"\b(\d+|{'|'.join(_NUMBER_WORDS)})\s+hashtags?\b", re.IGNORECASE)
+_NUMBER_WORDS = "no one two three four five six seven eight nine ten eleven twelve".split()
+_COUNT = rf"(\d+|{'|'.join(_NUMBER_WORDS)})"
+# "between 6 and 10 hashtags", "6-10 hashtags", "6 to 10 hashtags"
+_HASHTAG_RANGE = re.compile(rf"\b{_COUNT}\s*(?:-|–|to|and)\s*{_COUNT}\s+hashtags?\b", re.I)
+# "only 5 hashtags", "three hashtags", "no hashtags"
+_HASHTAG_COUNT = re.compile(rf"\b{_COUNT}\s+hashtags?\b", re.I)
 
 
 class LinkedInDraft(BaseModel):
@@ -191,24 +196,27 @@ def _template(state: ContentBlitzState) -> Template | None:
     return _step(state).get("template") or _carried_over_template(state)
 
 
-def _hashtag_count(state: ContentBlitzState) -> int | None:
-    """The hashtag count the instructions ask for ("only 5 hashtags"), if any."""
-    found = _HASHTAG_COUNT.search(_step(state).get("instructions") or "")
-    if not found:
-        return None
-    count = found[1].lower()
-    return int(count) if count.isdigit() else _NUMBER_WORDS.index(count)
+def _count(word: str) -> int:
+    word = word.lower()
+    return int(word) if word.isdigit() else _NUMBER_WORDS.index(word)  # "no" is 0
+
+
+def _hashtag_range(state: ContentBlitzState) -> tuple[int, int] | None:
+    """The hashtag range the instructions ask for ("between 6 and 10 hashtags", "only 5
+    hashtags", "no hashtags"), if any."""
+    instructions = _step(state).get("instructions") or ""
+    if found := _HASHTAG_RANGE.search(instructions):
+        return _count(found[1]), _count(found[2])
+    if found := _HASHTAG_COUNT.search(instructions):
+        return _count(found[1]), _count(found[1])
+    return None
 
 
 def _ranges(state: ContentBlitzState) -> tuple[tuple[int, int], tuple[int, int]]:
     """The character and hashtag ranges for this run: the request's, or the configured ones."""
     rules = get_model_config().quality.linkedin
     chars = char_range(rules, _step(state).get("length"))
-    return chars, hashtag_range(rules, _hashtag_count(state))
-
-
-def _range_text(low: int, high: int) -> str:
-    return f"{low}" if low == high else f"{low}-{high}"
+    return chars, hashtag_range(rules, _hashtag_range(state))
 
 
 def _source_text(state: ContentBlitzState) -> str:
@@ -234,8 +242,8 @@ def _prompt(state: ContentBlitzState) -> list[dict]:
         {
             "role": "user",
             "content": f"Topic: {topic['name']}\n"
-            f"Target length: {_range_text(*chars)} characters, hashtags included\n"
-            f"Hashtags: {_range_text(*tags)} hashtags\n"
+            f"Target length: {range_text(*chars)} characters, hashtags included\n"
+            f"Hashtags: {range_text(*tags)} hashtags\n"
             f"Opening line: at most {rules.max_hook_chars} characters\n"
             f"Paragraphs: at least {rules.min_paragraphs}, each at most "
             f"{rules.max_paragraph_chars} characters\n"
@@ -303,7 +311,7 @@ def _refined_latest_revision(state: ContentBlitzState) -> dict | None:
 def _checks(state: ContentBlitzState, draft: dict) -> list[CheckResult]:
     post = Post(text=draft["post"], brief_facts=_brief_facts(_topic(state)["brief"]))
     rules = get_model_config().quality.linkedin
-    return check_linkedin(post, rules, _step(state).get("length"), _hashtag_count(state))
+    return check_linkedin(post, rules, _step(state).get("length"), _hashtag_range(state))
 
 
 def _judge(state: ContentBlitzState, draft: dict) -> Review | None:

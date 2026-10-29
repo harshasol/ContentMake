@@ -135,8 +135,9 @@ def _has_keyword(text: str, keyword: str) -> bool:
     return _occurrences(_words(text), _words(keyword)) > 0
 
 
-def _range(low: float, high: float) -> str:
-    return f"{low:g}-{high:g}"
+def range_text(low: float, high: float) -> str:
+    """A target range as the chat and the writers' prompts show it: "8-12", or "5" for one."""
+    return f"{low:g}" if low == high else f"{low:g}-{high:g}"
 
 
 def keyword_density(draft: Draft, density_range: tuple[float, float]) -> CheckResult:
@@ -151,7 +152,7 @@ def keyword_density(draft: Draft, density_range: tuple[float, float]) -> CheckRe
         "passed": low <= density <= high,
         "measured": measured,
         "reason": f'"{draft.keyword}" is {measured} of {len(words)} words; '
-        f"the target is {_range(low, high)}%",
+        f"the target is {range_text(low, high)}%",
     }
 
 
@@ -161,7 +162,7 @@ def meta_description(draft: Draft, length_range: tuple[int, int]) -> CheckResult
     low, high = length_range
     problems = []
     if not low <= len(meta) <= high:
-        problems.append(f"it is {len(meta)} characters; the target is {_range(low, high)}")
+        problems.append(f"it is {len(meta)} characters; the target is {range_text(low, high)}")
     if not _has_keyword(meta, draft.keyword):
         problems.append(f'it doesn\'t contain "{draft.keyword}"')
     return {
@@ -169,7 +170,7 @@ def meta_description(draft: Draft, length_range: tuple[int, int]) -> CheckResult
         "passed": not problems,
         "measured": f"{len(meta)} chars",
         "reason": "; ".join(problems)
-        or f'{len(meta)} characters, within {_range(low, high)}, with "{draft.keyword}"',
+        or f'{len(meta)} characters, within {range_text(low, high)}, with "{draft.keyword}"',
     }
 
 
@@ -251,7 +252,7 @@ def length(draft: Draft, word_range: tuple[int, int]) -> CheckResult:
         "name": "length",
         "passed": low <= count <= high,
         "measured": f"{count:,} words",
-        "reason": f"{count} words; the target is {_range(low, high)}",
+        "reason": f"{count} words; the target is {range_text(low, high)}",
     }
 
 
@@ -357,7 +358,7 @@ def post_length(post: Post, char_range: tuple[int, int]) -> CheckResult:
         "name": "length",
         "passed": low <= count <= high,
         "measured": f"{count:,} chars",
-        "reason": f"{count} characters, hashtags included; the target is {_range(low, high)}",
+        "reason": f"{count} characters, hashtags included; the target is {range_text(low, high)}",
     }
 
 
@@ -366,7 +367,7 @@ def hashtags(post: Post, hashtag_range: tuple[int, int]) -> CheckResult:
     (`#` and letters or digits only), and there are none in the body."""
     body, tags = _split_hashtags(post.text)
     low, high = hashtag_range
-    target = f"{low}" if low == high else _range(low, high)
+    target = range_text(low, high)
     seen: set[str] = set()
     duplicates = []
     for tag in tags:
@@ -538,17 +539,22 @@ def char_range(rules: LinkedInQuality, chars: int | None = None) -> tuple[int, i
     return round(chars * (1 - LENGTH_TOLERANCE)), chars
 
 
-def hashtag_range(rules: LinkedInQuality, count: int | None = None) -> tuple[int, int]:
-    """The hashtag range: exactly the count the request sets, otherwise the configured range."""
-    return rules.hashtag_range if count is None else (count, count)
+def hashtag_range(
+    rules: LinkedInQuality, requested: tuple[int, int] | None = None
+) -> tuple[int, int]:
+    """The hashtag range: the one the request sets, otherwise the configured range."""
+    return rules.hashtag_range if requested is None else requested
 
 
 def check_linkedin(
-    post: Post, rules: LinkedInQuality, chars: int | None = None, tags: int | None = None
+    post: Post,
+    rules: LinkedInQuality,
+    chars: int | None = None,
+    tags: tuple[int, int] | None = None,
 ) -> list[CheckResult]:
     """Every LinkedIn check's result, in the order the chat lists them.
 
-    `chars` and `tags` are the length and hashtag count the request set, if any; they replace
+    `chars` and `tags` are the length and hashtag range the request set, if any; they replace
     the configured ranges.
     """
     return [

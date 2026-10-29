@@ -1,16 +1,13 @@
 """Turns a routing decision into an ordered plan of agent steps. The model only names formats."""
 
-from typing import get_args
-
 from contentblitz.workflow.formats import PIECE_FORMATS, format_of, step_label
-from contentblitz.workflow.routing import BlogTemplate, LinkedInTemplate, RoutingDecision
+from contentblitz.workflow.routing import RoutingDecision
 from contentblitz.workflow.state import ContentBlitzState, PlanStep, Topic
 
 MAX_STEPS = 6
 WRITERS = {"blog_writer", "linkedin_writer"}
 # What the request may set for a writer: they go on its step, and win over the defaults.
-STEP_OPTIONS = ("target_keyword", "template", "length", "source_piece")
-TEMPLATES = {"blog": get_args(BlogTemplate), "linkedin_post": get_args(LinkedInTemplate)}
+STEP_OPTIONS = ("template", *dict.fromkeys(o for f in PIECE_FORMATS.values() for o in f.options))
 
 
 def has_writer(steps: list[PlanStep]) -> bool:
@@ -21,18 +18,15 @@ def has_writer(steps: list[PlanStep]) -> bool:
 def writer_options(decision: RoutingDecision, fmt: str) -> dict:
     """The options the request sets for the writer of `fmt`, to copy onto its step.
 
-    A blog takes the keyword and a length in words, a LinkedIn post a length in characters and
-    the piece it builds on, and a template goes to the format it is a template of.
+    Each format takes the options its format table entry lists. A length goes to the format
+    asked for in its unit (words when no unit is given), and a template to the format it is a
+    template of.
     """
-    in_characters = decision.length_unit == "characters"
-    options = {}
-    if fmt == "blog":
-        length = None if in_characters else decision.length
-        options = {"target_keyword": decision.target_keyword, "length": length}
-    if fmt == "linkedin_post":
-        length = decision.length if in_characters else None
-        options = {"length": length, "source_piece": decision.source_piece}
-    if decision.template in TEMPLATES.get(fmt, ()):
+    spec = PIECE_FORMATS[fmt]
+    options = {o: getattr(decision, o) for o in spec.options}
+    if spec.length_unit != (decision.length_unit or "words"):
+        options.pop("length", None)
+    if decision.template in spec.templates:
         options["template"] = decision.template
     return {o: v for o, v in options.items() if v is not None}
 

@@ -27,9 +27,9 @@ Commit messages end with the `Co-Authored-By` trailer given in the session.
 ## Interfaces later features build on
 
 **Routing and plans** (#4)
-- `workflow/routing.py`, `RoutingDecision`: `intent` (`new_content` / `refine` / `chat` / `unclear`), `topic_name`, `same_topic`, `formats`, `fresh_research`, `refine_target`, `instructions`, `reply`, `clarifying_question`, `topic_answer`. The glossary avoids "subject", so use Topic terms.
+- `workflow/routing.py`, `RoutingDecision`: `intent` (`new_content` / `refine` / `chat` / `unclear`), `topic_name`, `same_topic`, `formats`, `fresh_research`, `refine_target`, `instructions`, the writer options `target_keyword` / `template` / `length` / `length_unit`, `source_piece` / `source_kind` (what a new piece builds on), `reply`, `clarifying_question`, `topic_answer`. The glossary avoids "subject", so use Topic terms.
 - **A narrower angle on the active Topic asks the Topic question.** Only a request on the same Topic runs straight away.
-- `workflow/formats.py` is the single format table. Each format maps to `FormatSpec(agent, label, kind)`. Add a new format here, not in parallel maps. Content Pieces keep the field name `kind`.
+- `workflow/formats.py` is the single format table. Each format maps to `FormatSpec(agent, label, kind, options, templates, length_unit)`: `options` are the routing fields its writer step takes, and `plan.writer_options` reads them. Add a new format here, not in parallel maps. Content Pieces keep the field name `kind`.
 - `workflow/plan.py` builds plans in code: `build_plan`, `describe_plan`, `replan`. The research-first rule (ADR 0001) lives only in `build_plan`.
 - `workflow/graph.py` runs the dispatcher loop. An agent stops the plan by returning `{"abort_reason": reason}`. A writer that fails posts an error, and the plan carries on.
 
@@ -41,12 +41,12 @@ Commit messages end with the `Co-Authored-By` trailer given in the session.
 **Research and Brief** (#5, #6)
 - `integrations/search.py` holds `configured_providers`, `missing_key_names`, `search_with_fallback` and `fetch_page`.
 - `workflow/sources.py` holds `merge_sources` and `normalise_url`.
-- `workflow/statistics.py` has `is_verified`, the number matching that LinkedIn's "grounded figures" check reuses.
+- `workflow/statistics.py` has `is_verified`, and `figures` / `is_grounded`, which LinkedIn's "grounded figures" check uses with the same number matching.
 - `workflow/report.py` holds `render_report` and `summary_line`. The Research tab and export (#23) reuse them.
 
 **Quality loop** (#19, reused by #20 and later formats)
-- `workflow/quality_loop.py`: a format plugs in as a `QualityFormat(name, draft, revise, checks, judge, finalise, failure)`, and `quality_loop(fmt)` builds the writer's node. `agents/blog_writer.py` (`BLOG = QualityFormat(...)`) is the worked example.
-- `workflow/content_checks.py` provides the `Draft` and `CheckResult` shapes and one function per check. `check_blog` composes them. A new format adds its own `check_<format>`.
+- `workflow/quality_loop.py`: a format plugs in as a `QualityFormat(name, draft, revise, checks, judge, finalise, failure)`, and `quality_loop(fmt)` builds the writer's node. `agents/blog_writer.py` (`BLOG = QualityFormat(...)`) and `agents/linkedin_writer.py` (`LINKEDIN`) are the worked examples, each with a `*_REFINEMENT` variant. `quality_text` is the Quality Score block every format's chat message ends with.
+- `workflow/content_checks.py` provides the `Draft`, `Post` and `CheckResult` shapes and one function per check. `check_blog` and `check_linkedin` compose them. A new format adds its own `check_<format>`.
 - `workflow/quality_score.py` holds `quality_score` and `comparable_points`: checks are worth 70 points and the reviewer 30.
 - `agents/quality_judge.py` is the AI reviewer, using the `quality_judge` model in `config/models.yaml`.
 

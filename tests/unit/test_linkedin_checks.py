@@ -135,8 +135,8 @@ def test_hashtag_range_comes_from_the_rules_or_the_request():
     rules = LinkedInQuality(hashtag_range=(3, 5))
     assert not check("hashtags", with_tags(TAGS), rules=rules)["passed"]
     five = with_tags("#AI #Health #MedTech #Radiology #Diagnosis")
-    assert check("hashtags", five, hashtags=5)["passed"]
-    result = check("hashtags", with_tags(TAGS), hashtags=5)
+    assert check("hashtags", five, hashtags=(5, 5))["passed"]
+    result = check("hashtags", with_tags(TAGS), hashtags=(5, 5))
     assert not result["passed"]
     assert "5" in result["reason"]
 
@@ -378,3 +378,11 @@ def test_a_brief_percentage_does_not_ground_the_bare_number():
 def test_the_hashtag_line_is_not_searched_for_figures():
     text = with_tags(f"{TAGS} #Health2030 #Top50", BODY)
     assert check("grounded figures", text, facts=FACTS)["passed"]
+
+
+def test_a_requested_hashtag_range_or_none_replaces_the_configured_range():
+    assert check("hashtags", with_tags(TAGS), hashtags=(6, 10))["passed"]
+    result = check("hashtags", with_tags(TAGS), hashtags=(0, 0))
+    assert not result["passed"]
+    assert "the target is 0" in result["reason"]
+    assert check("hashtags", BODY, hashtags=(0, 0))["passed"]

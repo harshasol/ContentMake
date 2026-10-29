@@ -35,10 +35,18 @@ def resolve_target(state: ContentBlitzState, decision: RoutingDecision) -> list[
 
 
 def resolve_source(state: ContentBlitzState, decision: RoutingDecision) -> RoutingDecision:
-    """The decision with its source piece kept only if it names an existing Content Piece."""
-    if decision.source_piece in (state.get("content_pieces") or {}):
+    """The decision with its source piece resolved on the active Topic, whose Brief the new
+    piece is written from.
+
+    As for a refine target, a named piece wins. Otherwise "that blog" is the active Topic's
+    latest piece of the kind it names. None when neither finds a piece.
+    """
+    pieces = state.get("content_pieces") or {}
+    candidates = active_topic_pieces(state)
+    if decision.source_piece in candidates:
         return decision
-    return decision.model_copy(update={"source_piece": None})
+    of_kind = [pid for pid in candidates if pieces[pid]["kind"] == decision.source_kind]
+    return decision.model_copy(update={"source_piece": of_kind[-1] if of_kind else None})
 
 
 def refine_step(state: ContentBlitzState, piece_id: str, decision: RoutingDecision) -> PlanStep:

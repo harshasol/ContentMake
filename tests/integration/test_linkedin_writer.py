@@ -718,3 +718,21 @@ def test_a_long_opening_line_is_shortened_at_a_word_for_the_title(model):
     [piece_id] = state["topics"]["topic-1"]["piece_ids"]
     title = state["content_pieces"][piece_id]["title"]
     assert title == "Hospitals that read every scan twice are finding the second reader is an AI…"
+
+
+def test_a_hashtag_range_in_the_instructions_replaces_the_default_range(model):
+    plan = [{"agent": "linkedin_writer", "instructions": "use between 3 and 5 hashtags"}]
+    _, state = run_plan(plan, {"topic-1": topic()})
+
+    assert "Hashtags: 3-5 hashtags" in prompt_of(model.calls_to("linkedin_writer")[0])
+    assert "the target is 3-5" in check_named(state, "hashtags")["reason"]
+
+
+def test_no_hashtags_in_the_instructions_asks_for_a_post_without_any(model):
+    model.reply = linkedin_draft(hashtags=[])
+    plan = [{"agent": "linkedin_writer", "instructions": "no hashtags this time"}]
+    _, state = run_plan(plan, {"topic-1": topic()})
+
+    assert "Hashtags: 0 hashtags" in prompt_of(model.calls_to("linkedin_writer")[0])
+    assert revision_of(state)["text"] == TEXT
+    assert check_named(state, "hashtags")["passed"]
