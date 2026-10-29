@@ -33,7 +33,7 @@ def load_brand_profile(state: ContentBlitzState) -> ContentBlitzState:
     """The graph's first node: loads the active Brand Profile into the state for this run.
 
     No id means Default. An id with no saved profile (it was deleted) also means Default, and
-    the first time that happens in the conversation the chat gets a one-line notice.
+    the first time that happens for that id in the conversation the chat gets a one-line notice.
     """
     profile_id = state.get("brand_profile_id")
     try:
@@ -44,12 +44,13 @@ def load_brand_profile(state: ContentBlitzState) -> ContentBlitzState:
 
 
 def _notice(state: ContentBlitzState) -> ContentBlitzState:
-    if state.get("brand_profile_fallback_noticed"):
+    profile_id = state["brand_profile_id"]
+    noticed = state.get("missing_brand_profiles_noticed") or []
+    if profile_id in noticed:
         return {}
     previous = state.get("brand_profile") or {}
-    profile_id = state["brand_profile_id"]
     name = previous["name"] if previous.get("id") == profile_id else profile_id
     return {
         "messages": [progress_message(MISSING_PROFILE.format(name=name))],
-        "brand_profile_fallback_noticed": True,
+        "missing_brand_profiles_noticed": [*noticed, profile_id],
     }

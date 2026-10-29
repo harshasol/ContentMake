@@ -29,10 +29,6 @@ image:
   quality:                       # lower quality keeps image cost down
     openai/gpt-image-1: medium
     openai/dall-e-3: standard
-  # The visual style when no Brand Profile gives one.
-  default_style: >-
-    clean, modern editorial illustration with soft natural light, a calm professional colour
-    palette and plenty of negative space
   # The placeholder card's colour (when no image model works) if the visual style gives none.
   placeholder_colour: "#4A5568"
 

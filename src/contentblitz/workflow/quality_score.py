@@ -21,7 +21,7 @@ class Review(TypedDict):
     """The AI reviewer's verdict on a draft (see agents/quality_judge.py)."""
 
     engagement: int  # 1-10
-    brand_voice: NotRequired[int]  # 1-10, only when a Brand Profile was given
+    brand_voice: NotRequired[int]  # 1-10; missing only on Reviews saved before spec #22
     suggestions: list[str]  # at most MAX_SUGGESTIONS, most important first
 
 

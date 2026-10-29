@@ -1404,6 +1404,26 @@ def test_a_deleted_profile_falls_back_to_default_with_one_notice(monkeypatch, wi
     assert send_as(graph, "and again", profile.id) == ["ok"]
 
 
+def test_each_deleted_profile_gets_its_own_notice_once(monkeypatch, with_api_key):
+    store = BrandProfileStore()
+    acme = store.create({"name": "Acme Health", "tone": ["confident"]})
+    zen = store.create({"name": "Zen Yoga", "tone": ["calm"]})
+    fake_router(monkeypatch, chat("ok"))
+    graph = build_graph()
+    send_as(graph, "hello", acme.id)
+    store.delete(acme.id)
+    send_as(graph, "hello again", acme.id)
+    send_as(graph, "switching", zen.id)
+    store.delete(zen.id)
+
+    assert send_as(graph, "still there?", zen.id) == [
+        "Brand Profile *Zen Yoga* no longer exists, so this conversation uses Default.",
+        "ok",
+    ]
+    assert send_as(graph, "and again", zen.id) == ["ok"]
+    assert send_as(graph, "back to the first", acme.id) == ["ok"]
+
+
 def test_an_unknown_profile_id_falls_back_to_default(monkeypatch, with_api_key):
     fake_router(monkeypatch, new_content("blog", same_topic=True))
     graph = build_graph()

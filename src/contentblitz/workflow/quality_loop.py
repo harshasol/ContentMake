@@ -9,6 +9,10 @@ that doesn't pass is revised: the writer changes the current draft, given the fa
 the reviewer's suggestions, at most `max_revisions` times. The loop stops at the first Attempt
 that passes; if none does, or a revise call fails, it keeps the best one so far. Attempts are
 not Revisions: finalise saves only the one it keeps, with how many revisions were used.
+
+The loop brings in the active Brand Profile (spec #22), so a format gets it for free: check
+hands the format its words to avoid, and judge gives the reviewer the profile to score brand
+voice against.
 """
 
 from collections.abc import Callable
@@ -18,6 +22,7 @@ from typing import NotRequired, TypedDict
 from langgraph.graph import END, START, StateGraph
 from langsmith import traceable
 
+from contentblitz.agents.quality_judge import review
 from contentblitz.core.config import get_model_config
 from contentblitz.workflow.active_brand_profile import active_brand_profile
 from contentblitz.workflow.content_checks import CheckResult
@@ -60,11 +65,13 @@ class QualityFormat:
     # The current draft changed to answer the feedback (see `feedback`), or None when every
     # provider failed.
     revise: Callable[[ContentBlitzState, dict, str], dict | None]
-    # The content checks' results for a draft, in the order the chat lists them.
-    checks: Callable[[ContentBlitzState, dict], list[CheckResult]]
-    # The AI reviewer's verdict on a draft, with the format's judging criteria, or None when
-    # the reviewer is unavailable.
-    judge: Callable[[ContentBlitzState, dict], Review | None]
+    # The content checks' results for a draft, in the order the chat lists them, given the
+    # active Brand Profile's words to avoid.
+    checks: Callable[[ContentBlitzState, dict, list[str]], list[CheckResult]]
+    # What the AI reviewer reads of a draft.
+    reviewed_text: Callable[[dict], str]
+    # What the reviewer judges engagement on, e.g. "its hook, flow, clarity and call to action".
+    judging_criteria: str
     # The step's update for the kept Attempt: the saved Content Piece and the chat message.
     finalise: Callable[[ContentBlitzState, Attempt], ContentBlitzState]
     # The chat message when no draft could be made. The plan carries on.
@@ -93,9 +100,10 @@ def _review_text(verdict: Review | None) -> str:
     if verdict is None:
         return "*Engagement: reviewer unavailable*"
     suggestions = "\n".join(f"- {s}" for s in verdict["suggestions"][:SUGGESTIONS_SHOWN])
-    scores = f"**Engagement:** {verdict['engagement']}/10"
-    if "brand_voice" in verdict:
-        scores += f"\n\n**Brand voice:** {verdict['brand_voice']}/10"
+    scores = (
+        f"**Engagement:** {verdict['engagement']}/10\n\n"
+        f"**Brand voice:** {verdict['brand_voice']}/10"
+    )
     return f"{scores}\n\n**Suggestions:**\n{suggestions}" if suggestions else scores
 
 
@@ -128,7 +136,9 @@ def _check_node(fmt: QualityFormat):
         if not attempts:
             return {}
         *earlier, latest = attempts
-        return {"attempts": [*earlier, {**latest, "checks": fmt.checks(state, latest["draft"])}]}
+        avoid = active_brand_profile(state).words_to_avoid
+        checks = fmt.checks(state, latest["draft"], avoid)
+        return {"attempts": [*earlier, {**latest, "checks": checks}]}
 
     return check
 
@@ -151,10 +161,11 @@ def _judge_node(fmt: QualityFormat):
         if not attempts:
             return {}
         *earlier, latest = attempts
-        review = fmt.judge(state, latest["draft"])
+        profile = active_brand_profile(state)
+        verdict = review(fmt.reviewed_text(latest["draft"]), fmt.judging_criteria, profile)
         pass_mark = get_model_config().quality.pass_mark
-        scored = quality_score(latest["checks"], review, pass_mark)
-        trace(len(attempts), scored, active_brand_profile(state).id)
+        scored = quality_score(latest["checks"], verdict, pass_mark)
+        trace(len(attempts), scored, profile.id)
         return {"attempts": [*earlier, {**latest, "quality_score": scored}]}
 
     return judge

@@ -54,7 +54,7 @@ from pydantic import BaseModel, Field
 from contentblitz.core.config import Aspect, get_model_config
 from contentblitz.integrations import llm
 from contentblitz.workflow.active_brand_profile import active_brand_profile
-from contentblitz.workflow.brand_profiles import VisualStyle
+from contentblitz.workflow.brand_profiles import describe_visual_style
 from contentblitz.workflow.formats import PIECE_FORMATS, ImageUse
 from contentblitz.workflow.image_files import (
     PLACEHOLDER_LABEL,
@@ -146,17 +146,16 @@ def _for_piece(piece: ContentPiece | None) -> str:
 def optimise_prompt(
     request: str,
     topic: Topic,
-    visual_style: str | None = None,
+    visual_style: str,
     piece: ContentPiece | None = None,
 ) -> ImagePrompt:
     """The marketer's request as a detailed image prompt, ending with the no-text rule.
 
-    `visual_style` is the Brand Profile's when there is one; otherwise the default from config.
+    `visual_style` is the active Brand Profile's (`describe_visual_style`; Default's included).
     `piece` is the Content Piece the image is for, when the request names one: its title and
     kind go into the prompt, and its kind sets the intended use. Raises when every provider
     fails or the reply never fits.
     """
-    style = visual_style or get_model_config().image.default_style
     messages = [
         {"role": "system", "content": SYSTEM_PROMPT},
         {
@@ -164,7 +163,7 @@ def optimise_prompt(
             "content": f"Request: {request}\n"
             f"Topic: {topic['name']}\n"
             f"{_for_piece(piece)}"
-            f"Visual style: {style}\n\n"
+            f"Visual style: {visual_style}\n\n"
             f"Research Brief: {_brief_text(topic)}",
         },
     ]
@@ -184,18 +183,6 @@ def asked_aspect(request: str) -> Aspect | None:
     """The shape a request names in so many words ("a square image"), if any."""
     words = re.findall(r"[a-z]+", request.lower())
     return next((aspect for aspect in get_args(Aspect) if aspect in words), None)
-
-
-def describe_visual_style(style: VisualStyle) -> str:
-    """A Brand Profile's visual style as the optimiser reads it: its colours (primary first),
-    mood, medium and notes, leaving out any that are empty."""
-    parts = [
-        f"colours {', '.join(style.colours)} (primary {style.colours[0]})" if style.colours else "",
-        f"mood: {style.mood}" if style.mood else "",
-        f"medium: {style.medium}",
-        f"notes: {style.notes}" if style.notes else "",
-    ]
-    return "; ".join(part for part in parts if part)
 
 
 def make_image(
@@ -414,8 +401,7 @@ def _make_image(state: ContentBlitzState, job: _ImageJob) -> ContentBlitzState:
     if job.kept_aspect and not optimised.aspect:
         optimised = optimised.model_copy(update={"aspect": job.kept_aspect})
     try:
-        primary = style.colours[0] if style.colours else None
-        image = make_image(optimised.prompt, aspect_of(optimised), topic["name"], primary)
+        image = make_image(optimised.prompt, aspect_of(optimised), topic["name"], style.primary)
         revision = image_revision(
             job.topic_id,
             job.piece_id,

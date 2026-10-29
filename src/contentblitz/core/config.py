@@ -118,22 +118,16 @@ DEFAULT_IMAGE_SIZES: dict[Aspect, str] = {
     "portrait": "1024x1536",
 }
 DEFAULT_IMAGE_QUALITY = "medium"
-DEFAULT_VISUAL_STYLE = (
-    "clean, modern editorial illustration with soft natural light, a calm professional "
-    "colour palette and plenty of negative space"
-)
 DEFAULT_PLACEHOLDER_COLOUR = "#4A5568"  # a neutral slate
 HEX_COLOUR = r"#[0-9A-Fa-f]{6}\b"  # a "#RRGGBB" colour
 
 
 class ImageOptions(AgentModels):
-    """The image models in fallback order, the size each makes for an aspect, its quality, the
-    visual style used when no Brand Profile gives one, and the placeholder card's colour when
-    the visual style gives none. See spec #21."""
+    """The image models in fallback order, the size each makes for an aspect, its quality, and
+    the placeholder card's colour when the Brand Profile's visual style gives none. See spec #21."""
 
     sizes: dict[str, dict[Aspect, str]] = {}  # model -> aspect -> "WIDTHxHEIGHT"
     quality: dict[str, str] = {}  # model -> the quality it is asked for
-    default_style: str = DEFAULT_VISUAL_STYLE
     placeholder_colour: str = Field(DEFAULT_PLACEHOLDER_COLOUR, pattern=f"^{HEX_COLOUR}$")
 
     def size_for(self, model: str, aspect: Aspect) -> str:

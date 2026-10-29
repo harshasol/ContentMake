@@ -24,16 +24,14 @@ from datetime import UTC, datetime
 
 from pydantic import BaseModel, Field
 
-from contentblitz.agents.quality_judge import judged_profile, review
 from contentblitz.core.config import get_model_config
 from contentblitz.integrations import llm
-from contentblitz.workflow.active_brand_profile import active_brand_profile
 from contentblitz.workflow.brand_voice import brand_voice
 from contentblitz.workflow.content_checks import CheckResult, Draft, check_blog, word_range
 from contentblitz.workflow.plan import current_step
 from contentblitz.workflow.progress import progress_message
 from contentblitz.workflow.quality_loop import Attempt, QualityFormat, quality_loop, quality_text
-from contentblitz.workflow.quality_score import QualityScore, Review
+from contentblitz.workflow.quality_score import QualityScore
 from contentblitz.workflow.report import citation
 from contentblitz.workflow.routing import Template
 from contentblitz.workflow.state import (
@@ -265,7 +263,7 @@ def _refined_latest_revision(state: ContentBlitzState) -> dict | None:
     return _redraft(state, _latest_revision(state), REFINE_PROMPT.format(instructions=instructions))
 
 
-def _checks(state: ContentBlitzState, draft: dict) -> list[CheckResult]:
+def _checks(state: ContentBlitzState, draft: dict, avoid: list[str]) -> list[CheckResult]:
     brief = _topic(state)["brief"]
     checked = Draft(
         body=draft["body"],
@@ -274,13 +272,11 @@ def _checks(state: ContentBlitzState, draft: dict) -> list[CheckResult]:
         source_numbers=[s["number"] for s in brief["sources"]],
     )
     words = _step(state).get("length")
-    avoid = active_brand_profile(state).words_to_avoid
     return check_blog(checked, get_model_config().quality.blog, words, avoid)
 
 
-def _judge(state: ContentBlitzState, draft: dict) -> Review | None:
-    text = f"Meta description: {draft['meta_description']}\n\nBlog post:\n\n{draft['body']}"
-    return review(text, JUDGING_CRITERIA, judged_profile(active_brand_profile(state)))
+def _reviewed_text(draft: dict) -> str:
+    return f"Meta description: {draft['meta_description']}\n\nBlog post:\n\n{draft['body']}"
 
 
 def _chat_text(draft: dict, quality: QualityScore) -> str:
@@ -346,7 +342,8 @@ BLOG = QualityFormat(
     draft=_first_draft,
     revise=_revise,
     checks=_checks,
-    judge=_judge,
+    reviewed_text=_reviewed_text,
+    judging_criteria=JUDGING_CRITERIA,
     finalise=_finalise,
     failure=_failure,
 )
