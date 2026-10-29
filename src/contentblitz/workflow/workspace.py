@@ -17,6 +17,7 @@ from contentblitz.workflow.brand_profiles import DEFAULT_PROFILE_ID
 from contentblitz.workflow.export import (
     REPORT_EXPORTS,
     Export,
+    export_bundle,
     export_piece,
     export_report,
     formats,
@@ -290,6 +291,38 @@ class Workspace:
         self.graph.update_state(
             self._config, add_revision(state, piece_id, revision), as_node="query_handler"
         )
+
+    def topic_bundle(self) -> Export | None:
+        """The active Topic as one zip (#69): the latest Revision of every piece in its main
+        format, plus the research report (Markdown) when there is research. A piece whose image
+        file is missing is left out. None when nothing would go in, so the UI offers no bundle."""
+        state = self._state()
+        topic = active_topic(state)
+        if not topic:
+            return None
+        exports: list[Export] = []
+        for piece_id in topic.get("piece_ids", []):
+            piece = self.piece(piece_id)
+            if piece is None:
+                continue
+            number = len(piece.revisions)
+            try:
+                exports.append(
+                    export_piece(
+                        piece.topic,
+                        piece.kind,
+                        piece.title,
+                        piece.revision(number),
+                        number,
+                        formats(piece.kind)[0],
+                    )
+                )
+            except (OSError, KeyError):
+                continue
+        research = self.research()
+        if research is not None:
+            exports.append(export_report(research.topic_name, research.report, REPORT_EXPORTS[0]))
+        return export_bundle(topic["name"], exports) if exports else None
 
     def send(self, text: str, brand_profile_id: str = DEFAULT_PROFILE_ID) -> None:
         """Send the marketer's message and run the workflow; read the replies with `messages()`."""
