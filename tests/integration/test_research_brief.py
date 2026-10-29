@@ -13,6 +13,7 @@ import pytest
 from langchain_core.messages import HumanMessage
 from langsmith import tracing_context
 
+from contentblitz.core.config import get_model_config
 from contentblitz.integrations import llm
 from contentblitz.workflow.graph import build_graph
 
@@ -638,9 +639,19 @@ def litellm_reply(content, model="gpt-4o-2024-08-06"):
 
 
 def test_the_brief_records_the_model_that_answered_not_just_the_configured_one(monkeypatch):
-    """A fallback answered: LiteLLM's reply names it, and the Brief records it."""
-    reply = litellm_reply(json.dumps(draft()), model="claude-sonnet-4-20250514")
-    monkeypatch.setattr(llm.litellm, "completion", lambda **kwargs: reply)
+    """The primary failed and a fallback answered: the Brief records the fallback."""
+    reply = litellm_reply(json.dumps(draft()))
+    get_model_config().agents["content_strategist"].models = [
+        "openai/gpt-4o",
+        "claude-sonnet-4-20250514",
+    ]
+
+    def completion(**kwargs):
+        if kwargs["model"] == "openai/gpt-4o":
+            raise RuntimeError("rate limited")
+        return reply
+
+    monkeypatch.setattr(llm.litellm, "completion", completion)
     _, state = run_plan(RESEARCH_ONLY, {"topic-1": topic()})
 
     assert state["topics"]["topic-1"]["brief"]["model"] == "claude-sonnet-4-20250514"
