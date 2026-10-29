@@ -13,6 +13,7 @@ from langchain_core.messages import AnyMessage, HumanMessage
 
 from contentblitz.core.config import ModelConfig, Settings, get_model_config, get_settings
 from contentblitz.workflow.brand_profiles import DEFAULT_PROFILE_ID
+from contentblitz.workflow.hand_edit import hand_edit_revision
 from contentblitz.workflow.report import render_report
 from contentblitz.workflow.state import (
     ContentBlitzState,
@@ -21,7 +22,7 @@ from contentblitz.workflow.state import (
     ResearchBrief,
     Revision,
 )
-from contentblitz.workflow.topics import active_topic, find_revision
+from contentblitz.workflow.topics import active_topic, add_revision, find_revision
 
 
 @dataclass(frozen=True)
@@ -219,6 +220,19 @@ class Workspace:
         topic = (state.get("topics") or {}).get(piece["topic_id"]) or {}
         return PieceDetail(
             piece_id, piece["kind"], piece["title"], topic.get("name", ""), piece["revisions"]
+        )
+
+    def edit(self, piece_id: str, text: str, meta_description: str | None = None) -> None:
+        """Save a hand edit of a blog (`text` and `meta_description`) or LinkedIn post (`text`)
+        as a new *hand edit* Revision (#63). Its Quality Score is the rule checks re-run, with
+        the reviewer's scores carried over as *not re-reviewed*. KeyError for an unknown piece,
+        ValueError for an image."""
+        state = self._state()
+        if piece_id not in (state.get("content_pieces") or {}):
+            raise KeyError(piece_id)
+        revision = hand_edit_revision(state, piece_id, text, meta_description)
+        self.graph.update_state(
+            self._config, add_revision(state, piece_id, revision), as_node="query_handler"
         )
 
     def send(self, text: str, brand_profile_id: str = DEFAULT_PROFILE_ID) -> None:

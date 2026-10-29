@@ -88,6 +88,7 @@ def _quality_score(score: QualityScore) -> None:
     scores = [f"Engagement {review['engagement']}/10"]
     if "brand_voice" in review:
         scores.append(f"Brand voice {review['brand_voice']}/10")
-    st.markdown("**AI reviewer:** " + " · ".join(scores))
+    note = " (not re-reviewed)" if score.get("not_re_reviewed") else ""
+    st.markdown(f"**AI reviewer{note}:** " + " · ".join(scores))
     for suggestion in review["suggestions"]:
         st.markdown(f"- {suggestion}")
