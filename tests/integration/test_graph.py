@@ -1616,3 +1616,53 @@ def test_research_the_brief_and_routing_get_no_profile_fields(monkeypatch, with_
     assert acme_brief == default_brief
     assert acme_calls == default_calls
     assert not any(field in text for text in acme_calls for field in ACME_FIELDS)
+
+
+def refresh(graph, start=None, thread="t1"):
+    """Run the *refresh research* command: no chat message goes in."""
+    command = {"command": "refresh_research", **(start or {})}
+    result = graph.invoke(command, config=config(thread))
+    return [m.content for m in result.get("messages", [])]
+
+
+def test_refresh_research_plans_fresh_research_then_the_strategist_with_no_routing_call(
+    monkeypatch, with_api_key, fake_web_search
+):
+    router = fake_router(monkeypatch, lambda _: pytest.fail("routing was called"))
+
+    replies = refresh(build_graph(), researched_topic())
+
+    assert replies[:2] == ["Plan for *AI in healthcare*: research → brief", RESEARCH]
+    assert len(replies) == 3 and replies[2].startswith("# AI in healthcare")
+    assert router.calls == []
+    assert fake_web_search.fresh == [True, True, True]
+
+
+def test_refresh_research_needs_no_model_api_key(monkeypatch):
+    monkeypatch.setattr(qh, "get_settings", lambda: Settings(_env_file=None, openai_api_key=None))
+    fake_router(monkeypatch, lambda _: pytest.fail("routing was called"))
+
+    replies = refresh(build_graph(), researched_topic())
+
+    assert replies[1] == RESEARCH and len(replies) == 3
+
+
+def test_refresh_research_without_an_active_topic_is_refused_and_runs_no_steps(
+    monkeypatch, with_api_key, fake_web_search
+):
+    router = fake_router(monkeypatch, lambda _: pytest.fail("routing was called"))
+
+    replies = refresh(build_graph())
+
+    assert replies == [qh.NO_TOPIC_TO_REFRESH]
+    assert router.calls == [] and fake_web_search.fresh == []
+
+
+def test_the_refresh_command_is_spent_after_its_run(monkeypatch, with_api_key):
+    fake_router(monkeypatch, chat("hi"))
+    graph = build_graph()
+    refresh(graph, researched_topic())
+
+    replies = send(graph, "hello")
+
+    assert replies == ["hi"]
