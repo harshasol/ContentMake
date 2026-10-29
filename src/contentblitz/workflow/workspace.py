@@ -13,7 +13,7 @@ from langchain_core.messages import AnyMessage, HumanMessage
 
 from contentblitz.workflow.brand_profiles import DEFAULT_PROFILE_ID
 from contentblitz.workflow.state import ContentBlitzState, ImageMetadata
-from contentblitz.workflow.topics import find_revision
+from contentblitz.workflow.topics import active_topic, find_revision
 
 
 @dataclass(frozen=True)
@@ -57,6 +57,18 @@ class Workspace:
         """Send the marketer's message and run the workflow; read the replies with `messages()`."""
         self.graph.invoke(
             {"messages": [HumanMessage(content=text)], "brand_profile_id": brand_profile_id},
+            config=self._config,
+        )
+
+    def has_active_topic(self) -> bool:
+        """Whether the conversation has an active Topic (the Refresh research button needs one)."""
+        return active_topic(self._state()) is not None
+
+    def refresh_research(self, brand_profile_id: str = DEFAULT_PROFILE_ID) -> None:
+        """Run the *refresh research* command on the active Topic: a direct command to the
+        workflow, not a chat message. Without an active Topic the chat says so."""
+        self.graph.invoke(
+            {"command": "refresh_research", "brand_profile_id": brand_profile_id},
             config=self._config,
         )
 

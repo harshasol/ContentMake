@@ -112,6 +112,8 @@ NO_RESEARCH_YET = (
     'for example "research AI in healthcare".'
 )
 
+NO_TOPIC_TO_REFRESH = "There's no active Topic to refresh. Ask me to research a Topic first."
+
 _ROLES = {"human": "user", "ai": "assistant"}
 
 
@@ -216,7 +218,19 @@ def _answer_topic_question(
     return _run_plan(replan(pending["plan"], new_topic), topic_update)
 
 
+def _refresh_research(state: ContentBlitzState) -> ContentBlitzState:
+    """The *refresh research* command: fresh research, then the Content Strategist, on the
+    active Topic, with no routing call."""
+    topic = active_topic(state)
+    if not topic:
+        return _reply(NO_TOPIC_TO_REFRESH, command=None)
+    plan = build_plan(RoutingDecision(intent="new_content", fresh_research=True), topic)
+    return {**_run_plan(plan, _current_topic(state)), "command": None}
+
+
 def query_handler(state: ContentBlitzState) -> ContentBlitzState:
+    if state.get("command") == "refresh_research":
+        return _refresh_research(state)
     if not get_settings().openai_api_key:
         return _reply(f"(No model API key configured, echoing) {state['messages'][-1].content}")
 

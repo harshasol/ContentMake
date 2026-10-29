@@ -80,7 +80,7 @@ with st.sidebar:
     st.title("⚡ ContentBlitz")
     brand_profile_picker()
     st.selectbox("Topic", ["New Topic"], disabled=True)
-    st.button("Refresh research", disabled=True)
+    refresh_slot = st.container()  # filled after the chat runs, so it sees a new Topic
 
 chat_tab, dashboard_tab, research_tab, brands_tab, usage_tab = st.tabs(
     ["Chat", "Content Dashboard", "Research", "Brand Profiles", "Usage"]
@@ -109,3 +109,9 @@ with brands_tab:
 
 with usage_tab:
     st.info("Token usage, cost and fallback events per agent will appear here.")
+
+with refresh_slot:
+    if st.button("Refresh research", disabled=not workspace.has_active_topic()):
+        with st.spinner("Refreshing research..."):
+            workspace.refresh_research(st.session_state.brand_profile_id)
+        st.rerun()  # the Chat tab shows the run's messages like any other run

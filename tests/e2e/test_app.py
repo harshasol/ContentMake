@@ -221,3 +221,41 @@ def test_opening_the_url_with_a_thread_id_shows_the_same_conversation(monkeypatc
 
     assert reloaded.query_params["thread"] == thread
     assert chat_messages(reloaded) == [("user", "hello"), ("assistant", "ok")]
+
+
+def test_refresh_research_is_disabled_without_an_active_topic(monkeypatch):
+    st.cache_resource.clear()
+    monkeypatch.setattr(qh, "get_settings", lambda: Settings(_env_file=None, openai_api_key=None))
+
+    at = AppTest.from_file(APP, default_timeout=30).run()
+
+    assert at.sidebar.button[0].label == "Refresh research"
+    assert at.sidebar.button[0].disabled
+
+
+def test_refresh_research_button_runs_the_command_and_its_messages_appear_in_the_chat(
+    monkeypatch,
+):
+    def handler(state):
+        if state.get("command") == "refresh_research":
+            return {"messages": [AIMessage(content="refreshed")], "command": None}
+        return {
+            "messages": [AIMessage(content="ok")],
+            "topics": {"topic-1": {"name": "AI", "brief": None, "piece_ids": []}},
+            "active_topic_id": "topic-1",
+        }
+
+    st.cache_resource.clear()
+    monkeypatch.setattr(graph, "query_handler", handler)
+    at = AppTest.from_file(APP, default_timeout=30).run()
+    at.chat_input[0].set_value("research AI").run()
+    assert not at.sidebar.button[0].disabled
+
+    at.sidebar.button[0].click().run()
+
+    assert not at.exception
+    assert chat_messages(at) == [
+        ("user", "research AI"),
+        ("assistant", "ok"),
+        ("assistant", "refreshed"),
+    ]
