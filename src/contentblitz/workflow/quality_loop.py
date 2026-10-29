@@ -19,6 +19,7 @@ from langgraph.graph import END, START, StateGraph
 from langsmith import traceable
 
 from contentblitz.core.config import get_model_config
+from contentblitz.workflow.active_brand_profile import active_brand_profile
 from contentblitz.workflow.content_checks import CheckResult
 from contentblitz.workflow.progress import progress_message
 from contentblitz.workflow.quality_score import (
@@ -92,8 +93,10 @@ def _review_text(verdict: Review | None) -> str:
     if verdict is None:
         return "*Engagement: reviewer unavailable*"
     suggestions = "\n".join(f"- {s}" for s in verdict["suggestions"][:SUGGESTIONS_SHOWN])
-    engagement = f"**Engagement:** {verdict['engagement']}/10"
-    return f"{engagement}\n\n**Suggestions:**\n{suggestions}" if suggestions else engagement
+    scores = f"**Engagement:** {verdict['engagement']}/10"
+    if "brand_voice" in verdict:
+        scores += f"\n\n**Brand voice:** {verdict['brand_voice']}/10"
+    return f"{scores}\n\n**Suggestions:**\n{suggestions}" if suggestions else scores
 
 
 def quality_text(quality: QualityScore) -> str:
@@ -132,9 +135,15 @@ def _check_node(fmt: QualityFormat):
 
 def _judge_node(fmt: QualityFormat):
     @traceable(name=f"{fmt.name} attempt")
-    def trace(attempt: int, quality: QualityScore) -> dict:
-        """Puts an Attempt's check results, reviewer scores and Quality Score in the trace."""
-        return {"attempt": attempt, "quality_score": quality}
+    def trace(attempt: int, quality: QualityScore, brand_profile_id: str) -> dict:
+        """Puts an Attempt's check results, reviewer scores and Quality Score in the trace,
+        with the active Brand Profile's id and the brand-voice score (spec #22)."""
+        return {
+            "attempt": attempt,
+            "quality_score": quality,
+            "brand_profile_id": brand_profile_id,
+            "brand_voice": (quality["review"] or {}).get("brand_voice"),
+        }
 
     def judge(state: LoopState) -> LoopState:
         """Asks the reviewer for its verdict on the latest Attempt, and gives it its score."""
@@ -145,7 +154,7 @@ def _judge_node(fmt: QualityFormat):
         review = fmt.judge(state, latest["draft"])
         pass_mark = get_model_config().quality.pass_mark
         scored = quality_score(latest["checks"], review, pass_mark)
-        trace(len(attempts), scored)
+        trace(len(attempts), scored, active_brand_profile(state).id)
         return {"attempts": [*earlier, {**latest, "quality_score": scored}]}
 
     return judge

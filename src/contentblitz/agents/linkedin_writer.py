@@ -28,9 +28,10 @@ from datetime import UTC, datetime
 
 from pydantic import BaseModel, Field
 
-from contentblitz.agents.quality_judge import review
+from contentblitz.agents.quality_judge import judged_profile, review
 from contentblitz.core.config import get_model_config
 from contentblitz.integrations import llm
+from contentblitz.workflow.active_brand_profile import active_brand_profile
 from contentblitz.workflow.content_checks import (
     CheckResult,
     Post,
@@ -311,11 +312,13 @@ def _refined_latest_revision(state: ContentBlitzState) -> dict | None:
 def _checks(state: ContentBlitzState, draft: dict) -> list[CheckResult]:
     post = Post(text=draft["post"], brief_facts=_brief_facts(_topic(state)["brief"]))
     rules = get_model_config().quality.linkedin
-    return check_linkedin(post, rules, _step(state).get("length"), _hashtag_range(state))
+    avoid = active_brand_profile(state).words_to_avoid
+    return check_linkedin(post, rules, _step(state).get("length"), _hashtag_range(state), avoid)
 
 
 def _judge(state: ContentBlitzState, draft: dict) -> Review | None:
-    return review(f"LinkedIn post:\n\n{draft['post']}", JUDGING_CRITERIA)
+    profile = judged_profile(active_brand_profile(state))
+    return review(f"LinkedIn post:\n\n{draft['post']}", JUDGING_CRITERIA, profile)
 
 
 def _fenced(post: str) -> str:
