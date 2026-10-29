@@ -11,6 +11,7 @@ from typing import Any, get_args
 
 import streamlit as st
 
+from contentblitz.agents.voice_learner import LearnVoiceError, learn_voice
 from contentblitz.workflow.brand_profiles import (
     DEFAULT_PROFILE_ID,
     BrandProfile,
@@ -72,6 +73,7 @@ def _open_form(profile_id: str | None, fields: Mapping[str, Any]) -> None:
     st.session_state.bp_editing = profile_id
     st.session_state.bp_form_open = True
     st.session_state.bp_error = None
+    st.session_state.bp_voice_error = None
     fill_form(fields)
 
 
@@ -120,6 +122,18 @@ def _save() -> None:
     _close()
 
 
+def _learn_voice() -> None:
+    """Fill the voice description and tone descriptors from the writing sample, unsaved. A
+    sample of the wrong length, or a failed call, shows a message and changes nothing."""
+    try:
+        learned = learn_voice(st.session_state.get("bp_writing_sample", ""))
+    except LearnVoiceError as error:
+        st.session_state.bp_voice_error = str(error)
+        return
+    st.session_state.bp_voice_error = None
+    fill_form(learned.model_dump())
+
+
 def _close() -> None:
     st.session_state.bp_form_open = False
     st.session_state.bp_editing = None
@@ -157,6 +171,10 @@ def _form() -> None:
     _field_error("words_to_avoid")
     st.text_area("Writing sample (optional)", key="bp_writing_sample")
     _field_error("writing_sample")
+    st.button("Learn voice", key="bp_learn_voice", on_click=_learn_voice)
+    if st.session_state.get("bp_voice_error"):
+        st.error(st.session_state.bp_voice_error)
+    st.text_area("Learned voice description (optional)", key="bp_voice_description")
     _field_error("voice_description")
     st.text_input("Colours (hex codes, primary first)", key="bp_colours")
     _field_error("colours")
