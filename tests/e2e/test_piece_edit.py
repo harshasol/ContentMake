@@ -80,7 +80,8 @@ def test_editing_and_saving_a_blog_adds_a_revision_with_the_edit(monkeypatch):
     assert "Edited **text**" in " ".join(m.value for m in tab.markdown)
     assert "Meta description: Edited meta" in " ".join(c.value for c in tab.caption)
     assert "not re-reviewed" in " ".join(m.value for m in tab.markdown)
-    assert [b.label for b in tab.button] == ["Edit"]  # back out of the form
+    assert "Edit" in [b.label for b in tab.button]  # back out of the form
+    assert "Save" not in [b.label for b in tab.button]
 
 
 def test_cancelling_an_edit_adds_no_revision(monkeypatch):
@@ -109,4 +110,4 @@ def test_a_linkedin_post_is_edited_as_plain_text_without_a_meta_description(monk
 def test_an_image_offers_no_edit(monkeypatch):
     at = _opened(monkeypatch, kind="image")
 
-    assert [b.label for b in at.tabs[1].button] == []
+    assert "Edit" not in [b.label for b in at.tabs[1].button]

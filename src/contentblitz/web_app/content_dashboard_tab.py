@@ -3,7 +3,7 @@
 import pandas as pd
 import streamlit as st
 
-from contentblitz.web_app.piece_detail import piece_detail
+from contentblitz.web_app.piece_detail import piece_detail, revision_history
 from contentblitz.web_app.piece_edit import piece_edit
 from contentblitz.workflow.formats import PIECE_FORMATS
 from contentblitz.workflow.workspace import PieceRow, TopicPieces, Workspace
@@ -53,5 +53,5 @@ def _open_piece(workspace: Workspace, groups: list[TopicPieces]) -> None:
         key="open_piece",
     )
     if piece_id and (piece := workspace.piece(piece_id)):
-        piece_detail(piece)
+        piece_detail(piece, revision_history(piece))
         piece_edit(workspace, piece)

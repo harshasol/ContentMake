@@ -7,6 +7,7 @@ Revision's text (and a blog's meta description). Save goes through `Workspace.ed
 
 import streamlit as st
 
+from contentblitz.web_app.piece_detail import viewed_key
 from contentblitz.workflow.workspace import PieceDetail, Workspace
 
 EDITING = "editing_piece"  # session state: the id of the piece being edited, if any
@@ -33,6 +34,7 @@ def piece_edit(workspace: Workspace, piece: PieceDetail) -> None:
         cancelled = cancel.form_submit_button("Cancel")
     if saved:
         workspace.edit(piece.piece_id, text, meta)
+        st.session_state.pop(viewed_key(piece.piece_id), None)  # show the new latest Revision
     if saved or cancelled:
         del st.session_state[EDITING]
         st.rerun()
