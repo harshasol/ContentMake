@@ -23,3 +23,11 @@ def clear_config_caches():
     yield
     config.get_settings.cache_clear()
     config.get_model_config.cache_clear()
+
+
+@pytest.fixture(autouse=True)
+def isolated_model_cache(monkeypatch):
+    """LiteLLM's cache is a process global; every test starts with none and leaves none, so the
+    per-test data folder (and so cache folder) is what keeps caches apart."""
+    monkeypatch.setattr(llm.litellm, "cache", None)
+    monkeypatch.setattr(llm, "_cache_key", None)
