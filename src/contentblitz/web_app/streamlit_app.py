@@ -48,6 +48,33 @@ def brand_profile_picker() -> None:
     st.markdown(f"Writing as **{shown.name}**")
 
 
+NEW_TOPIC = "New Topic"
+
+
+def topic_selector() -> None:
+    """The sidebar's Topic selector: the conversation's Topics plus "New Topic" (#66).
+
+    Choosing one sets the active Topic through the workspace in an `on_change` callback, which
+    runs before the rest of the script, so the Refresh button and the tabs see it on the same
+    rerun. The widget is reset to the active Topic on every run, because a chat request can
+    change it.
+    """
+    names = dict(workspace.topics())
+    active = workspace.active_topic_id()
+    st.session_state.topic_selector = active if active in names else NEW_TOPIC
+    st.selectbox(
+        "Topic",
+        [NEW_TOPIC, *names],
+        format_func=lambda topic_id: names.get(topic_id, NEW_TOPIC),
+        key="topic_selector",
+        on_change=lambda: workspace.select_topic(
+            None
+            if st.session_state.topic_selector == NEW_TOPIC
+            else st.session_state.topic_selector
+        ),
+    )
+
+
 def show_message(message: ChatMessage) -> None:
     """A chat message; an image message also shows the image from its file (provider URLs
     expire), a caption, and the optimised prompt."""
@@ -82,7 +109,7 @@ workspace = connect_workspace()
 with st.sidebar:
     st.title("⚡ ContentBlitz")
     brand_profile_picker()
-    st.selectbox("Topic", ["New Topic"], disabled=True)
+    topic_selector()
     refresh_slot = st.container()  # filled after the chat runs, so it sees a new Topic
 
 chat_tab, dashboard_tab, research_tab, brands_tab, usage_tab, settings_pane = st.tabs(
@@ -94,12 +121,14 @@ with chat_tab:
         show_message(message)
 
     if prompt := st.chat_input("What would you like to create?"):
-        shown = len(workspace.messages())
+        shown, topics_before = len(workspace.messages()), workspace.topics()
         show_message(ChatMessage("user", prompt))
         with st.spinner("Thinking..."):
             workspace.send(prompt, st.session_state.brand_profile_id)
         for message in workspace.messages()[shown + 1 :]:
             show_message(message)
+        if workspace.topics() != topics_before:
+            st.rerun()  # the sidebar selector was drawn before this run made a Topic
 
 with dashboard_tab:
     content_dashboard_tab(workspace)

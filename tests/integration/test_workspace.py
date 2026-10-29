@@ -6,7 +6,7 @@ The model is faked at the LLM integration module and the data folder is a tempor
 import io
 
 import pytest
-from langchain_core.messages import AIMessage
+from langchain_core.messages import AIMessage, HumanMessage
 from PIL import Image
 
 from contentblitz.agents import query_handler as qh
@@ -319,3 +319,73 @@ def test_an_empty_conversation_has_nothing_to_list():
 
     assert workspace.dashboard(all_topics=False) == []
     assert workspace.dashboard(all_topics=True) == []
+
+
+def _two_topics(graph, thread="t1"):
+    topics = {
+        "topic-1": {"name": "AI in healthcare", "research": None, "brief": None, "piece_ids": []},
+        "topic-2": {"name": "Yoga", "research": None, "brief": None, "piece_ids": []},
+    }
+    graph.update_state(
+        {"configurable": {"thread_id": thread}},
+        {"topics": topics, "active_topic_id": "topic-1"},
+        as_node="query_handler",
+    )
+
+
+def test_the_topic_selector_lists_every_topic_and_the_active_one():
+    graph = build_graph()
+    workspace = Workspace(graph, "t1")
+    assert workspace.topics() == [] and workspace.active_topic_id() is None
+    _two_topics(graph)
+
+    assert workspace.topics() == [("topic-1", "AI in healthcare"), ("topic-2", "Yoga")]
+    assert workspace.active_topic_id() == "topic-1"
+
+
+def test_choosing_a_topic_makes_it_active_in_the_conversation_state():
+    graph = build_graph()
+    _two_topics(graph)
+
+    Workspace(graph, "t1").select_topic("topic-2")
+
+    assert Workspace(graph, "t1").active_topic_id() == "topic-2"
+
+
+def test_choosing_new_topic_clears_the_active_topic():
+    graph = build_graph()
+    _two_topics(graph)
+    workspace = Workspace(graph, "t1")
+
+    workspace.select_topic(None)
+
+    assert workspace.active_topic_id() is None
+    assert [name for _, name in workspace.topics()] == ["AI in healthcare", "Yoga"]
+    assert workspace.research() is None
+
+
+def test_an_unknown_topic_is_rejected():
+    graph = build_graph()
+    _two_topics(graph)
+
+    with pytest.raises(KeyError):
+        Workspace(graph, "t1").select_topic("topic-9")
+
+
+def test_the_next_content_request_after_new_topic_makes_a_topic_without_a_question(monkeypatch):
+    monkeypatch.setattr(qh, "get_settings", lambda: Settings(_env_file=None, openai_api_key="x"))
+    decision = RoutingDecision(
+        intent="new_content", topic_name="AI in radiology", same_topic=False, formats=["blog"]
+    )
+    monkeypatch.setattr(qh.llm, "complete_structured", lambda agent, messages, schema: decision)
+    graph = build_graph()
+    _two_topics(graph)
+    workspace = Workspace(graph, "t1")
+    workspace.select_topic(None)
+    state = {**workspace._state(), "messages": [HumanMessage(content="a blog on AI in radiology")]}
+
+    update = qh.query_handler(state)
+
+    assert update.get("pending_topic_question") is None
+    assert [s["agent"] for s in update["plan"]] == ["research", "content_strategist", "blog_writer"]
+    assert update["topics"][update["active_topic_id"]]["name"] == "AI in radiology"

@@ -169,6 +169,25 @@ class Workspace:
             if topic and topic.get("piece_ids")
         ]
 
+    def topics(self) -> list[tuple[str, str]]:
+        """The conversation's Topics as (id, name), in the order they were made (#66)."""
+        topics = self._state().get("topics") or {}
+        return [(topic_id, topic["name"]) for topic_id, topic in topics.items()]
+
+    def active_topic_id(self) -> str | None:
+        return self._state().get("active_topic_id")
+
+    def select_topic(self, topic_id: str | None) -> None:
+        """Make a Topic active, or clear the active Topic with None ("New Topic"), so the next
+        content request creates a Topic without the new-or-continue question (#66)."""
+        if topic_id is not None and topic_id not in (self._state().get("topics") or {}):
+            raise KeyError(topic_id)
+        self.graph.update_state(
+            self._config,
+            {"active_topic_id": topic_id, "pending_topic_question": None},
+            as_node="query_handler",
+        )
+
     def send(self, text: str, brand_profile_id: str = DEFAULT_PROFILE_ID) -> None:
         """Send the marketer's message and run the workflow; read the replies with `messages()`."""
         self.graph.invoke(
