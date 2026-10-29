@@ -13,7 +13,9 @@ from typing import Any, Literal
 
 from langchain_core.messages import AnyMessage, HumanMessage
 
+from contentblitz.core import call_context
 from contentblitz.core.config import ModelConfig, Settings, get_model_config, get_settings
+from contentblitz.core.usage import get_ledger
 from contentblitz.workflow.brand_profiles import DEFAULT_PROFILE_ID
 from contentblitz.workflow.export import (
     REPORT_EXPORTS,
@@ -309,24 +311,33 @@ class Workspace:
             exports.append(export_report(research.topic_name, research.report, REPORT_EXPORTS[0]))
         return export_bundle(topic["name"], exports) if exports else None
 
-    def send(self, text: str, brand_profile_id: str = DEFAULT_PROFILE_ID) -> None:
-        """Send the marketer's message and run the workflow; read the replies with `messages()`."""
-        self.graph.invoke(
-            {"messages": [HumanMessage(content=text)], "brand_profile_id": brand_profile_id},
-            config=self._config,
+    def send(self, text: str, brand_profile_id: str = DEFAULT_PROFILE_ID) -> str:
+        """Send the marketer's message and run the workflow; read the replies with `messages()`.
+        Returns the run id, which `run_caption` and the usage ledger know the run by."""
+        return self._run(
+            {"messages": [HumanMessage(content=text)], "brand_profile_id": brand_profile_id}
         )
+
+    def _run(self, inputs: dict) -> str:
+        """One workflow invocation is one Run: every call it makes is tagged with its id."""
+        with call_context.run(self.thread_id) as run_id:
+            self.graph.invoke(inputs, config=self._config)
+        return run_id
+
+    def run_caption(self, run_id: str) -> str | None:
+        """The run's cost and tokens as a one-line caption, read from the usage ledger. It is not
+        a chat message, so it is never stored in the conversation or sent to a model."""
+        return get_ledger().caption(run_id)
 
     def has_active_topic(self) -> bool:
         """Whether the conversation has an active Topic (the Refresh research button needs one)."""
         return active_topic(self._state()) is not None
 
-    def refresh_research(self, brand_profile_id: str = DEFAULT_PROFILE_ID) -> None:
+    def refresh_research(self, brand_profile_id: str = DEFAULT_PROFILE_ID) -> str:
         """Run the *refresh research* command on the active Topic: a direct command to the
-        workflow, not a chat message. Without an active Topic the chat says so."""
-        self.graph.invoke(
-            {"command": "refresh_research", "brand_profile_id": brand_profile_id},
-            config=self._config,
-        )
+        workflow, not a chat message. Without an active Topic the chat says so. Returns the run
+        id."""
+        return self._run({"command": "refresh_research", "brand_profile_id": brand_profile_id})
 
 
 def _piece_detail(state: ContentBlitzState, piece_id: str) -> PieceDetail | None:

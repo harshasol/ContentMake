@@ -45,3 +45,13 @@ _Avoid_: Grade, rating, eval score
 **Brand Profile**:
 The user-defined description of a brand's name, audience, tone, words to avoid, sample content and visual style, which every Content Piece must follow. A user may keep several; exactly one is active per conversation, chosen in the sidebar, and each Revision records the one it was made with. A built-in, read-only **Default** profile always exists, and a new conversation starts with it.
 _Avoid_: Brand voice settings, persona, style guide
+
+### Usage
+
+**Run**:
+One workflow invocation for one chat message or command (such as *refresh research*). It has a run id, and every paid call it makes is tagged with it, so its cost and tokens can be read back from the usage ledger.
+_Avoid_: Job, session, request
+
+**Usage ledger**:
+The append-only record of every paid call (model completions, images, searches): which run, conversation and agent made it, the model or provider that answered, tokens, cost, latency, and whether it was cached or a fallback. The Usage tab and the per-run caption both read it.
+_Avoid_: Usage log, cost tracker, billing
