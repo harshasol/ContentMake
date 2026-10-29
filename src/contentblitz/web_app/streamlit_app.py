@@ -5,6 +5,7 @@ from pathlib import Path
 import streamlit as st
 
 from contentblitz.web_app.brand_profiles_tab import brand_profiles_tab
+from contentblitz.web_app.content_dashboard_tab import content_dashboard_tab
 from contentblitz.workflow.brand_profiles import DEFAULT_PROFILE_ID, BrandProfileStore
 from contentblitz.workflow.graph import build_graph
 from contentblitz.workflow.image_files import image_caption
@@ -99,7 +100,7 @@ with chat_tab:
             show_message(message)
 
 with dashboard_tab:
-    st.info("Content Pieces will appear here, grouped by Topic.")
+    content_dashboard_tab(workspace)
 
 with research_tab:
     st.info("The active Topic's Research Brief and Sources will appear here.")
