@@ -1,4 +1,5 @@
 import io
+from datetime import UTC, datetime
 
 import pytest
 from langchain_core.messages import HumanMessage
@@ -10,6 +11,7 @@ from contentblitz.integrations import llm, search
 from contentblitz.integrations.llm import StructuredOutputError
 from contentblitz.integrations.search import SearchResult
 from contentblitz.workflow import graph as workflow
+from contentblitz.workflow.brand_profiles import BrandProfileStore
 from contentblitz.workflow.graph import build_graph
 from contentblitz.workflow.routing import RoutingDecision
 from contentblitz.workflow.topics import add_piece
@@ -675,8 +677,12 @@ def test_each_run_starts_a_fresh_plan(monkeypatch, with_api_key):
     assert (state["intent"], state["plan"], state["completed_steps"]) == ("chat", [], [])
 
 
+DEFAULT_RECORD = {"id": "default", "name": "Default", "updated_at": "2026-10-29T00:00:00+00:00"}
+DRAFT = {"text": "draft", "brand_profile": DEFAULT_RECORD}
+
+
 def piece(kind, title, topic_id="topic-1"):
-    return {"kind": kind, "topic_id": topic_id, "title": title, "revisions": [{"text": "draft"}]}
+    return {"kind": kind, "topic_id": topic_id, "title": title, "revisions": [DRAFT]}
 
 
 def with_pieces(**pieces):
@@ -848,7 +854,7 @@ def test_the_requests_keyword_template_and_length_reach_a_blog_refine_step(
         {"agent": "blog_writer", "target": "piece-1", "instructions": instructions, **BLOG_OPTIONS}
     ]
     draft, refined = state["content_pieces"]["piece-1"]["revisions"]
-    assert draft == {"text": "draft"}
+    assert draft == DRAFT
     assert (refined["origin"], refined["target_keyword"], refined["template"]) == (
         "refinement",
         "AI diagnostics",
@@ -1275,3 +1281,131 @@ def test_a_length_in_words_reaches_only_the_blog_step(monkeypatch, with_api_key)
         {"agent": "blog_writer", "instructions": None, "length": 600},
         {"agent": "linkedin_writer", "instructions": None},
     ]
+
+
+# --- The active Brand Profile (#52) ----------------------------------------------------------
+
+
+def saved_profile(name="Acme Health", **fields):
+    return BrandProfileStore().create({"name": name, "tone": ["confident"], **fields})
+
+
+def send_as(graph, text, brand_profile_id, start=None, thread="t1"):
+    """Send one message with the sidebar's active Brand Profile id; return that run's replies."""
+    before = len(graph.get_state(config(thread)).values.get("messages", []))
+    inputs = {
+        "messages": [HumanMessage(content=text)],
+        "brand_profile_id": brand_profile_id,
+        **(start or {}),
+    }
+    result = graph.invoke(inputs, config(thread))
+    return [m.content for m in result["messages"][before + 1 :]]
+
+
+def recorded_profiles(state):
+    """The Brand Profile name each Revision recorded, by Content Piece id."""
+    return {
+        piece_id: [r["brand_profile"]["name"] for r in piece["revisions"]]
+        for piece_id, piece in state["content_pieces"].items()
+    }
+
+
+def test_a_new_blog_revision_records_the_active_brand_profile(monkeypatch, with_api_key):
+    profile = saved_profile()
+    fake_router(monkeypatch, new_content("blog", same_topic=True))
+    graph = build_graph()
+    send_as(graph, "a blog", profile.id, researched_topic())
+
+    [revision] = graph.get_state(config()).values["content_pieces"]["piece-1"]["revisions"]
+    assert revision["brand_profile"] == {
+        "id": "acme-health",
+        "name": "Acme Health",
+        "updated_at": profile.updated_at.isoformat(),
+    }
+
+
+def test_a_new_conversations_runs_use_the_default_brand_profile(monkeypatch, with_api_key):
+    fake_router(monkeypatch, new_content("blog", same_topic=True))
+    graph = build_graph()
+    send_with(graph, "a blog", researched_topic())
+
+    state = graph.get_state(config()).values
+    assert state["brand_profile"]["id"] == "default"
+    assert recorded_profiles(state) == {"piece-1": ["Default"]}
+
+
+def test_linkedin_and_image_revisions_record_the_active_brand_profile(monkeypatch, with_api_key):
+    profile = saved_profile()
+    fake_router(monkeypatch, new_content("linkedin_post", "image", same_topic=True))
+    graph = build_graph()
+    send_as(graph, "a LinkedIn post and an image", profile.id, researched_topic())
+
+    state = graph.get_state(config()).values
+    assert recorded_profiles(state) == {"piece-1": ["Acme Health"], "piece-2": ["Acme Health"]}
+
+
+def test_switching_profiles_records_the_new_one_on_refinements_only(monkeypatch, with_api_key):
+    acme, zen = saved_profile(), saved_profile("Zen Yoga")
+    decisions = iter(
+        [
+            new_content("blog", "linkedin_post", "image", same_topic=True),
+            refine("punchier", target="piece-1"),
+            refine("punchier", target="piece-2"),
+            refine("brighter", target="piece-3"),
+        ]
+    )
+    fake_router(monkeypatch, lambda text: next(decisions)(text))
+    graph = build_graph()
+    send_as(graph, "a blog, a post and an image", acme.id, researched_topic())
+    for text in ["refine the blog", "refine the post", "refine the image"]:
+        send_as(graph, text, zen.id)
+
+    assert recorded_profiles(graph.get_state(config()).values) == {
+        "piece-1": ["Acme Health", "Zen Yoga"],
+        "piece-2": ["Acme Health", "Zen Yoga"],
+        "piece-3": ["Acme Health", "Zen Yoga"],
+    }
+
+
+def test_editing_a_profile_leaves_existing_revisions_unchanged(monkeypatch, with_api_key):
+    times = iter([datetime(2026, 11, 1, tzinfo=UTC), datetime(2026, 11, 2, tzinfo=UTC)])
+    store = BrandProfileStore(clock=lambda: next(times))
+    profile = store.create({"name": "Acme Health", "tone": ["confident"]})
+    decisions = iter([new_content("blog", same_topic=True), refine("again", target="piece-1")])
+    fake_router(monkeypatch, lambda text: next(decisions)(text))
+    graph = build_graph()
+    send_as(graph, "a blog", profile.id, researched_topic())
+    store.update(profile.id, {**profile.fields(), "name": "Acme Care"})
+    send_as(graph, "refine it", profile.id)
+
+    revisions = graph.get_state(config()).values["content_pieces"]["piece-1"]["revisions"]
+    assert [r["brand_profile"] for r in revisions] == [
+        {"id": "acme-health", "name": "Acme Health", "updated_at": "2026-11-01T00:00:00+00:00"},
+        {"id": "acme-health", "name": "Acme Care", "updated_at": "2026-11-02T00:00:00+00:00"},
+    ]
+
+
+def test_a_deleted_profile_falls_back_to_default_with_one_notice(monkeypatch, with_api_key):
+    profile = saved_profile()
+    fake_router(monkeypatch, chat("ok"))
+    graph = build_graph()
+    send_as(graph, "hello", profile.id)
+    BrandProfileStore().delete(profile.id)
+
+    assert send_as(graph, "hello again", profile.id) == [
+        "Brand Profile *Acme Health* no longer exists, so this conversation uses Default.",
+        "ok",
+    ]
+    assert graph.get_state(config()).values["brand_profile"]["id"] == "default"
+    assert send_as(graph, "and again", profile.id) == ["ok"]
+
+
+def test_an_unknown_profile_id_falls_back_to_default(monkeypatch, with_api_key):
+    fake_router(monkeypatch, new_content("blog", same_topic=True))
+    graph = build_graph()
+    replies = send_as(graph, "a blog", "never-saved", researched_topic())
+
+    assert replies[0] == (
+        "Brand Profile *never-saved* no longer exists, so this conversation uses Default."
+    )
+    assert recorded_profiles(graph.get_state(config()).values) == {"piece-1": ["Default"]}

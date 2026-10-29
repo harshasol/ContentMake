@@ -110,6 +110,14 @@ class ImageMetadata(TypedDict):
     source_piece: NotRequired[str]  # the Content Piece it was made for ("an image for the blog")
 
 
+class BrandProfileRecord(TypedDict):
+    """The Brand Profile a Revision was made with, as it was then. See spec #22."""
+
+    id: str
+    name: str
+    updated_at: str  # ISO 8601, UTC: which version of the profile
+
+
 class Revision(TypedDict):
     """One saved version of a Content Piece's text; refinements start from the latest.
 
@@ -119,6 +127,9 @@ class Revision(TypedDict):
     text: str  # Markdown for a blog, plain text for a LinkedIn post, the alt text for an image
     origin: RevisionOrigin
     created_at: str  # ISO 8601, UTC
+    # The conversation's active Brand Profile when it was made; `add_piece` and `add_revision`
+    # record it, so editing or switching a profile later never changes it.
+    brand_profile: NotRequired[BrandProfileRecord]
     # A blog's SEO fields, and the template any writer used; the keyword and template carry over
     # to its refinements.
     meta_description: NotRequired[str]
@@ -173,3 +184,10 @@ class ContentBlitzState(TypedDict, total=False):
     # Set by an agent to stop the plan: the dispatcher posts it and runs no more steps.
     abort_reason: str | None
     pending_topic_question: PendingTopicQuestion | None
+    # Conversation input from the sidebar: the active Brand Profile's id (None means Default).
+    brand_profile_id: str | None
+    # The active Brand Profile, loaded through the store at the start of each run as a
+    # `BrandProfile.model_dump(mode="json")`. Read it with `active_brand_profile(state)`.
+    brand_profile: dict
+    # Set once the conversation has been told its active Brand Profile was deleted.
+    brand_profile_fallback_noticed: bool

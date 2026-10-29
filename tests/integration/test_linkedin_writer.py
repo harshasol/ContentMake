@@ -14,6 +14,9 @@ from langsmith import tracing_context
 from contentblitz.integrations import llm
 from contentblitz.workflow.graph import build_graph
 
+# What a Revision records when the conversation's active Brand Profile is Default (#52).
+DEFAULT_RECORD = {"id": "default", "name": "Default", "updated_at": "2026-10-29T00:00:00+00:00"}
+
 BRIEF_CREATED_AT = "2026-10-20T10:00:00+00:00"
 
 
@@ -215,7 +218,12 @@ def test_the_post_is_saved_as_a_linkedin_content_piece_with_its_first_revision(m
     assert datetime.fromisoformat(created_at) > datetime.fromisoformat(BRIEF_CREATED_AT)
     quality = revision.pop("quality_score")
     assert quality["checks"]
-    assert revision == {"text": POST, "template": "industry insights", "origin": "draft"}
+    assert revision == {
+        "text": POST,
+        "template": "industry insights",
+        "origin": "draft",
+        "brand_profile": DEFAULT_RECORD,
+    }
 
 
 def test_hashtags_without_a_hash_are_given_one_and_end_the_post_on_one_line(model):
@@ -597,7 +605,12 @@ def test_a_refined_post_is_added_as_a_new_refinement_revision_on_the_same_piece(
     quality = refined.pop("quality_score")
     assert (quality["passed"], quality["revisions_used"]) == (True, 0)
     # The template carries over from the last Revision that recorded one.
-    assert refined == {"text": POST, "template": "tips", "origin": "refinement"}
+    assert refined == {
+        "text": POST,
+        "template": "tips",
+        "origin": "refinement",
+        "brand_profile": DEFAULT_RECORD,
+    }
     assert reply.startswith(f"```text\n{POST}\n```")
     after_post = plain(reply.split("```")[-1])
     assert "Characters: 1,341" in after_post and "Quality Score: 94/100" in after_post
