@@ -112,3 +112,38 @@ def test_the_pass_mark_defaults_to_7_and_is_read_from_config(tmp_path):
     assert load_model_config(path).quality.pass_mark == 7
     path.write_text(f"agents:\n{agents}{image_and_search}quality:\n  pass_mark: 8\n")
     assert load_model_config(path).quality.pass_mark == 8
+
+
+def config_with_quality(tmp_path, quality=""):
+    path = tmp_path / "models.yaml"
+    agents = "".join(f"  {a}:\n    models: [{MODELS}]\n" for a in AGENT_NAMES)
+    image_and_search = "image:\n  models: [openai/gpt-image-1]\nsearch:\n  providers: [tavily]\n"
+    path.write_text(f"agents:\n{agents}{image_and_search}{quality}")
+    return load_model_config(path)
+
+
+def test_linkedin_ranges_default_and_are_shipped_in_config(tmp_path):
+    for config in [config_with_quality(tmp_path), load_model_config(DEFAULT_CONFIG_PATH)]:
+        linkedin = config.quality.linkedin
+        assert linkedin.char_range == (1300, 1600)
+        assert linkedin.hashtag_range == (8, 12)
+        assert linkedin.max_hook_chars == 150
+        assert linkedin.min_paragraphs == 4
+        assert linkedin.max_paragraph_chars == 300
+        assert {"comment", "share", "follow", "thoughts", "let me know", "dm", "link in"} <= set(
+            linkedin.cta_phrases
+        )
+
+
+def test_linkedin_ranges_are_read_from_config(tmp_path):
+    quality = (
+        "quality:\n  linkedin:\n    char_range: [1000, 1400]\n    hashtag_range: [3, 5]\n"
+        "    max_hook_chars: 120\n    min_paragraphs: 3\n    max_paragraph_chars: 250\n"
+        "    cta_phrases: [register, sign up]\n"
+    )
+    linkedin = config_with_quality(tmp_path, quality).quality.linkedin
+    assert linkedin.char_range == (1000, 1400)
+    assert linkedin.hashtag_range == (3, 5)
+    assert (linkedin.max_hook_chars, linkedin.min_paragraphs) == (120, 3)
+    assert linkedin.max_paragraph_chars == 250
+    assert linkedin.cta_phrases == ["register", "sign up"]

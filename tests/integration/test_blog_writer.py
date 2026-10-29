@@ -112,7 +112,7 @@ class FakeModel:
 
     The blog writer gets `reply` and the reviewer gets `verdict`; an exception is raised. Either
     may be a list, one per Attempt: the nth call to that agent gets the nth item, and the last
-    item repeats. Other agents (the LinkedIn Writer is still a stub) aren't expected to call.
+    item repeats.
     """
 
     def __init__(self, reply, verdict):
@@ -419,18 +419,18 @@ def test_the_writer_model_is_given_the_whole_brief_keywords_templates_length_and
 )
 def test_a_failed_draft_posts_an_error_saves_nothing_and_the_plan_carries_on(model, failure):
     model.reply = failure
-    plan = [*BLOG, {"agent": "linkedin_writer", "instructions": None}]
+    plan = [*BLOG, {"agent": "image_generator", "instructions": None}]
     replies, state = run_plan(plan, {"topic-1": topic()})
 
     assert replies == [
         "I couldn't write the blog on *AI in healthcare*: the model didn't give a usable reply. "
         "The rest of the plan carries on, so ask again to retry the blog.",
-        "LinkedIn Post Writer: done (stub).",
+        "Image Generation Agent: done (stub).",
     ]
     assert state["topics"]["topic-1"]["piece_ids"] == []
     assert not state.get("content_pieces")
     assert not state["abort_reason"]
-    assert [s["agent"] for s in state["completed_steps"]] == ["blog_writer", "linkedin_writer"]
+    assert [s["agent"] for s in state["completed_steps"]] == ["blog_writer", "image_generator"]
 
 
 def test_a_first_draft_that_passes_is_finalised_with_no_revisions_used(model):

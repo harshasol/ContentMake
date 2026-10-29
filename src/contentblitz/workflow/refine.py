@@ -1,7 +1,7 @@
 """Resolves which Content Piece a refine request targets, and plans its one refine step."""
 
 from contentblitz.workflow.formats import PIECE_FORMATS
-from contentblitz.workflow.plan import blog_options
+from contentblitz.workflow.plan import writer_options
 from contentblitz.workflow.routing import RoutingDecision
 from contentblitz.workflow.state import ContentBlitzState, PlanStep
 from contentblitz.workflow.topics import active_topic
@@ -34,18 +34,31 @@ def resolve_target(state: ContentBlitzState, decision: RoutingDecision) -> list[
     return [pid for pid in active_topic_pieces(state) if pieces[pid]["kind"] in kinds]
 
 
+def resolve_source(state: ContentBlitzState, decision: RoutingDecision) -> RoutingDecision:
+    """The decision with its source piece resolved on the active Topic, whose Brief the new
+    piece is written from.
+
+    As for a refine target, a named piece wins. Otherwise "that blog" is the active Topic's
+    latest piece of the kind it names. None when neither finds a piece.
+    """
+    pieces = state.get("content_pieces") or {}
+    candidates = active_topic_pieces(state)
+    if decision.source_piece in candidates:
+        return decision
+    of_kind = [pid for pid in candidates if pieces[pid]["kind"] == decision.source_kind]
+    return decision.model_copy(update={"source_piece": of_kind[-1] if of_kind else None})
+
+
 def refine_step(state: ContentBlitzState, piece_id: str, decision: RoutingDecision) -> PlanStep:
-    """The one step that refines `piece_id`. A blog's also gets the request's blog options, so
-    a refinement can change its keyword, template or length."""
+    """The one step that refines `piece_id`. It also gets the request's options for the piece's
+    format, so a refinement can change, say, its template."""
     kind = state["content_pieces"][piece_id]["kind"]
     step: PlanStep = {
         "agent": PIECE_FORMATS[kind].agent,
         "target": piece_id,
         "instructions": decision.instructions,
     }
-    if kind == "blog":
-        step |= blog_options(decision)
-    return step
+    return step | writer_options(decision, kind)
 
 
 def _label(state: ContentBlitzState, piece_id: str) -> str:

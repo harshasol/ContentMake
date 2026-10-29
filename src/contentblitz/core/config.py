@@ -62,10 +62,39 @@ class BlogQuality(BaseModel):
     min_citations: int = 3  # fewest distinct Sources cited
 
 
+CTA_PHRASES = (
+    "comment",
+    "share",
+    "follow",
+    "thoughts",
+    "let me know",
+    "dm",
+    "link in",
+    "repost",
+    "tag someone",
+    "join",
+    "sign up",
+    "register",
+)
+
+
+class LinkedInQuality(BaseModel):
+    """The rules a LinkedIn post is written and checked against."""
+
+    char_range: tuple[int, int] = (1300, 1600)  # the whole post, hashtags included
+    hashtag_range: tuple[int, int] = (8, 12)
+    max_hook_chars: int = 150  # the first line, which shows before "...see more"
+    min_paragraphs: int = 4  # separated by blank lines, not counting the hashtag line
+    max_paragraph_chars: int = 300
+    # The last paragraph is a call to action if it ends with a question or has one of these.
+    cta_phrases: list[str] = Field(default_factory=lambda: list(CTA_PHRASES))
+
+
 class QualityOptions(BaseModel):
     max_revisions: int = 3
     pass_mark: float = 7  # the reviewer's average score (1-10) a draft needs to pass
     blog: BlogQuality = BlogQuality()
+    linkedin: LinkedInQuality = LinkedInQuality()
 
 
 class SearchOptions(BaseModel):

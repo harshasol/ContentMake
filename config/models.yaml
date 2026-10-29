@@ -43,3 +43,12 @@ quality:
     meta_length_range: [150, 160]  # meta description length, in characters
     max_grade: 10                  # highest Flesch-Kincaid grade level
     min_citations: 3               # fewest distinct Sources cited
+  linkedin:
+    char_range: [1300, 1600]       # the whole post's length, hashtags included, in characters
+    hashtag_range: [8, 12]         # hashtags in the closing hashtag line
+    max_hook_chars: 150            # the first line, which shows before "...see more"
+    min_paragraphs: 4              # separated by blank lines, not counting the hashtag line
+    max_paragraph_chars: 300
+    cta_phrases:                   # a closing paragraph with one of these (or a question) is a call to action
+      [comment, share, follow, thoughts, let me know, dm, link in, repost, tag someone, join,
+       sign up, register]

@@ -6,8 +6,8 @@ from contentblitz.workflow.state import ContentBlitzState, PlanStep, Topic
 
 MAX_STEPS = 6
 WRITERS = {"blog_writer", "linkedin_writer"}
-# What the request may set for the blog: they go on the blog step, and win over the defaults.
-BLOG_OPTIONS = ("target_keyword", "template", "length")
+# What the request may set for a writer: they go on its step, and win over the defaults.
+STEP_OPTIONS = ("template", *dict.fromkeys(o for f in PIECE_FORMATS.values() for o in f.options))
 
 
 def has_writer(steps: list[PlanStep]) -> bool:
@@ -15,16 +15,25 @@ def has_writer(steps: list[PlanStep]) -> bool:
     return any(step["agent"] in WRITERS for step in steps)
 
 
-def blog_options(decision: RoutingDecision) -> dict:
-    """The blog options the request sets, to copy onto a blog step."""
-    return {o: v for o in BLOG_OPTIONS if (v := getattr(decision, o)) is not None}
+def writer_options(decision: RoutingDecision, fmt: str) -> dict:
+    """The options the request sets for the writer of `fmt`, to copy onto its step.
+
+    Each format takes the options its format table entry lists. A length goes to the format
+    asked for in its unit (words when no unit is given), and a template to the format it is a
+    template of.
+    """
+    spec = PIECE_FORMATS[fmt]
+    options = {o: getattr(decision, o) for o in spec.options}
+    if spec.length_unit != (decision.length_unit or "words"):
+        options.pop("length", None)
+    if decision.template in spec.templates:
+        options["template"] = decision.template
+    return {o: v for o, v in options.items() if v is not None}
 
 
 def _writer_step(decision: RoutingDecision, fmt: str) -> PlanStep:
     step: PlanStep = {"agent": PIECE_FORMATS[fmt].agent, "instructions": decision.instructions}
-    if fmt == "blog":
-        step |= blog_options(decision)
-    return step
+    return step | writer_options(decision, fmt)
 
 
 def build_plan(decision: RoutingDecision, topic: Topic | None) -> list[PlanStep]:
@@ -60,20 +69,16 @@ def build_plan(decision: RoutingDecision, topic: Topic | None) -> list[PlanStep]
 def replan(plan: list[PlanStep], topic: Topic | None) -> list[PlanStep]:
     """Rebuild a held plan for another Topic, applying build_plan's rules afresh.
 
-    Instructions, the fresh research flag and the blog's options carry over to the new plan.
+    Instructions, the fresh research flag and each writer's options carry over to the new plan.
     """
     formats = [f for s in plan if (f := format_of(s["agent"]))]
     instructions = next((s.get("instructions") for s in plan if s.get("instructions")), None)
     fresh = any(s.get("fresh") for s in plan)
-    blog = next((s for s in plan if s["agent"] == "blog_writer"), {})
     decision = RoutingDecision(
-        intent="new_content",
-        formats=formats,
-        instructions=instructions,
-        fresh_research=fresh,
-        **{o: blog[o] for o in BLOG_OPTIONS if o in blog},
+        intent="new_content", formats=formats, instructions=instructions, fresh_research=fresh
     )
-    return build_plan(decision, topic)
+    options = {s["agent"]: {o: s[o] for o in STEP_OPTIONS if o in s} for s in plan}
+    return [step | options.get(step["agent"], {}) for step in build_plan(decision, topic)]
 
 
 def describe_plan(plan: list[PlanStep], topic_name: str) -> str:

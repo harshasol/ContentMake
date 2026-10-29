@@ -29,6 +29,8 @@ from contentblitz.workflow.quality_score import (
 )
 from contentblitz.workflow.state import ContentBlitzState
 
+SUGGESTIONS_SHOWN = 3
+
 
 class Attempt(TypedDict):
     """One draft inside the loop, as the format shapes it, and how it measured up."""
@@ -84,6 +86,28 @@ def feedback(attempt: Attempt) -> str:
     if suggestions:
         parts.append("The reviewer suggests:\n" + "\n".join(suggestions))
     return "\n\n".join(parts)
+
+
+def _review_text(verdict: Review | None) -> str:
+    if verdict is None:
+        return "*Engagement: reviewer unavailable*"
+    suggestions = "\n".join(f"- {s}" for s in verdict["suggestions"][:SUGGESTIONS_SHOWN])
+    engagement = f"**Engagement:** {verdict['engagement']}/10"
+    return f"{engagement}\n\n**Suggestions:**\n{suggestions}" if suggestions else engagement
+
+
+def quality_text(quality: QualityScore) -> str:
+    """The Quality Score block every format's chat message ends with: the score, each check
+    with its measured value, the revisions used, and the reviewer's verdict."""
+    checks = "\n".join(
+        f"- {c['name']} {c['measured']} {'✓' if c['passed'] else '✗'}" for c in quality["checks"]
+    )
+    max_revisions = get_model_config().quality.max_revisions
+    return (
+        f"**Quality Score:** {quality['score']}/100\n\n{checks}\n\n"
+        f"**Automatic revisions:** {quality['revisions_used']} of {max_revisions}\n\n"
+        f"{_review_text(quality['review'])}"
+    )
 
 
 def _draft_node(fmt: QualityFormat):
