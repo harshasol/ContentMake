@@ -12,7 +12,8 @@ from contentblitz.workflow.state import ResearchBrief, Source, Statistic
 VERIFIED_NOTE = "*Verified: the number appears in a cited Source's text.*"
 
 
-def _date(iso: str) -> str:
+def display_date(iso: str) -> str:
+    """An ISO timestamp as the marketer reads it, e.g. `28 October 2026`."""
     when = datetime.fromisoformat(iso)
     return f"{when.day} {when:%B %Y}"
 
@@ -78,12 +79,12 @@ def render_report(topic_name: str, brief: ResearchBrief) -> str:
     angles = "\n".join(f"- **{a['title']}**: {a['hook']}" for a in brief["angles"])
     source_list = "\n".join(
         f"{s['number']}. [{s['title']}]({s['url']}), {s['site']}, "
-        f"retrieved {_date(s['retrieved_at'])}"
+        f"retrieved {display_date(s['retrieved_at'])}"
         for s in brief["sources"]
     )
     sections = [
         f"# {topic_name}",
-        f"*Research gathered on {_date(brief['research_gathered_at'])}.*",
+        f"*Research gathered on {display_date(brief['research_gathered_at'])}.*",
         f"## Summary\n\n{brief['summary']}",
         f"## Key findings\n\n{findings}",
         f"## Statistics\n\n{_statistics(brief['statistics'], sources)}",
