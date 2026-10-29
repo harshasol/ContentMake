@@ -5,6 +5,7 @@ state read and write. The Streamlit app only calls it and never reads graph stat
 UI stays thin and every action can be tested against the real graph.
 """
 
+import shutil
 import uuid
 from dataclasses import dataclass
 from datetime import UTC, datetime
@@ -13,7 +14,7 @@ from typing import Any, Literal
 
 from langchain_core.messages import AnyMessage, HumanMessage
 
-from contentblitz.core import call_context, tracing
+from contentblitz.core import cache, call_context, tracing
 from contentblitz.core.config import ModelConfig, Settings, get_model_config, get_settings
 from contentblitz.core.usage import (
     Breakdown,
@@ -22,6 +23,8 @@ from contentblitz.core.usage import (
     Totals,
     get_ledger,
 )
+from contentblitz.integrations import llm, search_cache
+from contentblitz.workflow import brief_cache
 from contentblitz.workflow.brand_profiles import DEFAULT_PROFILE_ID
 from contentblitz.workflow.export import (
     REPORT_EXPORTS,
@@ -181,6 +184,17 @@ class Workspace:
         if not topic or not topic.get("brief"):
             return None
         return Research(topic["name"], topic["brief"], render_report(topic["name"], topic["brief"]))
+
+    def clear_cache(self) -> None:
+        """Empty the model response, search, page text and Research Brief caches (spec #24).
+
+        Open handles are closed first, then the folders are deleted; each cache reopens on its
+        next use. The usage ledger is not touched."""
+        llm.reset_cache()
+        search_cache.close_all()
+        brief_cache.close_all()
+        for folder in cache.cache_dirs():
+            shutil.rmtree(folder, ignore_errors=True)
 
     def configuration(
         self, settings: Settings | None = None, config: ModelConfig | None = None
