@@ -107,6 +107,7 @@ class ImageMetadata(TypedDict):
     provider_url_temporary: bool  # provider links expire: the file is the copy to keep
     placeholder: bool
     fallbacks: list[str]  # the image models tried and failed before this one
+    source_piece: NotRequired[str]  # the Content Piece it was made for ("an image for the blog")
 
 
 class Revision(TypedDict):
@@ -150,6 +151,7 @@ class PlanStep(TypedDict):
     # in characters, the most it may have.
     length: NotRequired[int]
     # On a LinkedIn step: the Content Piece the post builds on ("turn that blog into a post").
+    # On an image step: the Content Piece the image is for ("an image for the blog").
     source_piece: NotRequired[str]
 
 

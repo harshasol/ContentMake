@@ -38,7 +38,8 @@ class RoutingDecision(BaseModel):
     source_piece: str | None = Field(
         None,
         description="For new_content: the id of the Content Piece the new one builds on, only "
-        "if the request points at one ('turn that blog into a LinkedIn post').",
+        "if the request points at one ('turn that blog into a LinkedIn post', 'an image for "
+        "the blog').",
     )
     source_kind: PieceKind | None = Field(
         None, description="For new_content: the kind of that piece ('that blog' → 'blog')."
