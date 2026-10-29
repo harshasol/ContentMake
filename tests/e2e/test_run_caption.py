@@ -39,7 +39,7 @@ def test_after_a_run_the_chat_tab_shows_its_cost_and_tokens_as_a_caption(monkeyp
     at.chat_input[0].set_value("hi").run()
 
     assert not at.exception
-    assert [c.value for c in at.caption] == ["This run: $0.043 · 12.4k tokens"]
+    assert [c.value for c in at.tabs[0].caption] == ["This run: $0.043 · 12.4k tokens"]
     # The caption is not a chat message, so it is never sent to the models.
     assert [(m.name, m.markdown[0].value) for m in at.chat_message] == [
         ("user", "hi"),
@@ -57,5 +57,5 @@ def test_a_second_run_gets_its_own_caption(monkeypatch):
     at.chat_input[0].set_value("one").run()
     at.chat_input[0].set_value("two").run()
 
-    assert [c.value for c in at.caption] == ["This run: $0.043 · 12.4k tokens"]
+    assert [c.value for c in at.tabs[0].caption] == ["This run: $0.043 · 12.4k tokens"]
     assert len({e.run_id for e in get_ledger().events}) == 2

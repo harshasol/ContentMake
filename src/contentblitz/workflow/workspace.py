@@ -15,7 +15,13 @@ from langchain_core.messages import AnyMessage, HumanMessage
 
 from contentblitz.core import call_context
 from contentblitz.core.config import ModelConfig, Settings, get_model_config, get_settings
-from contentblitz.core.usage import get_ledger
+from contentblitz.core.usage import (
+    Breakdown,
+    FallbackRow,
+    RunRow,
+    Totals,
+    get_ledger,
+)
 from contentblitz.workflow.brand_profiles import DEFAULT_PROFILE_ID
 from contentblitz.workflow.export import (
     REPORT_EXPORTS,
@@ -92,6 +98,25 @@ class PieceRow:
     title: str
     revision: int
     score: int | None
+
+
+@dataclass(frozen=True)
+class UsageView:
+    """What the Usage tab shows (#73), read from the usage ledger."""
+
+    conversation: Totals
+    today: Totals
+    all_time: Totals
+    cache_hit_rate: float | None
+    by_agent: list[Breakdown]
+    by_model: list[Breakdown]
+    recent_runs: list[RunRow]
+    fallback_events: list[FallbackRow]
+    searches: list[Breakdown]
+
+    @property
+    def fallbacks(self) -> int:
+        return len(self.fallback_events)
 
 
 @dataclass(frozen=True)
@@ -315,14 +340,35 @@ class Workspace:
         """Send the marketer's message and run the workflow; read the replies with `messages()`.
         Returns the run id, which `run_caption` and the usage ledger know the run by."""
         return self._run(
-            {"messages": [HumanMessage(content=text)], "brand_profile_id": brand_profile_id}
+            {"messages": [HumanMessage(content=text)], "brand_profile_id": brand_profile_id},
+            request=text,
         )
 
-    def _run(self, inputs: dict) -> str:
-        """One workflow invocation is one Run: every call it makes is tagged with its id."""
+    def _run(self, inputs: dict, request: str) -> str:
+        """One workflow invocation is one Run: every call it makes is tagged with its id, and the
+        ledger keeps what was asked, for the Usage tab's recent runs."""
         with call_context.run(self.thread_id) as run_id:
+            try:
+                get_ledger().record_request(run_id, request)
+            except OSError:
+                pass  # the request is a label; a ledger that can't be written must not stop the run
             self.graph.invoke(inputs, config=self._config)
         return run_id
+
+    def usage(self) -> UsageView:
+        """The usage ledger's totals for this conversation, today and all time, and its tables."""
+        ledger = get_ledger()
+        return UsageView(
+            conversation=ledger.totals(conversation_id=self.thread_id),
+            today=ledger.totals(day=datetime.now(UTC).date()),
+            all_time=ledger.totals(),
+            cache_hit_rate=ledger.cache_hit_rate(),
+            by_agent=ledger.by_agent(),
+            by_model=ledger.by_model(),
+            recent_runs=ledger.recent_runs(),
+            fallback_events=ledger.fallback_events(),
+            searches=ledger.searches_per_provider(),
+        )
 
     def run_caption(self, run_id: str) -> str | None:
         """The run's cost and tokens as a one-line caption, read from the usage ledger. It is not
@@ -337,7 +383,10 @@ class Workspace:
         """Run the *refresh research* command on the active Topic: a direct command to the
         workflow, not a chat message. Without an active Topic the chat says so. Returns the run
         id."""
-        return self._run({"command": "refresh_research", "brand_profile_id": brand_profile_id})
+        return self._run(
+            {"command": "refresh_research", "brand_profile_id": brand_profile_id},
+            request="Refresh research",
+        )
 
 
 def _piece_detail(state: ContentBlitzState, piece_id: str) -> PieceDetail | None:
