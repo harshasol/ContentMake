@@ -15,8 +15,12 @@ For a new image step:
    and as an *image* Content Piece with a *draft* Revision holding its metadata. Images have no
    Quality Score.
 
+A refine step that targets an image re-runs prompt optimisation from the latest Revision's
+optimised prompt plus the instructions, keeps that Revision's shape unless the instructions ask
+for another, and saves the result as a new file and a *refinement* Revision on the same Content
+Piece. Earlier Revisions and their files are never changed.
+
 A failed prompt optimisation or generation posts an error, and the plan carries on.
-A refine step that targets an image is still a stub.
 """
 
 from datetime import UTC, datetime
@@ -28,7 +32,7 @@ from contentblitz.core.config import Aspect, get_model_config
 from contentblitz.integrations import llm
 from contentblitz.workflow.image_files import image_path, save_png
 from contentblitz.workflow.plan import current_step
-from contentblitz.workflow.progress import progress_message, stub_progress
+from contentblitz.workflow.progress import progress_message
 from contentblitz.workflow.state import (
     ContentBlitzState,
     ContentPiece,
@@ -38,7 +42,7 @@ from contentblitz.workflow.state import (
     RevisionOrigin,
     Topic,
 )
-from contentblitz.workflow.topics import add_piece, new_piece_id
+from contentblitz.workflow.topics import add_piece, add_revision, new_piece_id, piece_topic
 
 AGENT = "image_generator"
 
@@ -66,6 +70,11 @@ TITLE_CHARS = 80
 NO_IMAGE = (
     "I couldn't make the image for *{topic}*: the model didn't give a usable reply. "
     "The rest of the plan carries on, so ask again to retry the image."
+)
+
+NO_REFINED_IMAGE = (
+    "I couldn't make a new version of *{title}*: the model didn't give a usable reply. "
+    "The image is unchanged, so ask again to retry."
 )
 
 
@@ -214,7 +223,37 @@ def _new_image(state: ContentBlitzState) -> ContentBlitzState:
     return {**add_piece(state, piece_id, piece), "messages": [message]}
 
 
+def _refine_request(latest_prompt: str, instructions: str) -> str:
+    return (
+        f"Change this image as the marketer asks: {instructions}\n"
+        f"Keep everything else from its current prompt: {latest_prompt}"
+    )
+
+
+def _refine_image(state: ContentBlitzState, piece_id: str) -> ContentBlitzState:
+    """A new image from the latest Revision's prompt plus the instructions, saved as a new file
+    and a *refinement* Revision. Earlier Revisions and their files are left as they are."""
+    piece = state["content_pieces"][piece_id]
+    topic = piece_topic(state, piece_id)
+    latest = piece["revisions"][-1]["image"]
+    instructions = _request(state)
+    number = len(piece["revisions"]) + 1
+    try:
+        optimised = optimise_prompt(_refine_request(latest["prompt"], instructions), topic)
+        # The shape carries over unless the instructions ask for another.
+        optimised = optimised.model_copy(update={"aspect": optimised.aspect or latest["aspect"]})
+        image = llm.generate_image(optimised.prompt, aspect_of(optimised))
+        revision = image_revision(
+            piece["topic_id"], piece_id, number, instructions, optimised, image, "refinement"
+        )
+    except Exception:  # noqa: BLE001 - a failed image posts an error; the plan carries on
+        return {"messages": [progress_message(NO_REFINED_IMAGE.format(title=piece["title"]))]}
+    _trace(instructions, optimised.prompt, image.model)
+    message = image_message(piece_id, number, revision["image"])
+    return {**add_revision(state, piece_id, revision), "messages": [message]}
+
+
 def image_generator(state: ContentBlitzState) -> ContentBlitzState:
-    if (current_step(state) or {}).get("target"):
-        return stub_progress("Image Generation Agent", state)  # refining an image: #45
-    return _new_image(state)
+    """Makes a new image, or refines the image a refine step targets."""
+    target = (current_step(state) or {}).get("target")
+    return _refine_image(state, target) if target else _new_image(state)

@@ -735,17 +735,16 @@ def test_refine_without_a_target_uses_the_only_piece_of_that_kind_on_the_active_
 
 def test_refine_it_uses_the_only_piece_on_the_active_topic(monkeypatch, with_api_key):
     fake_router(monkeypatch, refine("brighter colours"))
+    image = piece("image", "Robot doctor")
+    image["revisions"][0]["image"] = {"prompt": "A robot doctor.", "aspect": "square"}
     start = with_pieces(
         **{
-            "piece-1": piece("image", "Robot doctor"),
+            "piece-1": image,
             "piece-2": piece("blog", "Old blog", topic_id="topic-2"),
         }
     )
     replies = send_with(build_graph(), "make it brighter", start)
-    assert replies == [
-        "Refining *Robot doctor* (image)",
-        'Image Generation Agent: refining piece-1 with "brighter colours" (stub).',
-    ]
+    assert replies == ["Refining *Robot doctor* (image)", IMAGE]
 
 
 def test_routing_is_given_a_summary_of_the_content_pieces(monkeypatch, with_api_key):

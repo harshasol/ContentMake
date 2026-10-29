@@ -339,3 +339,150 @@ def test_request_optimised_prompt_and_model_are_traced(models):
         "optimised_prompt": f"{OPTIMISED} {NO_TEXT_RULE}",
         "model": "openai/gpt-image-1",
     }
+
+
+# Refining an image (#45)
+
+LATEST_PROMPT = f"A robot doctor in a dim, moody hospital corridor. {NO_TEXT_RULE}"
+BRIGHTER = "A robot doctor in a bright, sunlit hospital corridor, airy and cheerful."
+
+
+def seeded_image(data_dir, aspect="landscape", revisions=1):
+    """A Topic with an image Content Piece whose Revisions each have a file on disk, as earlier
+    image steps would have left them. Returns the topics and the content pieces."""
+    folder = data_dir / "images" / "topic-1"
+    folder.mkdir(parents=True, exist_ok=True)
+    saved = []
+    for number in range(1, revisions + 1):
+        path = folder / f"piece-1-r{number}.png"
+        path.write_bytes(png(SIZES[aspect]))
+        latest = number == revisions
+        image = {
+            "request": "an image of a robot doctor",
+            "prompt": LATEST_PROMPT if latest else f"Version {number}. {NO_TEXT_RULE}",
+            "alt_text": "A robot doctor in a corridor",
+            "use": "blog_header",
+            "aspect": aspect,
+            "model": "openai/gpt-image-1",
+            "size": "x".join(str(n) for n in SIZES[aspect]),
+            "created_at": "2026-10-20T10:00:00+00:00",
+            "file_path": str(path),
+            "provider_url": None,
+            "provider_url_temporary": False,
+            "placeholder": False,
+            "fallbacks": [],
+        }
+        saved.append(
+            {
+                "text": image["alt_text"],
+                "origin": "draft" if number == 1 else "refinement",
+                "created_at": image["created_at"],
+                "image": image,
+            }
+        )
+    piece = {
+        "kind": "image",
+        "topic_id": "topic-1",
+        "title": "A robot doctor in a corridor",
+        "revisions": saved,
+    }
+    topics = {"topic-1": {**topic(), "piece_ids": ["piece-1"]}}
+    return topics, {"piece-1": piece}
+
+
+def run_refine(instructions, topics, pieces):
+    graph = build_graph()
+    graph.update_state(config(), {"content_pieces": pieces}, as_node="query_handler")
+    step = {"agent": "image_generator", "target": "piece-1", "instructions": instructions}
+    return run_plan([step], topics, graph=graph, request=instructions)
+
+
+def test_refining_starts_from_the_latest_prompt_plus_the_instructions(models, data_dir):
+    topics, pieces = seeded_image(data_dir, revisions=2)
+    run_refine("make it brighter", topics, pieces)
+
+    [call] = models.prompt_calls
+    assert call["agent"] == "image_generator"
+    prompt = prompt_of(call)
+    assert LATEST_PROMPT in prompt
+    assert "make it brighter" in prompt
+    assert "Version 1." not in prompt
+
+
+def test_a_refined_image_is_a_new_refinement_revision_and_file_on_the_same_piece(
+    models, data_dir
+):
+    models.reply = image_prompt(prompt=BRIGHTER, use="blog_header")
+    topics, pieces = seeded_image(data_dir)
+    old = pieces["piece-1"]["revisions"][0]
+    old_bytes = Path(old["image"]["file_path"]).read_bytes()
+
+    _, state = run_refine("make it brighter", topics, pieces)
+
+    assert state["topics"]["topic-1"]["piece_ids"] == ["piece-1"]
+    piece = state["content_pieces"]["piece-1"]
+    assert piece["title"] == "A robot doctor in a corridor"
+    first, second = piece["revisions"]
+    assert first == old
+    assert Path(first["image"]["file_path"]).read_bytes() == old_bytes
+    assert second["origin"] == "refinement"
+    image = second["image"]
+    path = data_dir / "images" / "topic-1" / "piece-1-r2.png"
+    assert image["file_path"] == str(path)
+    assert (image["request"], image["prompt"]) == ("make it brighter", f"{BRIGHTER} {NO_TEXT_RULE}")
+    assert models.image_calls == [{"prompt": f"{BRIGHTER} {NO_TEXT_RULE}", "aspect": "landscape"}]
+    with Image.open(path) as saved:
+        assert (saved.format, saved.size) == ("PNG", (1536, 1024))
+
+
+def test_a_refined_image_keeps_the_latest_revisions_shape(models, data_dir):
+    # The optimiser now calls it a LinkedIn image, but the marketer didn't ask for a new shape.
+    models.reply = image_prompt(prompt=BRIGHTER, use="linkedin")
+    topics, pieces = seeded_image(data_dir, aspect="portrait")
+
+    _, state = run_refine("make it brighter", topics, pieces)
+
+    image = state["content_pieces"]["piece-1"]["revisions"][-1]["image"]
+    assert image["aspect"] == "portrait"
+    with Image.open(image["file_path"]) as saved:
+        assert saved.size == (1024, 1536)
+
+
+def test_instructions_that_ask_for_a_new_shape_change_it(models, data_dir):
+    models.reply = image_prompt(prompt=BRIGHTER, use="blog_header", aspect="square")
+    topics, pieces = seeded_image(data_dir, aspect="landscape")
+
+    _, state = run_refine("make it square", topics, pieces)
+
+    image = state["content_pieces"]["piece-1"]["revisions"][-1]["image"]
+    assert image["aspect"] == "square"
+    with Image.open(image["file_path"]) as saved:
+        assert saved.size == (1024, 1024)
+
+
+def test_the_chat_shows_the_refined_image_as_for_a_new_one(models, data_dir):
+    models.reply = image_prompt(prompt=BRIGHTER, alt_text="A robot doctor in a sunlit corridor")
+    topics, pieces = seeded_image(data_dir, revisions=2)
+
+    [message], _ = run_refine("make it brighter", topics, pieces)
+
+    assert message.content == (
+        "Image ready: *A robot doctor in a sunlit corridor*\n\n"
+        "**Model:** openai/gpt-image-1\n\n**Size:** 1536×1024"
+    )
+    assert message.additional_kwargs["content_piece"] == {"piece_id": "piece-1", "revision": 3}
+
+
+def test_a_failed_refinement_posts_an_error_and_leaves_the_image_unchanged(models, data_dir):
+    models.reply = RuntimeError("every provider is down")
+    topics, pieces = seeded_image(data_dir)
+
+    [message], state = run_refine("make it brighter", topics, pieces)
+
+    assert message.content == (
+        "I couldn't make a new version of *A robot doctor in a corridor*: the model didn't give "
+        "a usable reply. The image is unchanged, so ask again to retry."
+    )
+    assert state["content_pieces"]["piece-1"] == pieces["piece-1"]
+    assert [p.name for p in (data_dir / "images" / "topic-1").iterdir()] == ["piece-1-r1.png"]
+    assert not state["abort_reason"]
