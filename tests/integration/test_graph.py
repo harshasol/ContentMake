@@ -657,7 +657,7 @@ def test_refine_runs_one_step_to_the_writer_of_the_named_piece(monkeypatch, with
 
     assert replies == [
         "Refining *AI hype* (LinkedIn post)",
-        'LinkedIn Post Writer: refining piece-2 with "make it punchier" (stub).',
+        LINKEDIN,
     ]
     state = graph.get_state(config()).values
     step = {"agent": "linkedin_writer", "target": "piece-2", "instructions": "make it punchier"}
@@ -678,7 +678,7 @@ def test_refine_without_a_target_uses_the_only_piece_of_that_kind_on_the_active_
     replies = send_with(build_graph(), "shorten the LinkedIn post", start)
     assert replies == [
         "Refining *AI hype* (LinkedIn post)",
-        'LinkedIn Post Writer: refining piece-2 with "shorter" (stub).',
+        LINKEDIN,
     ]
 
 
@@ -773,7 +773,8 @@ def test_refine_ignores_pieces_on_other_topics_unless_named(monkeypatch, with_ap
     replies = send_with(build_graph(), "shorten the old post", start)
     assert replies == [
         "Refining *Old post* (LinkedIn post)",
-        'LinkedIn Post Writer: refining piece-1 with "shorter" (stub).',
+        "I can't refine *Old post* yet: *Remote work* has no Research Brief to check it "
+        "against. Ask me to research it again first.",
     ]
 
 
@@ -1066,3 +1067,41 @@ def test_the_routing_decision_accepts_the_linkedin_and_blog_templates():
         "thought leadership",
     ]:
         assert RoutingDecision(intent="new_content", template=template).template == template
+
+
+def test_a_length_in_characters_reaches_only_the_linkedin_step(monkeypatch, with_api_key):
+    decision = new_content("blog", "linkedin_post", same_topic=True)(None)
+    in_characters = {"length": 1000, "length_unit": "characters"}
+    fake_router(monkeypatch, lambda _: decision.model_copy(update=in_characters))
+    graph = build_graph()
+    send_with(graph, "a blog, and a LinkedIn post under 1,000 characters", researched_topic())
+
+    state = graph.get_state(config()).values
+    assert state["plan"] == [
+        {"agent": "blog_writer", "instructions": None},
+        {"agent": "linkedin_writer", "instructions": None, "length": 1000},
+    ]
+
+
+def test_a_refine_request_in_characters_reaches_the_linkedin_refine_step(
+    monkeypatch, with_api_key
+):
+    decision = refine("under 1,000 characters, as tips", formats=["linkedin_post"])(None)
+    update = {"length": 1000, "length_unit": "characters", "template": "tips"}
+    fake_router(monkeypatch, lambda _: decision.model_copy(update=update))
+    start = with_pieces(**{"piece-1": piece("linkedin_post", "AI hype")})
+    graph = build_graph()
+    send_with(graph, "make it tips, under 1,000 characters", start)
+
+    state = graph.get_state(config()).values
+    assert state["plan"] == [
+        {
+            "agent": "linkedin_writer",
+            "target": "piece-1",
+            "instructions": "under 1,000 characters, as tips",
+            "length": 1000,
+            "template": "tips",
+        }
+    ]
+    _, refined = state["content_pieces"]["piece-1"]["revisions"]
+    assert (refined["origin"], refined["template"]) == ("refinement", "tips")

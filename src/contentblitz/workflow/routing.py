@@ -11,6 +11,7 @@ TopicAnswer = Literal["new", "continue"]
 BlogTemplate = Literal["how-to", "listicle", "comparison", "thought leadership"]
 LinkedInTemplate = Literal["industry insights", "personal story", "tips", "announcement"]
 Template = Literal[BlogTemplate, LinkedInTemplate]
+LengthUnit = Literal["words", "characters"]
 
 
 def _drop_defaults(schema: dict) -> None:
@@ -39,7 +40,12 @@ class RoutingDecision(BaseModel):
         None, description="The blog's or LinkedIn post's template, only if the user chose one."
     )
     length: int | None = Field(
-        None, description="The blog's length in words, only if the user asked for one."
+        None,
+        description="The length the user asked for, only if they asked for one: in words for a "
+        "blog, in characters for a LinkedIn post.",
+    )
+    length_unit: LengthUnit | None = Field(
+        None, description="The unit of length: 'characters' when the user gave characters."
     )
     reply: str | None = Field(None, description="The answer, for chat only.")
     show_research_report: bool = Field(

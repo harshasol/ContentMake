@@ -21,11 +21,16 @@ def has_writer(steps: list[PlanStep]) -> bool:
 def writer_options(decision: RoutingDecision, fmt: str) -> dict:
     """The options the request sets for the writer of `fmt`, to copy onto its step.
 
-    A blog takes the keyword and length; a template goes to the format it is a template of.
+    A blog takes the keyword and a length in words, a LinkedIn post a length in characters, and
+    a template goes to the format it is a template of.
     """
+    in_characters = decision.length_unit == "characters"
     options = {}
     if fmt == "blog":
-        options = {"target_keyword": decision.target_keyword, "length": decision.length}
+        length = None if in_characters else decision.length
+        options = {"target_keyword": decision.target_keyword, "length": length}
+    if fmt == "linkedin_post" and in_characters:
+        options = {"length": decision.length}
     if decision.template in TEMPLATES.get(fmt, ()):
         options["template"] = decision.template
     return {o: v for o, v in options.items() if v is not None}

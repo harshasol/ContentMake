@@ -34,10 +34,12 @@ conversation and return a routing decision:
   and formats in the order asked (["research"] for research only). For a blog, set
   target_keyword ("target keyword: AI diagnostics"), template and length in words only when
   the user asks for them. For a LinkedIn post, set template (industry insights, personal
-  story, tips or announcement) only when the user names one.
+  story, tips or announcement) only when the user names one, and length with length_unit
+  "characters" only when they ask for a length in characters.
 - refine: the user wants an existing piece changed. Set instructions, set refine_target to the
   id of the Content Piece below that they mean (null if unsure), and set formats to its kind
-  when they name one ("the LinkedIn post" → ["linkedin_post"]).
+  when they name one ("the LinkedIn post" → ["linkedin_post"]). Set template and length as for
+  new_content.
 - chat: a question or small talk. Answer it concisely in reply. If the user asks to see the
   research itself ("show me the research", "what did you find?"), set show_research_report.
 - unclear: too vague to act on. Ask one short clarifying_question that suggests two or three

@@ -120,10 +120,12 @@ class PlanStep(TypedDict):
     # On a research step: re-research from scratch, skipping any cached search results.
     fresh: NotRequired[bool]
     # On a writer step, when the request sets them: they win over the Brief and the config. A
-    # blog takes all three; a LinkedIn post takes a LinkedIn template.
+    # blog takes all three; a LinkedIn post takes a LinkedIn template and a length.
     target_keyword: NotRequired[str]
     template: NotRequired[Template]
-    length: NotRequired[int]  # in words, checked with a tolerance instead of the word range
+    # A blog's in words, checked with a tolerance instead of the word range; a LinkedIn post's
+    # in characters, the most it may have.
+    length: NotRequired[int]
 
 
 class PendingTopicQuestion(TypedDict):

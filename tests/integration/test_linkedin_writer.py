@@ -497,3 +497,166 @@ def test_the_steps_instructions_reach_the_revise_call(model):
 
     revise = model.calls_to("linkedin_writer")[1]
     assert "mention our webinar" in prompt_of(revise)
+
+
+# Overrides: a length or hashtag count from the request
+
+
+def check_named(state, name):
+    [result] = [c for c in revision_of(state)["quality_score"]["checks"] if c["name"] == name]
+    return result
+
+
+def test_a_length_in_characters_replaces_the_default_range_as_the_most(model):
+    # "keep it under 1,000 characters": 850-1000. POST's 1,341 characters are too many.
+    plan = [
+        {
+            "agent": "linkedin_writer",
+            "instructions": "keep it under 1,000 characters",
+            "length": 1000,
+        }
+    ]
+    [reply], state = run_plan(plan, {"topic-1": topic()})
+
+    prompt = prompt_of(model.calls_to("linkedin_writer")[0])
+    assert "Target length: 850-1000 characters" in prompt
+    assert "1300-1600" not in prompt
+    assert "length 1,341 chars ✗" in reply
+    assert "850-1000" in check_named(state, "length")["reason"]
+    assert check_named(state, "hashtags")["passed"]  # the other checks still apply
+
+
+def test_a_hashtag_count_in_the_instructions_replaces_the_default_range(model):
+    plan = [{"agent": "linkedin_writer", "instructions": "only 5 hashtags please"}]
+    [reply], state = run_plan(plan, {"topic-1": topic()})
+
+    prompt = prompt_of(model.calls_to("linkedin_writer")[0])
+    assert "Hashtags: 5 hashtags" in prompt
+    assert "8-12" not in prompt
+    assert "hashtags 10 hashtags ✗" in reply
+    result = check_named(state, "hashtags")
+    assert "the target is 5" in result["reason"]
+    assert check_named(state, "length")["passed"]
+
+
+def test_a_hashtag_count_may_be_written_as_a_word(model):
+    plan = [{"agent": "linkedin_writer", "instructions": "use just three hashtags"}]
+    _, state = run_plan(plan, {"topic-1": topic()})
+
+    assert "the target is 3" in check_named(state, "hashtags")["reason"]
+
+
+# Refining a post: a refine step targets a post and starts from its latest Revision
+
+HAND_EDITED = POST.replace(HOOK, "I rewrote this hook myself: AI reads scans twice.")
+DRAFT_REVISION = {
+    "text": POST,
+    "template": "tips",
+    "origin": "draft",
+    "created_at": "2026-10-21T10:00:00+00:00",
+}
+HAND_EDIT = {"text": HAND_EDITED, "origin": "hand_edit", "created_at": "2026-10-22T10:00:00+00:00"}
+
+
+def refine_post(instructions="make it punchier", revisions=(DRAFT_REVISION, HAND_EDIT), **options):
+    """Run a refine step on the seeded post piece-1, by default with a hand edit, recording no
+    template, as its latest Revision."""
+    plan = [
+        {"agent": "linkedin_writer", "target": "piece-1", "instructions": instructions, **options}
+    ]
+    post = {
+        "kind": "linkedin_post",
+        "topic_id": "topic-1",
+        "title": "Your next scan may be read twice",
+        "revisions": list(revisions),
+    }
+    seeded = topic() | {"piece_ids": ["piece-1"]}
+    return run_plan(plan, {"topic-1": seeded}, pieces={"piece-1": post})
+
+
+def test_refining_a_post_revises_its_latest_revision_even_a_hand_edit(model):
+    refine_post()
+
+    refine = prompt_of(model.calls_to("linkedin_writer")[0])
+    assert HAND_EDITED in refine
+    assert "make it punchier" in refine
+
+
+def test_a_refined_post_is_added_as_a_new_refinement_revision_on_the_same_piece(model):
+    model.reply = linkedin_draft(template="announcement")  # what the model says it used
+    [reply], state = refine_post()
+
+    assert list(state["content_pieces"]) == ["piece-1"]  # no new Content Piece
+    draft, hand_edit, refined = state["content_pieces"]["piece-1"]["revisions"]
+    assert (draft, hand_edit) == (DRAFT_REVISION, HAND_EDIT)  # earlier Revisions are unchanged
+    assert datetime.fromisoformat(refined.pop("created_at")) > datetime.fromisoformat(
+        HAND_EDIT["created_at"]
+    )
+    quality = refined.pop("quality_score")
+    assert (quality["passed"], quality["revisions_used"]) == (True, 0)
+    # The template carries over from the last Revision that recorded one.
+    assert refined == {"text": POST, "template": "tips", "origin": "refinement"}
+    assert reply.startswith(f"```text\n{POST}\n```")
+    after_post = plain(reply.split("```")[-1])
+    assert "Characters: 1,341" in after_post and "Quality Score: 94/100" in after_post
+    assert "Template: tips\n" in after_post
+
+
+def test_a_refinement_that_fails_a_check_is_revised_until_one_passes(model):
+    model.reply = [TOO_LONG, linkedin_draft()]
+    [reply], state = refine_post()
+
+    calls = model.calls_to("linkedin_writer")
+    assert len(calls) == 2  # the refinement, then one automatic revision
+    assert "1,732 chars" in prompt_of(calls[1])
+    assert "Automatic revisions: 1 of 3" in plain(reply)
+    *_, refined = state["content_pieces"]["piece-1"]["revisions"]
+    assert (refined["text"], refined["quality_score"]["revisions_used"]) == (POST, 1)
+
+
+def test_a_refinement_that_names_a_template_uses_it(model):
+    _, state = refine_post("turn it into an announcement", template="announcement")
+
+    assert "Template: announcement" in prompt_of(model.calls_to("linkedin_writer")[0])
+    *_, refined = state["content_pieces"]["piece-1"]["revisions"]
+    assert refined["template"] == "announcement"
+
+
+def test_a_refinement_with_overrides_checks_against_them(model):
+    _, state = refine_post("shorter, under 1,000 characters, only 5 hashtags", length=1000)
+
+    refine = prompt_of(model.calls_to("linkedin_writer")[0])
+    assert "850-1000 characters" in refine and "Hashtags: 5 hashtags" in refine
+    *_, refined = state["content_pieces"]["piece-1"]["revisions"]
+    length, tags = refined["quality_score"]["checks"][:2]
+    assert "850-1000" in length["reason"] and "the target is 5" in tags["reason"]
+
+
+def test_a_failed_refinement_posts_an_error_and_leaves_the_revisions_unchanged(model):
+    model.reply = RuntimeError("every provider is down")
+    [reply], state = refine_post()
+
+    assert reply == (
+        "I couldn't refine *Your next scan may be read twice*: the model didn't give a usable "
+        "reply. Its latest Revision is unchanged, so ask again to retry."
+    )
+    assert state["content_pieces"]["piece-1"]["revisions"] == [DRAFT_REVISION, HAND_EDIT]
+
+
+def test_refining_a_post_whose_topic_has_no_brief_says_so_and_changes_nothing(model):
+    plan = [{"agent": "linkedin_writer", "target": "piece-1", "instructions": "shorter"}]
+    seeded = topic() | {"brief": None, "piece_ids": ["piece-1"]}
+    post = {
+        "kind": "linkedin_post",
+        "topic_id": "topic-1",
+        "title": "AI now",
+        "revisions": [HAND_EDIT],
+    }
+    [reply], state = run_plan(plan, {"topic-1": seeded}, pieces={"piece-1": post})
+
+    assert reply == (
+        "I can't refine *AI now* yet: *AI in healthcare* has no Research Brief to check it "
+        "against. Ask me to research it again first."
+    )
+    assert model.calls == []
+    assert state["content_pieces"]["piece-1"]["revisions"] == [HAND_EDIT]

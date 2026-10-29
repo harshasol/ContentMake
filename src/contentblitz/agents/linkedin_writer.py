@@ -9,9 +9,19 @@ scores its hook, readability on a phone, tone and call to action. A draft that d
 revised: the same call, given the current post and what to fix. The kept Attempt is posted,
 ready to copy, and saved with its Quality Score.
 
+A length the request sets (in characters) is the most the post may have, and a hashtag count in
+the instructions ("only 5 hashtags") is the number it must have; either replaces the configured
+range for that run, in the drafting call and the checks.
+
+A refine step that targets a post runs the same loop, but its first Attempt changes the post's
+latest Revision (which may be a hand edit) as the marketer asks. Its template carries over
+unless the request sets a new one, and the kept Attempt is added as a new Revision.
+
 If every provider fails, the step posts an error and the plan carries on.
 """
 
+import re
+from dataclasses import replace
 from datetime import UTC, datetime
 
 from pydantic import BaseModel, Field
@@ -27,7 +37,7 @@ from contentblitz.workflow.content_checks import (
     hashtag_range,
 )
 from contentblitz.workflow.plan import current_step
-from contentblitz.workflow.progress import progress_message, stub_progress
+from contentblitz.workflow.progress import progress_message
 from contentblitz.workflow.quality_loop import Attempt, QualityFormat, quality_loop, quality_text
 from contentblitz.workflow.quality_score import QualityScore, Review
 from contentblitz.workflow.routing import LinkedInTemplate, Template
@@ -40,7 +50,14 @@ from contentblitz.workflow.state import (
     RevisionOrigin,
     Topic,
 )
-from contentblitz.workflow.topics import active_topic, add_piece, new_piece_id
+from contentblitz.workflow.topics import (
+    active_topic,
+    add_piece,
+    add_revision,
+    new_piece_id,
+    piece_title,
+    piece_topic,
+)
 
 AGENT = "linkedin_writer"
 
@@ -73,6 +90,12 @@ keep the rest of the post as it is.
 
 {feedback}"""
 
+REFINE_PROMPT = """\
+Revise your LinkedIn post above as the marketer asks below. Change only what is needed for that,
+and keep the rest of the post as it is.
+
+{instructions}"""
+
 JUDGING_CRITERIA = (
     "the strength of its hook, its readability on a phone, a professional tone with some "
     "personality, and how compelling its call to action is"
@@ -83,6 +106,17 @@ NO_MODEL = (
     "I couldn't write the LinkedIn post on *{topic}*: the model didn't give a usable reply. "
     "The rest of the plan carries on, so ask again to retry the post."
 )
+NO_REFINEMENT = (
+    "I couldn't refine *{title}*: the model didn't give a usable reply. "
+    "Its latest Revision is unchanged, so ask again to retry."
+)
+NO_BRIEF = (
+    "I can't refine *{title}* yet: *{topic}* has no Research Brief to check it "
+    "against. Ask me to research it again first."
+)
+
+_NUMBER_WORDS = "zero one two three four five six seven eight nine ten eleven twelve".split()
+_HASHTAG_COUNT = re.compile(rf"\b(\d+|{'|'.join(_NUMBER_WORDS)})\s+hashtags?\b", re.IGNORECASE)
 
 
 class LinkedInDraft(BaseModel):
@@ -124,13 +158,44 @@ def _step(state: ContentBlitzState) -> PlanStep:
     return current_step(state) or {}
 
 
+def _target(state: ContentBlitzState) -> str | None:
+    """The post a refine step targets, or None when the step writes a new post."""
+    return _step(state).get("target")
+
+
 def _topic(state: ContentBlitzState) -> Topic:
-    return active_topic(state)
+    """The Topic the post is on: the refined post's, or the active Topic for a new post."""
+    piece_id = _target(state)
+    return piece_topic(state, piece_id) if piece_id else active_topic(state)
+
+
+def _carried_over_template(state: ContentBlitzState) -> Template | None:
+    """For a refinement, the template of the refined post's latest Revision that records one."""
+    piece_id = _target(state)
+    revisions = state["content_pieces"][piece_id]["revisions"] if piece_id else []
+    return next((r["template"] for r in reversed(revisions) if r.get("template")), None)
 
 
 def _template(state: ContentBlitzState) -> Template | None:
-    """The template the request names. None lets the writer pick."""
-    return _step(state).get("template")
+    """The template: the request's when it names one, otherwise the refined post's. None lets
+    the writer pick."""
+    return _step(state).get("template") or _carried_over_template(state)
+
+
+def _hashtag_count(state: ContentBlitzState) -> int | None:
+    """The hashtag count the instructions ask for ("only 5 hashtags"), if any."""
+    found = _HASHTAG_COUNT.search(_step(state).get("instructions") or "")
+    if not found:
+        return None
+    count = found[1].lower()
+    return int(count) if count.isdigit() else _NUMBER_WORDS.index(count)
+
+
+def _ranges(state: ContentBlitzState) -> tuple[tuple[int, int], tuple[int, int]]:
+    """The character and hashtag ranges for this run: the request's, or the configured ones."""
+    rules = get_model_config().quality.linkedin
+    chars = char_range(rules, _step(state).get("length"))
+    return chars, hashtag_range(rules, _hashtag_count(state))
 
 
 def _range_text(low: int, high: int) -> str:
@@ -140,14 +205,15 @@ def _range_text(low: int, high: int) -> str:
 def _prompt(state: ContentBlitzState) -> list[dict]:
     topic = _topic(state)
     rules = get_model_config().quality.linkedin
+    chars, tags = _ranges(state)
     templates = "\n".join(f"- {name}: {guide}" for name, guide in TEMPLATES.items())
     return [
         {"role": "system", "content": SYSTEM_PROMPT},
         {
             "role": "user",
             "content": f"Topic: {topic['name']}\n"
-            f"Target length: {_range_text(*char_range(rules))} characters, hashtags included\n"
-            f"Hashtags: {_range_text(*hashtag_range(rules))} hashtags\n"
+            f"Target length: {_range_text(*chars)} characters, hashtags included\n"
+            f"Hashtags: {_range_text(*tags)} hashtags\n"
             f"Opening line: at most {rules.max_hook_chars} characters\n"
             f"Paragraphs: at least {rules.min_paragraphs}, each at most "
             f"{rules.max_paragraph_chars} characters\n"
@@ -186,21 +252,36 @@ def _draft_text(draft: dict) -> str:
     return f"Template: {draft['template']}\n\n{draft['post']}"
 
 
-def _revise(state: ContentBlitzState, draft: dict, feedback: str) -> dict | None:
-    """The current draft revised to fix what the feedback names, keeping the rest."""
+def _redraft(state: ContentBlitzState, draft: dict, request: str) -> dict | None:
+    """`draft` changed as `request` asks: the same call, given the draft to change."""
     return _write_draft(
         state,
         [
             *_prompt(state),
             {"role": "assistant", "content": _draft_text(draft)},
-            {"role": "user", "content": REVISE_PROMPT.format(feedback=feedback)},
-        ]
+            {"role": "user", "content": request},
+        ],
     )
+
+
+def _revise(state: ContentBlitzState, draft: dict, feedback: str) -> dict | None:
+    """The current draft revised to fix what the feedback names, keeping the rest."""
+    return _redraft(state, draft, REVISE_PROMPT.format(feedback=feedback))
+
+
+def _refined_latest_revision(state: ContentBlitzState) -> dict | None:
+    """The first Attempt of a refinement: the latest Revision, which may be a hand edit,
+    changed as the marketer asks."""
+    latest = state["content_pieces"][_target(state)]["revisions"][-1]
+    draft = {"template": _template(state) or "none recorded", "post": latest["text"]}
+    instructions = _step(state).get("instructions") or ""
+    return _redraft(state, draft, REFINE_PROMPT.format(instructions=instructions))
 
 
 def _checks(state: ContentBlitzState, draft: dict) -> list[CheckResult]:
     post = Post(text=draft["post"], brief_facts=_brief_facts(_topic(state)["brief"]))
-    return check_linkedin(post, get_model_config().quality.linkedin)
+    rules = get_model_config().quality.linkedin
+    return check_linkedin(post, rules, _step(state).get("length"), _hashtag_count(state))
 
 
 def _judge(state: ContentBlitzState, draft: dict) -> Review | None:
@@ -265,8 +346,19 @@ def _finalise(state: ContentBlitzState, attempt: Attempt) -> ContentBlitzState:
     return {**add_piece(state, new_piece_id(state), piece), **_posted(state, attempt)}
 
 
+def _finalise_refinement(state: ContentBlitzState, attempt: Attempt) -> ContentBlitzState:
+    """Adds the kept Attempt to the refined post as a new Revision, and posts it. The post keeps
+    its title, so the marketer can still refer to it by the name they know."""
+    revision = _revision(attempt, "refinement")
+    return {**add_revision(state, _target(state), revision), **_posted(state, attempt)}
+
+
 def _failure(state: ContentBlitzState) -> str:
     return NO_MODEL.format(topic=active_topic(state)["name"])
+
+
+def _refine_failure(state: ContentBlitzState) -> str:
+    return NO_REFINEMENT.format(title=piece_title(state, _target(state)))
 
 
 LINKEDIN = QualityFormat(
@@ -278,11 +370,25 @@ LINKEDIN = QualityFormat(
     finalise=_finalise,
     failure=_failure,
 )
+# A refinement runs the same loop, starting from the refined post's latest Revision.
+LINKEDIN_REFINEMENT = replace(
+    LINKEDIN,
+    name="linkedin refinement",
+    draft=_refined_latest_revision,
+    finalise=_finalise_refinement,
+    failure=_refine_failure,
+)
 _write_new_post = quality_loop(LINKEDIN)
+_refine_existing_post = quality_loop(LINKEDIN_REFINEMENT)
 
 
 def linkedin_writer(state: ContentBlitzState) -> ContentBlitzState:
-    """Writes a new LinkedIn post. The plan builder made sure the Topic has a Brief (ADR 0001)."""
-    if _step(state).get("target"):
-        return stub_progress("LinkedIn Post Writer", state)  # refining comes in LinkedIn 5
-    return _write_new_post(state)
+    """Writes a new LinkedIn post, or refines the post a refine step targets."""
+    if not _target(state):
+        # The plan builder made sure the Topic has a Brief (ADR 0001).
+        return _write_new_post(state)
+    topic = _topic(state)
+    if not topic.get("brief"):
+        title = piece_title(state, _target(state))
+        return {"messages": [progress_message(NO_BRIEF.format(title=title, topic=topic["name"]))]}
+    return _refine_existing_post(state)
