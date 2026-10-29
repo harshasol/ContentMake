@@ -234,3 +234,13 @@ def test_viewing_an_older_revision_does_not_change_the_state(monkeypatch):
 
     [table] = [d.value for d in at.tabs[1].dataframe if "Kind" in d.value.columns]
     assert table.iloc[0]["Revision"] == 2
+
+
+def test_export_buttons_appear_on_an_opened_piece(monkeypatch):
+    at = _scripted(monkeypatch, {"piece-1": _blog()})
+    assert not at.tabs[1].get("download_button")
+
+    at.tabs[1].selectbox[0].select("piece-1").run()
+
+    labels = [b.proto.label for b in at.tabs[1].get("download_button")]
+    assert labels == ["Download Markdown", "Download HTML"]

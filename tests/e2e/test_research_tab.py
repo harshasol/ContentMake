@@ -84,3 +84,11 @@ def test_after_a_research_run_the_tab_shows_the_report_sources_and_date(monkeypa
     assert (row["#"], row["Title"], row["Site"]) == (1, "AI in radiology", "example.com")
     assert row["Retrieved at"] == "28 October 2026"
     assert row["Link"] == "https://example.com/ai"
+
+
+def test_the_research_tab_offers_the_report_as_markdown_and_html(monkeypatch):
+    at = _app(monkeypatch, BRIEF)
+    at.chat_input[0].set_value("hi").run()
+
+    labels = [b.proto.label for b in _research_tab(at).get("download_button")]
+    assert labels == ["Download Markdown", "Download HTML"]
