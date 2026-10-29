@@ -8,13 +8,24 @@ import streamlit as st
 from langchain_core.messages import AIMessage
 from streamlit.testing.v1 import AppTest
 
+from contentblitz.integrations import llm
 from contentblitz.workflow import graph
+from contentblitz.workflow.active_brand_profile import load_brand_profile
 from contentblitz.workflow.brand_profiles import BrandProfileStore
+from contentblitz.workflow.brand_voice import brand_voice
 
 APP = str(Path(__file__).parents[2] / "src/contentblitz/web_app/streamlit_app.py")
 
 TEXT_INPUTS = {"name", "audience", "colours", "mood"}
-TEXT_AREAS = {"tone", "dos", "donts", "words_to_avoid", "writing_sample", "notes"}
+TEXT_AREAS = {
+    "tone",
+    "dos",
+    "donts",
+    "words_to_avoid",
+    "writing_sample",
+    "voice_description",
+    "notes",
+}
 
 
 @pytest.fixture
@@ -244,3 +255,82 @@ def test_deleting_the_active_profile_falls_back_to_default(seen):
 
     assert at.sidebar.selectbox[0].value == "default"
     assert seen == [("acme-health", "Default")]
+
+
+SAMPLE = "We keep it short. We say what we mean, and we never hide behind jargon. " * 6
+LEARNED = {
+    "voice_description": "Short, plain sentences in the first person plural. Dry humour.",
+    "tone": ["direct", "plain-spoken", "dry"],
+}
+
+
+@pytest.fixture
+def voice_calls(monkeypatch):
+    """The (agent, last message) of each structured call; the model returns LEARNED."""
+    calls = []
+
+    def fake(agent, messages, schema, config=None):
+        calls.append((agent, messages[-1]["content"]))
+        return schema.model_validate(LEARNED)
+
+    monkeypatch.setattr(llm, "complete_structured", fake)
+    return calls
+
+
+def test_learn_voice_fills_the_form_without_saving_and_the_writers_get_it_once_saved(
+    seen, voice_calls
+):
+    at = click(start(), "bp_new")
+    fill(at, name="Acme Health", tone="confident", writing_sample=SAMPLE)
+    click(at, "bp_learn_voice")
+
+    assert [agent for agent, _ in voice_calls] == ["brand_voice"]
+    assert SAMPLE.strip() in voice_calls[0][1]
+    assert field(at, "voice_description").value == LEARNED["voice_description"]
+    assert field(at, "tone").value == "direct\nplain-spoken\ndry"
+    assert [p.name for p in BrandProfileStore().list()] == ["Default"]
+
+    fill(at, tone="direct\nplain-spoken\ndry\nwarm")  # the marketer edits before saving
+    click(at, "bp_save")
+
+    saved = BrandProfileStore().get("acme-health")
+    assert saved.voice_description == LEARNED["voice_description"]
+    assert saved.tone == ["direct", "plain-spoken", "dry", "warm"]
+    state = load_brand_profile({"brand_profile_id": "acme-health"})
+    assert f"The brand's voice: {LEARNED['voice_description']}" in brand_voice(state)
+
+
+@pytest.mark.parametrize(
+    ("sample", "message"),
+    [("x" * 299, "too short"), ("x" * 10_001, "too long")],
+    ids=["299 chars", "10001 chars"],
+)
+def test_a_sample_of_the_wrong_length_gets_a_clear_message_and_no_call(
+    seen, voice_calls, sample, message
+):
+    at = click(start(), "bp_new")
+    fill(at, name="Acme Health", tone="confident", writing_sample=sample)
+    click(at, "bp_learn_voice")
+
+    shown = shown_after(at, "learn_voice")
+    assert message in shown and "300" in shown and "10,000" in shown
+    assert voice_calls == []
+    assert field(at, "tone").value == "confident"
+    assert field(at, "voice_description").value == ""
+
+
+def test_a_failed_learn_voice_call_shows_an_error_and_leaves_the_form_unchanged(seen, monkeypatch):
+    def failing(*args, **kwargs):
+        raise llm.StructuredOutputError("bad reply")
+
+    monkeypatch.setattr(llm, "complete_structured", failing)
+    store = BrandProfileStore()
+    store.create({"name": "Acme Health", "tone": ["confident"], "voice_description": "Old."})
+    at = click(start(), "bp_edit_acme-health")
+    fill(at, writing_sample=SAMPLE)
+    click(at, "bp_learn_voice")
+
+    assert "couldn't learn the voice" in shown_after(at, "learn_voice")
+    assert field(at, "tone").value == "confident"
+    assert field(at, "voice_description").value == "Old."
+    assert store.get("acme-health").writing_sample is None

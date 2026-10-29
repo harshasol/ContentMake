@@ -18,6 +18,8 @@ agents:
     models: [openai/gpt-4o-mini]   # used for prompt optimisation
   quality_judge:
     models: [openai/gpt-4o-mini]   # the AI reviewer: scores each draft and suggests fixes
+  brand_voice:
+    models: [openai/gpt-4o-mini]   # Learn voice: describes a brand's voice from a writing sample
 
 image:
   models: [openai/gpt-image-1, openai/dall-e-3]   # tried in order

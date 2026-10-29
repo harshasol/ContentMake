@@ -16,6 +16,7 @@ AGENT_NAMES = (
     "linkedin_writer",
     "image_generator",
     "quality_judge",
+    "brand_voice",
 )
 
 DEFAULT_CONFIG_PATH = Path(__file__).resolve().parents[3] / "config" / "models.yaml"
