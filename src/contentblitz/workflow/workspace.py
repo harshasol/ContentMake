@@ -13,7 +13,7 @@ from typing import Any, Literal
 
 from langchain_core.messages import AnyMessage, HumanMessage
 
-from contentblitz.core import call_context
+from contentblitz.core import call_context, tracing
 from contentblitz.core.config import ModelConfig, Settings, get_model_config, get_settings
 from contentblitz.core.usage import (
     Breakdown,
@@ -346,13 +346,19 @@ class Workspace:
 
     def _run(self, inputs: dict, request: str) -> str:
         """One workflow invocation is one Run: every call it makes is tagged with its id, and the
-        ledger keeps what was asked, for the Usage tab's recent runs."""
-        with call_context.run(self.thread_id) as run_id:
+        ledger keeps what was asked, for the Usage tab's recent runs. The invocation is also the
+        run's one LangSmith trace (#78), tagged with the same run id."""
+        profile_id = inputs.get("brand_profile_id")
+        topic = active_topic(self._state())
+        with call_context.run(self.thread_id) as run_id, tracing.tracing():
             try:
                 get_ledger().record_request(run_id, request)
             except OSError:
                 pass  # the request is a label; a ledger that can't be written must not stop the run
-            self.graph.invoke(inputs, config=self._config)
+            trace = tracing.run_config(
+                run_id, self.thread_id, profile_id, topic["name"] if topic else None
+            )
+            self.graph.invoke(inputs, config={**self._config, **trace})
         return run_id
 
     def usage(self) -> UsageView:
