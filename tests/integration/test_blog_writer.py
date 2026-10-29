@@ -13,6 +13,7 @@ from langsmith import tracing_context
 
 from contentblitz.core.config import DEFAULT_CONFIG_PATH
 from contentblitz.integrations import llm
+from contentblitz.workflow.brand_profiles import BrandProfileStore
 from contentblitz.workflow.graph import build_graph
 
 # What a Revision records when the conversation's active Brand Profile is Default (#52).
@@ -106,8 +107,10 @@ SUGGESTIONS = [
 
 
 def verdict(**overrides):
-    """A reviewer verdict as the `quality_judge` model would return it."""
-    return {"engagement": 8, "suggestions": SUGGESTIONS, **overrides}
+    """A reviewer verdict as the `quality_judge` model would return it. Its brand-voice score
+    is its engagement score unless given, so the reviewer's average is the engagement score."""
+    found = {"engagement": 8, "suggestions": SUGGESTIONS, **overrides}
+    return {"brand_voice": found["engagement"], **found}
 
 
 class FakeModel:
@@ -151,11 +154,12 @@ def config(thread="t1"):
     return {"configurable": {"thread_id": thread}}
 
 
-def run_plan(plan, topics=None, graph=None, thread="t1", pieces=None):
+def run_plan(plan, topics=None, graph=None, thread="t1", pieces=None, profile=None):
     """Run `plan` from the dispatcher, as if the Query Handler had just posted it.
 
-    `pieces` seeds the Content Pieces. Returns the replies the plan produced and the state
-    afterwards.
+    `pieces` seeds the Content Pieces, and `profile` the active Brand Profile, as the graph's
+    first node loads it (Default when not given). Returns the replies the plan produced and the
+    state afterwards.
     """
     graph = graph or build_graph()
     before = len(graph.get_state(config(thread)).values.get("messages", []))
@@ -169,6 +173,8 @@ def run_plan(plan, topics=None, graph=None, thread="t1", pieces=None):
         seeded |= {"topics": topics, "active_topic_id": "topic-1"}
     if pieces is not None:
         seeded["content_pieces"] = pieces
+    if profile is not None:
+        seeded["brand_profile"] = profile.model_dump(mode="json")
     graph.update_state(config(thread), seeded, as_node="query_handler")
     result = graph.invoke(None, config(thread))
     return [m.content for m in result["messages"][before + 1 :]], result
@@ -324,6 +330,7 @@ def test_the_reviewers_engagement_score_and_top_3_suggestions_are_posted_and_all
         assert suggestion not in after_body, suggestion
     assert revision_of(state)["quality_score"]["review"] == {
         "engagement": 8,
+        "brand_voice": 8,
         "suggestions": SUGGESTIONS,
     }
 
@@ -569,6 +576,121 @@ def test_each_attempts_checks_reviewer_scores_and_quality_score_are_traced(model
     assert [c["passed"] for c in first["checks"]] == [False, True, False, True, False, True]
     assert (second["score"], second["passed"], second["review"]["engagement"]) == (97, True, 9)
     assert all(c["passed"] for c in second["checks"])
+
+
+# --- Brand voice and words to avoid (#22) ----------------------------------------------------
+
+
+def acme(**fields):
+    """A saved Brand Profile with every field the reviewer judges brand voice against."""
+    return BrandProfileStore().create(
+        {
+            "name": "Acme Health",
+            "audience": "Hospital CIOs",
+            "tone": ["confident", "warm"],
+            "dos": ["use British spelling"],
+            "donts": ["make medical claims"],
+            "words_to_avoid": ["revolutionary"],
+            "writing_sample": "We keep hospitals running, quietly and well.",
+            "voice_description": "Short sentences, first person plural.",
+            **fields,
+        }
+    )
+
+
+def reviewer_prompt(model, n=0):
+    return "\n".join(m["content"] for m in model.calls_to("quality_judge")[n]["messages"])
+
+
+def test_the_reviewer_judges_brand_voice_against_the_active_profile(model):
+    run_plan(BLOG, {"topic-1": topic()}, profile=acme())
+
+    prompt = reviewer_prompt(model)
+    for fact in [
+        "Hospital CIOs",
+        "confident",
+        "warm",
+        "use British spelling",
+        "make medical claims",
+        "revolutionary",
+        "Short sentences, first person plural.",
+    ]:
+        assert fact in prompt, fact
+    assert "quietly and well" not in prompt  # the writing sample is not sent
+
+
+def test_with_the_default_profile_the_reviewer_still_judges_brand_voice(model):
+    run_plan(BLOG, {"topic-1": topic()})
+
+    prompt = reviewer_prompt(model)
+    for fact in ["A general business audience", "professional", "overstate claims"]:
+        assert fact in prompt, fact
+
+
+def test_the_brand_voice_score_is_in_the_quality_score_and_the_reviewers_average(model):
+    # Every check passes: 70. Engagement 8 and brand voice 6 average 7: 21 points, 91 in all.
+    model.reply = PASSING
+    model.verdict = verdict(engagement=8, brand_voice=6)
+    [reply], state = run_plan(BLOG, {"topic-1": topic()}, profile=acme())
+
+    plain_reply = reply.replace("*", "")
+    assert "Brand voice: 6/10" in plain_reply
+    assert "Quality Score: 91/100" in plain_reply
+    quality = revision_of(state)["quality_score"]
+    assert (quality["score"], quality["review"]["brand_voice"]) == (91, 6)
+
+
+def test_brand_voice_suggestions_are_asked_for_and_shown_with_the_others(model):
+    on_brand = "Swap 'utilise' for 'use' to match the plain-spoken tone."
+    model.verdict = verdict(suggestions=[on_brand, *SUGGESTIONS[:2]])
+    [reply], _ = run_plan(BLOG, {"topic-1": topic()}, profile=acme())
+
+    assert on_brand in reply
+    assert "brand voice" in reviewer_prompt(model).lower()
+
+
+def test_a_blog_with_a_word_to_avoid_fails_the_check_and_is_revised_without_it(model):
+    with_it = blog_draft(
+        body=PASSING_BODY.replace("## Regulation", "## Revolutionary rules"),
+        meta_description=META_155,
+    )
+    model.reply = [with_it, PASSING]
+    [reply], state = run_plan(BLOG, {"topic-1": topic()}, profile=acme())
+
+    first = model.calls_to("blog_writer")
+    revise = prompt_of(first[1])
+    assert "words to avoid" in revise and "revolutionary" in revise
+    assert reply.startswith(PASSING_BODY)
+    assert "words to avoid none found ✓" in reply
+    checks = revision_of(state)["quality_score"]["checks"]
+    assert checks[-1] == {
+        "name": "words to avoid",
+        "passed": True,
+        "measured": "none found",
+        "reason": "none of the Brand Profile's 1 words to avoid",
+    }
+
+
+def test_the_default_profile_has_no_words_to_avoid_so_the_check_is_skipped(model):
+    _, state = run_plan(BLOG, {"topic-1": topic()})
+
+    names = [c["name"] for c in revision_of(state)["quality_score"]["checks"]]
+    assert "words to avoid" not in names
+
+
+def test_each_attempts_trace_has_the_profile_id_and_brand_voice_score(model):
+    model.reply = [FAILING, PASSING]
+    model.verdict = [verdict(brand_voice=5), verdict(brand_voice=9)]
+    client = RecordingClient()
+    with tracing_context(enabled=True, client=client):
+        run_plan(BLOG, {"topic-1": topic()}, profile=acme())
+
+    runs = sorted(client.runs.values(), key=lambda r: r["start_time"])
+    traced = [(r.get("outputs") or {}) for r in runs if r.get("name") == "blog attempt"]
+    assert [(t["brand_profile_id"], t["brand_voice"]) for t in traced] == [
+        ("acme-health", 5),
+        ("acme-health", 9),
+    ]
 
 
 def test_the_maximum_revisions_comes_from_config(model, tmp_path, monkeypatch):

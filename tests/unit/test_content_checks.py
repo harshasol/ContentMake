@@ -350,3 +350,50 @@ def test_citation_ranges_and_bracketed_source_lists_are_read():
 def test_brackets_in_code_and_link_text_are_not_citations():
     body = "AI tools help [1, 2, 3]. See [2](https://example.com).\n```\nx = a[9]\n```\n"
     assert check("citations", body + sources(1, 2, 3))["passed"]
+
+
+# Words to avoid (spec #22)
+
+AVOID = ["revolutionary", "game changer", "Synergy"]
+
+
+def avoid_check(body, meta="", avoid=AVOID):
+    """The words-to-avoid result on a blog draft, or None when the check was skipped."""
+    draft = Draft(body=body, meta_description=meta, keyword=KEYWORD, source_numbers=[1, 2, 3])
+    results = check_blog(draft, BlogQuality(), avoid=avoid)
+    return {r["name"]: r for r in results}.get("words to avoid")
+
+
+def test_words_to_avoid_are_found_as_whole_words_and_phrases_in_any_case_and_listed():
+    body = "# A REVOLUTIONARY tool\n\nIt is a Game Changer for teams. Synergy, again: synergy."
+    result = avoid_check(body)
+    assert not result["passed"]
+    assert result["measured"] == "revolutionary, game changer, Synergy"
+    for word in AVOID:
+        assert f'"{word}"' in result["reason"], word
+
+
+def test_words_to_avoid_are_not_matched_inside_longer_words_or_split_phrases():
+    body = "Revolutionaryism aside, a game changers' changer game. Synergyst. Gamechanger."
+    result = avoid_check(body)
+    assert result["passed"]
+    assert result["measured"] == "none found"
+
+
+def test_words_to_avoid_in_the_meta_description_are_found_but_not_in_the_sources():
+    body = "AI tools help [1].\n\n## Sources\n\n1. A revolutionary report"
+    assert avoid_check(body)["passed"]
+    assert avoid_check(body, meta="A game changer.")["measured"] == "game changer"
+
+
+def test_words_to_avoid_is_skipped_without_any_words_to_avoid():
+    assert avoid_check("A revolutionary tool.", avoid=[]) is None
+    draft = Draft(body="A tool.", meta_description="", keyword=KEYWORD, source_numbers=[])
+    assert len(check_blog(draft, BlogQuality())) == 6
+
+
+def test_words_to_avoid_is_listed_after_the_other_checks():
+    draft = Draft(body="A tool.", meta_description="", keyword=KEYWORD, source_numbers=[])
+    results = check_blog(draft, BlogQuality(), avoid=["x"])
+    assert [r["name"] for r in results][-1] == "words to avoid"
+    assert len(results) == 7

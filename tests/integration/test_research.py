@@ -50,7 +50,7 @@ LINKEDIN_DRAFT = {
     "text": "AI reads scans faster.\n\nWhat do you think?",
     "hashtags": ["#AI"],
 }
-VERDICT = {"engagement": 8, "suggestions": []}
+VERDICT = {"engagement": 8, "brand_voice": 8, "suggestions": []}
 
 
 LINKEDIN = (
@@ -66,7 +66,8 @@ LINKEDIN = (
     "- plain text no Markdown ✓\n"
     "- grounded figures no figures ✓\n\n"
     "**Automatic revisions:** 3 of 3\n\n"
-    "**Engagement:** 8/10"
+    "**Engagement:** 8/10\n\n"
+    "**Brand voice:** 8/10"
 )
 
 
@@ -650,7 +651,8 @@ def test_after_a_stopped_plan_the_next_request_runs_its_whole_plan(monkeypatch):
         "- length 7 words ✗\n"
         "- citations 1 Source cited ✗\n\n"
         "**Automatic revisions:** 3 of 3\n\n"
-        "**Engagement:** 8/10",
+        "**Engagement:** 8/10\n\n"
+        "**Brand voice:** 8/10",
         LINKEDIN,
     ]
 

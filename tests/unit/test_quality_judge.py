@@ -1,7 +1,8 @@
 """The AI reviewer scores brand voice only when it is given a Brand Profile.
 
-No Brand Profile reaches the workflow until #22, so this is tested at the reviewer itself. The
-model is faked at the LLM integration module and fills in whichever verdict it is asked for.
+The writers always give it the active Brand Profile (#22, tested through the workflow); here
+the reviewer is tested on its own. The model is faked at the LLM integration module and fills
+in whichever verdict it is asked for.
 """
 
 import pytest
