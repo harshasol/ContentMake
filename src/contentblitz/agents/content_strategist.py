@@ -17,6 +17,7 @@ from langsmith import traceable
 from pydantic import BaseModel, Field
 
 from contentblitz.integrations import llm
+from contentblitz.workflow import brief_cache
 from contentblitz.workflow.plan import current_step, writers_follow
 from contentblitz.workflow.progress import progress_message
 from contentblitz.workflow.report import citation, render_report, summary_line
@@ -269,13 +270,17 @@ def content_strategist(state: ContentBlitzState) -> ContentBlitzState:
     if not record:
         return {"abort_reason": NO_RESEARCH.format(topic=topic["name"])}
     step = current_step(state) or {}
-    messages = _prompt(topic["name"], step.get("instructions"), record)
-    attempt = _attempt(messages, record)
-    if attempt.failure == THIN_BRIEF:
-        attempt = _attempt(_retry(messages, attempt.draft, record), record)
-    if attempt.brief is None:
-        return {"abort_reason": attempt.failure.format(topic=topic["name"])}
-    brief = attempt.brief
+    instructions = step.get("instructions")
+    brief = brief_cache.cached_brief(record, instructions)
+    if brief is None:
+        messages = _prompt(topic["name"], instructions, record)
+        attempt = _attempt(messages, record)
+        if attempt.failure == THIN_BRIEF:
+            attempt = _attempt(_retry(messages, attempt.draft, record), record)
+        if attempt.brief is None:
+            return {"abort_reason": attempt.failure.format(topic=topic["name"])}
+        brief = attempt.brief
+        brief_cache.store_brief(record, instructions, brief)
     topics = dict(state["topics"])
     topics[state["active_topic_id"]] = {**topic, "brief": brief}
     if writers_follow(state):
