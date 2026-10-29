@@ -7,6 +7,7 @@ from contentblitz.web_app.content_dashboard_tab import content_dashboard_tab
 from contentblitz.web_app.image_view import show_image
 from contentblitz.web_app.research_tab import research_tab
 from contentblitz.web_app.settings_tab import settings_tab
+from contentblitz.web_app.usage_tab import usage_tab as usage_view
 from contentblitz.workflow.brand_profiles import DEFAULT_PROFILE_ID, BrandProfileStore
 from contentblitz.workflow.graph import build_graph
 from contentblitz.workflow.workspace import ChatMessage, Workspace, new_thread_id
@@ -145,7 +146,7 @@ with brands_tab:
     brand_profiles_tab()
 
 with usage_tab:
-    st.info("Token usage, cost and fallback events per agent will appear here.")
+    usage_view(workspace)
 
 with settings_pane:
     settings_tab(workspace)
