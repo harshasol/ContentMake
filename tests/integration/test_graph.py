@@ -38,6 +38,11 @@ BLOG_DRAFT = {
     "meta_description": "How AI in healthcare speeds up diagnosis.",
     "body": "# AI in healthcare\n\nAI reads scans faster [1].",
 }
+LINKEDIN_DRAFT = {
+    "template": "tips",
+    "text": "AI reads scans faster.\n\nWhat do you think?",
+    "hashtags": ["#AI"],
+}
 VERDICT = {"engagement": 8, "suggestions": []}
 
 
@@ -45,8 +50,8 @@ class FakeRouter:
     """Stands in for the model: returns a scripted routing decision per message.
 
     Research query planning gets three fixed queries, the Content Strategist a scripted draft
-    Brief, the blog writer a scripted blog and the reviewer a scripted verdict; only routing
-    and Content Strategist calls are recorded.
+    Brief, the writers a scripted blog and LinkedIn post, and the reviewer a scripted verdict;
+    only routing and Content Strategist calls are recorded.
     """
 
     def __init__(self, decide):
@@ -62,6 +67,8 @@ class FakeRouter:
             return schema.model_validate(BRIEF_DRAFT)
         if agent == "blog_writer":
             return schema.model_validate(BLOG_DRAFT)
+        if agent == "linkedin_writer":
+            return schema.model_validate(LINKEDIN_DRAFT)
         if agent == "quality_judge":
             return schema.model_validate(VERDICT)
         self.calls.append({"agent": agent, "messages": messages, "schema": schema})
@@ -256,7 +263,16 @@ BLOG = (
     "**Automatic revisions:** 3 of 3\n\n"
     "**Engagement:** 8/10"
 )
-LINKEDIN = "LinkedIn Post Writer: done (stub)."
+LINKEDIN = (
+    "```text\nAI reads scans faster.\n\nWhat do you think?\n\n#AI\n```\n\n"
+    "**Characters:** 47\n\n"
+    "**Template:** tips\n\n"
+    "**Quality Score:** 24/100\n\n"
+    "- length 47 chars ✗\n"
+    "- hashtags 1 hashtag ✗\n\n"
+    "**Automatic revisions:** 3 of 3\n\n"
+    "**Engagement:** 8/10"
+)
 IMAGE = "Image Generation Agent: done (stub)."
 
 
@@ -968,8 +984,10 @@ BLOG_OPTIONS = {"target_keyword": "AI diagnostics", "template": "listicle", "len
 
 
 def blog_revision(state):
-    [piece_id] = state["topics"][state["active_topic_id"]]["piece_ids"]
-    [revision] = state["content_pieces"][piece_id]["revisions"]
+    pieces = state["content_pieces"]
+    piece_ids = state["topics"][state["active_topic_id"]]["piece_ids"]
+    [piece_id] = [p for p in piece_ids if pieces[p]["kind"] == "blog"]
+    [revision] = pieces[piece_id]["revisions"]
     return revision
 
 

@@ -45,12 +45,29 @@ BLOG_DRAFT = {
     "meta_description": "How AI in healthcare speeds up diagnosis.",
     "body": "# AI in healthcare\n\nAI reads scans faster [1].",
 }
+LINKEDIN_DRAFT = {
+    "template": "tips",
+    "text": "AI reads scans faster.\n\nWhat do you think?",
+    "hashtags": ["#AI"],
+}
 VERDICT = {"engagement": 8, "suggestions": []}
 
 
+LINKEDIN = (
+    "```text\nAI reads scans faster.\n\nWhat do you think?\n\n#AI\n```\n\n"
+    "**Characters:** 47\n\n"
+    "**Template:** tips\n\n"
+    "**Quality Score:** 24/100\n\n"
+    "- length 47 chars ✗\n"
+    "- hashtags 1 hashtag ✗\n\n"
+    "**Automatic revisions:** 3 of 3\n\n"
+    "**Engagement:** 8/10"
+)
+
+
 class FakeModel:
-    """Stands in for the model: a scripted routing decision, query plan, draft Brief, blog and
-    reviewer verdict."""
+    """Stands in for the model: a scripted routing decision, query plan, draft Brief, blog,
+    LinkedIn post and reviewer verdict."""
 
     def __init__(self, decision, queries):
         self.decision = decision
@@ -65,6 +82,8 @@ class FakeModel:
             return schema.model_validate(BRIEF_DRAFT)
         if agent == "blog_writer":
             return schema.model_validate(BLOG_DRAFT)
+        if agent == "linkedin_writer":
+            return schema.model_validate(LINKEDIN_DRAFT)
         if agent == "quality_judge":
             return schema.model_validate(VERDICT)
         return self.decision
@@ -627,7 +646,7 @@ def test_after_a_stopped_plan_the_next_request_runs_its_whole_plan(monkeypatch):
         "- citations 1 Source cited ✗\n\n"
         "**Automatic revisions:** 3 of 3\n\n"
         "**Engagement:** 8/10",
-        "LinkedIn Post Writer: done (stub).",
+        LINKEDIN,
     ]
 
 

@@ -43,3 +43,6 @@ quality:
     meta_length_range: [150, 160]  # meta description length, in characters
     max_grade: 10                  # highest Flesch-Kincaid grade level
     min_citations: 3               # fewest distinct Sources cited
+  linkedin:
+    char_range: [1300, 1600]       # the whole post's length, hashtags included, in characters
+    hashtag_range: [8, 12]         # hashtags in the closing hashtag line

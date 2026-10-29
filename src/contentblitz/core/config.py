@@ -62,10 +62,18 @@ class BlogQuality(BaseModel):
     min_citations: int = 3  # fewest distinct Sources cited
 
 
+class LinkedInQuality(BaseModel):
+    """The rules a LinkedIn post is written and checked against."""
+
+    char_range: tuple[int, int] = (1300, 1600)  # the whole post, hashtags included
+    hashtag_range: tuple[int, int] = (8, 12)
+
+
 class QualityOptions(BaseModel):
     max_revisions: int = 3
     pass_mark: float = 7  # the reviewer's average score (1-10) a draft needs to pass
     blog: BlogQuality = BlogQuality()
+    linkedin: LinkedInQuality = LinkedInQuality()
 
 
 class SearchOptions(BaseModel):

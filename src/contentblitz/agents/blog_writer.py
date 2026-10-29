@@ -30,7 +30,7 @@ from contentblitz.integrations import llm
 from contentblitz.workflow.content_checks import CheckResult, Draft, check_blog, word_range
 from contentblitz.workflow.plan import current_step
 from contentblitz.workflow.progress import progress_message
-from contentblitz.workflow.quality_loop import Attempt, QualityFormat, quality_loop
+from contentblitz.workflow.quality_loop import Attempt, QualityFormat, quality_loop, quality_text
 from contentblitz.workflow.quality_score import QualityScore, Review
 from contentblitz.workflow.report import citation
 from contentblitz.workflow.routing import Template
@@ -85,7 +85,6 @@ keep the rest of the post as it is.
 {instructions}"""
 
 JUDGING_CRITERIA = "its hook, flow, clarity and call to action"
-SUGGESTIONS_SHOWN = 3
 
 NO_MODEL = (
     "I couldn't write the blog on *{topic}*: the model didn't give a usable reply. "
@@ -280,32 +279,12 @@ def _judge(state: ContentBlitzState, draft: dict) -> Review | None:
     return review(text, JUDGING_CRITERIA)
 
 
-def _review_text(verdict: Review | None) -> str:
-    if verdict is None:
-        return "*Engagement: reviewer unavailable*"
-    suggestions = "\n".join(f"- {s}" for s in verdict["suggestions"][:SUGGESTIONS_SHOWN])
-    engagement = f"**Engagement:** {verdict['engagement']}/10"
-    return f"{engagement}\n\n**Suggestions:**\n{suggestions}" if suggestions else engagement
-
-
-def _quality_text(quality: QualityScore) -> str:
-    checks = "\n".join(
-        f"- {c['name']} {c['measured']} {'✓' if c['passed'] else '✗'}" for c in quality["checks"]
-    )
-    max_revisions = get_model_config().quality.max_revisions
-    return (
-        f"**Quality Score:** {quality['score']}/100\n\n{checks}\n\n"
-        f"**Automatic revisions:** {quality['revisions_used']} of {max_revisions}\n\n"
-        f"{_review_text(quality['review'])}"
-    )
-
-
 def _chat_text(draft: dict, quality: QualityScore) -> str:
     return (
         f"{draft['body']}\n\n---\n\n"
         f"**Meta description:** {draft['meta_description']}\n\n"
         f"**Template:** {draft['template']}\n\n"
-        f"{_quality_text(quality)}"
+        f"{quality_text(quality)}"
     )
 
 

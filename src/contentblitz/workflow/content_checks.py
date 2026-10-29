@@ -2,7 +2,9 @@
 
 Each check returns a `CheckResult`: pass or fail, the measured value as the chat shows it,
 and a short reason that names the target, which is also the revise loop's feedback.
-Measurements leave out the Sources section and Markdown syntax.
+A blog's measurements leave out the Sources section and Markdown syntax. A LinkedIn post
+(spec #20) is plain text: its paragraphs are separated by blank lines, and it ends with its
+hashtags on one line.
 
 A format's rules come from its config section, and `check_<format>` runs its checks in the
 order the chat lists them.
@@ -14,7 +16,7 @@ from typing import TypedDict
 
 import textstat
 
-from contentblitz.core.config import BlogQuality
+from contentblitz.core.config import BlogQuality, LinkedInQuality
 
 
 @dataclass(frozen=True)
@@ -25,6 +27,14 @@ class Draft:
     meta_description: str
     keyword: str  # the target keyword phrase
     source_numbers: list[int]  # the Brief's Source numbers, which `[n]` citations must match
+
+
+@dataclass(frozen=True)
+class Post:
+    """What the LinkedIn checks measure: the whole post, and the Brief it must stay true to."""
+
+    text: str  # the body, a blank line, then the hashtags on one line
+    brief_facts: str  # the Brief's findings and statistics, which every figure must come from
 
 
 class CheckResult(TypedDict):
@@ -315,4 +325,99 @@ def check_blog(draft: Draft, rules: BlogQuality, words: int | None = None) -> li
         readability(draft, rules.max_grade),
         length(draft, word_range(rules, words)),
         citations(draft, rules.min_citations),
+    ]
+
+
+# LinkedIn post checks (spec #20)
+
+_PARAGRAPH_BREAK = re.compile(r"\n\s*\n")
+_HASHTAG = re.compile(r"#[^\W_]+")  # letters and digits only
+_BODY_HASHTAG = re.compile(r"(?<![\w&#])#[^\s#]+")
+
+
+def _paragraphs(text: str) -> list[str]:
+    return [p.strip() for p in _PARAGRAPH_BREAK.split(text.strip()) if p.strip()]
+
+
+def _split_hashtags(text: str) -> tuple[list[str], list[str]]:
+    """The post's body paragraphs, and the tokens of its closing hashtag line: its last
+    paragraph, when that starts with `#`."""
+    paragraphs = _paragraphs(text)
+    if paragraphs and paragraphs[-1].startswith("#"):
+        return paragraphs[:-1], paragraphs[-1].split()
+    return paragraphs, []
+
+
+def post_length(post: Post, char_range: tuple[int, int]) -> CheckResult:
+    """The whole post's character count, hashtags included, is within the range."""
+    count = len(post.text.strip())
+    low, high = char_range
+    return {
+        "name": "length",
+        "passed": low <= count <= high,
+        "measured": f"{count:,} chars",
+        "reason": f"{count} characters, hashtags included; the target is {_range(low, high)}",
+    }
+
+
+def hashtags(post: Post, hashtag_range: tuple[int, int]) -> CheckResult:
+    """The closing line's hashtags are within the range, unique in any case and well formed
+    (`#` and letters or digits only), and there are none in the body."""
+    body, tags = _split_hashtags(post.text)
+    low, high = hashtag_range
+    target = f"{low}" if low == high else _range(low, high)
+    seen: set[str] = set()
+    duplicates = []
+    for tag in tags:
+        if tag.lower() in seen:
+            duplicates.append(tag)
+        seen.add(tag.lower())
+    malformed = [tag for tag in tags if not _HASHTAG.fullmatch(tag)]
+    misplaced = [tag for paragraph in body for tag in _BODY_HASHTAG.findall(paragraph)]
+    problems = []
+    if not low <= len(tags) <= high:
+        problems.append(f"there are {len(tags)} hashtags; the target is {target}")
+    if duplicates:
+        problems.append(f"{', '.join(duplicates)} duplicate earlier hashtags")
+    if malformed:
+        problems.append(
+            f"{', '.join(malformed)} must be # followed by letters and digits only"
+        )
+    if misplaced:
+        problems.append(
+            f"{', '.join(misplaced)} in the body must move to the closing hashtag line"
+        )
+    return {
+        "name": "hashtags",
+        "passed": not problems,
+        "measured": f"{len(tags)} hashtag{'' if len(tags) == 1 else 's'}",
+        "reason": "; ".join(problems)
+        or f"{len(tags)} unique hashtags, within {target}, all in the closing line",
+    }
+
+
+def char_range(rules: LinkedInQuality, chars: int | None = None) -> tuple[int, int]:
+    """The character range a post is written to: when the request sets a length, it is the
+    most, with 15% below it; otherwise the configured range."""
+    if chars is None:
+        return rules.char_range
+    return round(chars * (1 - LENGTH_TOLERANCE)), chars
+
+
+def hashtag_range(rules: LinkedInQuality, count: int | None = None) -> tuple[int, int]:
+    """The hashtag range: exactly the count the request sets, otherwise the configured range."""
+    return rules.hashtag_range if count is None else (count, count)
+
+
+def check_linkedin(
+    post: Post, rules: LinkedInQuality, chars: int | None = None, tags: int | None = None
+) -> list[CheckResult]:
+    """Every LinkedIn check's result, in the order the chat lists them.
+
+    `chars` and `tags` are the length and hashtag count the request set, if any; they replace
+    the configured ranges.
+    """
+    return [
+        post_length(post, char_range(rules, chars)),
+        hashtags(post, hashtag_range(rules, tags)),
     ]
